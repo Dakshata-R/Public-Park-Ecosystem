@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 33% 98%;
+    --foreground: 150 20% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 150 20% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 150 20% 12%;
+    --primary: 152 56% 30%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 152 30% 94%;
+    --secondary-foreground: 152 30% 20%;
+    --muted: 150 15% 95%;
+    --muted-foreground: 150 10% 42%;
+    --accent: 45 80% 55%;
+    --accent-foreground: 30 50% 15%;
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 60% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 30 50% 12%;
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+    --border: 150 15% 90%;
+    --input: 150 15% 90%;
+    --ring: 152 56% 30%;
+    --chart-1: 152 56% 38%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 280 55% 55%;
+    --chart-5: 340 70% 52%;
+    --chart-6: 22 75% 50%;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 155 30% 6%;
+    --foreground: 150 15% 92%;
+    --card: 155 28% 9%;
+    --card-foreground: 150 15% 92%;
+    --popover: 155 28% 9%;
+    --popover-foreground: 150 15% 92%;
+    --primary: 152 50% 45%;
+    --primary-foreground: 155 40% 8%;
+    --secondary: 155 22% 16%;
+    --secondary-foreground: 150 15% 90%;
+    --muted: 155 20% 14%;
+    --muted-foreground: 150 12% 62%;
+    --accent: 45 75% 50%;
+    --accent-foreground: 30 50% 12%;
+    --destructive: 0 62% 48%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 55% 42%;
+    --success-foreground: 0 0% 98%;
+    --warning: 38 85% 52%;
+    --warning-foreground: 30 50% 10%;
+    --info: 199 80% 52%;
+    --info-foreground: 0 0% 98%;
+    --border: 155 20% 18%;
+    --input: 155 20% 20%;
+    --ring: 152 50% 45%;
+    --chart-1: 152 55% 48%;
+    --chart-2: 199 80% 55%;
+    --chart-3: 38 85% 55%;
+    --chart-4: 280 55% 62%;
+    --chart-5: 340 70% 58%;
+    --chart-6: 22 75% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Leaflet overrides */
+.leaflet-container {
+  font-family: inherit;
+  background: hsl(var(--muted));
+}
+.leaflet-popup-content-wrapper {
+  border-radius: var(--radius);
+  box-shadow: 0 4px 24px hsl(150 20% 10% / 0.15);
+}
+.dark .leaflet-popup-content-wrapper,
+.dark .leaflet-popup-tip {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+}
+.dark .leaflet-bar a {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border-color: hsl(var(--border));
+}
+.dark .leaflet-bar a:hover {
+  background: hsl(var(--muted));
+}
+
+/* Animations */
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.animate-pulse-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: pulse-ring 1.8s ease-out infinite;
+}
