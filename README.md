@@ -47,8 +47,12 @@ attribution in `ATTRIBUTION.md`, so the app starts and seeds **offline**. Run
 - **npm**
 - **MongoDB** — optional for development (an in-memory database starts
   automatically), required for production (e.g. MongoDB Atlas free tier)
-- Internet access on first run, to download the vision model once (~14 MB)
-  and for live Open-Meteo data. Everything else works offline.
+- Internet access on first run, to download the vision model once (~14 MB).
+  Live Open-Meteo data, map tiles, species photographs, the GBIF cross-check
+  and address lookup always need a connection; everything else works offline.
+  If the model is not available when the database is seeded, the seeded AI
+  detections are skipped — run `npm run model:download` in `backend/`, then
+  restart (the in-memory database reseeds) or run `npm run seed`.
 
 No API keys are required.
 

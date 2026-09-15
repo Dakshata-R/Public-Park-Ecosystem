@@ -1,154 +1,106 @@
 # Build status
 
-Last updated 2026-09-09. The project runs end to end and is covered by a
-committed, repeatable test suite.
+Last updated 2026-09-15, branch `submission-ready`.
 
-For how to run it, see [README.md](README.md). For the review walkthrough, see
-[docs/demo-script.md](docs/demo-script.md).
+The prototype has been taken to a submission-ready system: placeholder and
+simulated data replaced with real sources wherever one exists, the AI module
+running real inference, every audit finding fixed, and the project verified
+from a fresh clone. See [README.md](README.md) for setup and deployment and
+[docs/demo-script.md](docs/demo-script.md) for the walkthrough.
 
 ---
 
-## Verification
-
-Everything below is reproducible on a clean checkout.
-
-### Automated tests — `npm test`
-
-```
- 62 unit tests          AQI · biodiversity indices · anomaly detection ·
-                        triage scoring · wire serialisation
- 50 integration tests   auth, all twelve modules, the incident workflow,
-                        RBAC, pagination, soft delete
-──────────────────────────────────────────────────────────────────────
-113 passed, 0 failed          ~13 s
-```
-
-Each suite boots its own in-memory MongoDB and binds the app to a free port,
-so the tests are hermetic and never touch a development database.
-
-### Manual verification against both live servers
+## Verification (all run, not assumed)
 
 | Check | Result |
 |---|---|
-| 105 API calls across every endpoint, all four roles | 105 passed |
-| 28 security and edge-case probes | 28 passed |
-| 61 endpoints scanned for serialisation leaks | 61 clean |
-| Frontend routes (dev and production build) | all render |
-| `npx tsc --noEmit` | clean |
-| `npm run build` | 18 routes, no warnings |
-| Browser console (production build) | no errors |
-| Browser journey: sign in → report an incident → stored | verified |
+| Fresh `git clone` → `npm ci` (backend + frontend) → copy `.env.example` files | succeeded, no manual steps |
+| `npm run model:download` from a clean clone | MobileNetV2 downloaded from TensorFlow Hub (~16 s), WASM backend |
+| `npm test` (backend unit + integration, in-memory MongoDB) | **151 passed, 0 failed** |
+| `npm run typecheck` (frontend) | clean |
+| `npm run build` (frontend) | 20 routes generated |
+| `npm run eval:vision` | 16/22 (73 %), reproduced from the clean clone |
+| Production start with an unsafe config | refused, listing what is missing |
+| Browser end-to-end on the production build (Playwright) | see below — no console errors on any page tested |
 
-The browser journey was driven for real: the incident submitted through the
-form reached MongoDB as `INC-2026-0038` with a triage score of 46.2, matching
-the score the form projected before submission.
+### End-to-end flows driven in a real browser
 
----
+1. **Public dashboard** — live Open-Meteo AQI and weather for Bengaluru, GBIF
+   biodiversity indices, provenance and demo labels.
+2. **Citizen** — signed in, filed an issue at Lalbagh: the park centre and a
+   live Nominatim address filled in, stored as `CR-2026-0037` (not demo).
+3. **AI** — uploaded a bonfire photograph for *Fire & smoke*: MobileNetV2
+   returned *Flames visible* at 99.2 %, the stored image, evidence and model
+   card were shown, and incident `INC-2026-0031` opened automatically.
+4. **Officer** — assigned that incident through the staff picker, raised
+   `WO-2026-0037` (duplicate raise prevented), resolved it; the database shows
+   the full timeline.
+5. **Sensors** — *Refresh readings* reported new Open-Meteo observations and
+   simulated readings separately.
+6. **Ecologist** — generated an ecosystem report from data, published it, and
+   confirmed it became publicly visible.
+7. **Assistant** — the air-quality question routed to the air-quality intent;
+   the conversation survived a reload.
+8. **Map, biodiversity catalogue, admin** — real OSM parks and GBIF species
+   with licensed photographs; demo accounts labelled.
+9. **Fresh clone** — the same servers started with `npm run backend` /
+   `npm run frontend`; all 13 stored AI images and every API call loaded.
 
-## Bugs found and fixed
-
-Each was found by testing, not by reading the code.
-
-1. **A deleted record was not actually deleted.** `DELETE` soft-deleted by
-   setting `active: false`, but neither the list query nor the by-id query
-   filtered on it. The record stayed readable at its own URL, stayed in
-   listings and search, and the reported total never moved — so delete looked
-   like it worked while doing nothing visible. The read paths now exclude
-   archived rows, with `?includeArchived=true` to opt back in. Affected parks,
-   assets, sensors and users.
-
-2. **ObjectIds reached the client as raw byte buffers.** An un-populated
-   reference is a non-array object with no `_id`, so the `.lean()` normaliser
-   walked straight past it and `JSON.stringify` emitted
-   `{ buffer: { data: [...] } }` instead of an id string. Fixed at the
-   normaliser, with Dates and Buffers explicitly preserved.
-
-3. **Embedded sub-documents leaked `_id`.** Incident timeline entries and asset
-   maintenance records exposed `_id` while every other object used `id`. The
-   two sub-schemas now carry the same `toJSON` plugin, and the one handler that
-   returned them unnormalised was corrected.
-
-4. **The incident module was readable by anyone.** `/incidents`,
-   `/incidents/:id`, `/incidents/triage` and `/incidents/stats` had no
-   authentication at all, despite the navigation hiding the module below
-   `officer` and the role hierarchy documenting incidents as an officer duty.
-   All four now require it; the public dashboard and analytics pages were
-   already served by their own aggregates and are unaffected.
-
-5. **Out-of-range coordinates returned 500.** `?lat=999&lng=999` passed the
-   finiteness check and then made MongoDB's `$near` throw. A shared
-   `parseCoordinates` helper now range-checks both values and returns 400.
-
-6. **A malformed JSON body returned 500.** `body-parser`'s `SyntaxError` was
-   not recognised by the error normaliser and fell through to the bug branch.
-   It is now a 400, and an oversized body a 413.
-
-7. **`shannon` could be negative zero.** A one-species community evaluates
-   `−(1 · ln 1)` to `-0`. Harmless once serialised, but a negative diversity
-   index is meaningless.
-
-8. **Deactivated accounts became unreachable.** Fixing (1) had a side effect:
-   the administration screen exists to *show* and *reverse* deactivation, and
-   its own dialog says an account is "marked inactive rather than erased" — but
-   the new default hid those rows, so an account could be switched off and
-   never back on. That screen now opts in with `?includeArchived=true`, while
-   assignee pickers keep the default and correctly omit deactivated staff.
-   Caught by re-reading the admin UI after the change, and now covered by a
-   regression test.
-
-9. **No committed tests.** `package.json` declared a `test` script pointing at
-   `test/**/*.test.js`, but no test files existed, so `npm test` failed. The
-   script also depended on the shell expanding the glob, which broke when run
-   from the repository root; it is now plain `node --test`. The suite described
-   above now exists.
-
-10. **No favicon**, so every page load logged a 404 in the browser console.
+Browser testing found one more defect, now fixed with a regression test: the
+alert raised by an AI-opened incident stayed active after the incident was
+resolved.
 
 ---
 
-## What was built
+## What changed
 
-| | Files | Lines |
-|---|---|---|
-| Backend (`backend/src`) | 83 | ~10,900 |
-| Tests (`backend/test`) | 7 | ~1,300 |
-| Frontend (`frontend/app`, `components`, `lib`, `hooks`) | 96 | ~18,500 |
-| Documentation (`docs/`, README) | 6 | ~1,900 |
+### Real data instead of placeholders
+- **Parks & assets:** six real Bengaluru parks with OpenStreetMap boundaries,
+  areas and facilities; assets are the trees, benches, lamps, paths, water
+  bodies and structures mapped inside them (condition scores remain demo).
+- **Biodiversity:** 587 GBIF species and 37,182 occurrence records inside the
+  park boundaries since January 2023; IUCN status (Not Evaluated kept
+  distinct); invasive flags from the GRIIS India archive; CC photographs.
+- **Sensors:** AQI, temperature and humidity are virtual sensors fed by live
+  Open-Meteo observations, with 48 h of real history at seed; noise, soil and
+  water remain simulated and are labelled.
+- **Reports:** generated from recorded data instead of invented findings.
+- **Demo records** (users, citizen reports, incidents, work orders) flagged
+  `demo: true` and badged in the UI.
 
-134 route handlers · 16 MongoDB collections · 12 modules · 18 routes.
+### AI module
+Hash-based fake predictions replaced by MobileNetV2 inference (TensorFlow.js
+WASM, ~30–80 ms) plus pixel colour statistics; uploads and URLs supported,
+images stored and served by the API, SSRF guard, auth and rate limit, evidence
+and caveats returned with every result, reproducible accuracy evaluation.
 
-### The mathematics
+### Defects fixed
+Reference-code collisions after deletes · unlimited upvotes · public-reporting
+switch ignored · officers unable to assign · park filters returning zeros in
+aggregations · overdue work orders never marked · missing data shown as 0 ·
+eBird key never sent · CPCB AQI reading 500 for values between breakpoint
+bands, and hourly values used instead of 24 h/8 h averages · assistant routing
+park-named questions to the wrong intent · readable private assistant
+conversations · public row-level export · reopened incidents keeping their
+resolution time · CORS rejection returning 500 · client without timeouts,
+401/429 handling or cache clearing on logout · open redirect via `?next=` ·
+errors rendered as empty states across pages · stale detail panels · 0,0
+default locations · demo credentials shown in every build.
 
-| Service | Implements |
-|---|---|
-| `aqi.service.js` | CPCB piecewise-linear sub-indices; AQI = max; inversion to 0–100 |
-| `biodiversity.service.js` | Shannon H′, Pielou J′, Simpson, Margalef, Berger–Parker, composite score, per-taxocene breakdown |
-| `ecosystem-score.service.js` | Weighted composite EHI, three normalisation shapes, missing-data handling |
-| `anomaly.service.js` | Z-score + modified z-score (MAD) + Tukey IQR, majority vote |
-| `priority.service.js` | Triage score with bounded exponential ageing |
-| `ai-inference.service.js` | Softmax with temperature, deterministic surrogate, escalation rule |
-| `assistant.service.js` | TF-IDF + cosine retrieval, weighted intent routing, cited answers |
-| `sensor.service.js` | AR(1) + diurnal + Box–Muller, anchored to live public data |
-
-### Public APIs (verified live)
-
-Open-Meteo Forecast, Open-Meteo Air Quality (CAMS), GBIF, and OpenStreetMap
-Nominatim — **none require a key**. OpenWeatherMap and eBird activate if a key
-is supplied. Every call has a timeout and a local fallback; the system works
-fully offline.
+### Cleanup and deployment
+Removed the fictional parks seed, 27 unused UI wrappers and 26 unused
+packages; Leaflet CSS bundled instead of loaded from a CDN; `render.yaml`,
+root `netlify.toml`, `.nvmrc`, documented `.env.example` files, production
+start-up guards; README and all docs rewritten to match the code.
 
 ---
 
 ## Documented limitations
 
-Each is stated in the code at the point where it matters, and in
-[docs/architecture.md §8](docs/architecture.md):
-
-- No physical sensors — the ingestion path is real, readings are generated
-  (anchored to live weather where the network allows).
-- No trained vision models — the inference contract is real, the weights are a
-  deterministic surrogate.
-- The assistant retrieves genuinely but composes answers from templates.
-- JWT in `localStorage`; production should use httpOnly cookies.
-- The pooled diversity index mixes survey effort across taxa — which is why
-  per-taxocene indices are reported alongside it.
+- Vision accuracy is measured on the calibration photographs (optimistic);
+  litter detection does not work reliably (0/3).
+- GBIF counts are records, not individuals; recent months are incomplete.
+- Open-Meteo values are gridded model output; neighbouring parks can share a
+  cell. Noise, soil and water sensors are simulated.
+- Operational records are demonstration data until the portal is used.
+- JWT in `localStorage`; the image-URL fetch has a DNS-rebinding race.

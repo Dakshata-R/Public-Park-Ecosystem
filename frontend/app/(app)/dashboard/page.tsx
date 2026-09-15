@@ -540,7 +540,8 @@ export default function DashboardPage() {
               <CardHeader>
                 <CardTitle className="text-lg">Parks Ranked by Ecosystem Health</CardTitle>
                 <CardDescription>
-                  The lowest-scoring site is where conservation and maintenance budget goes first
+                  The lowest-scoring site is where conservation and maintenance budget goes first.
+                  Scores are recalculated after each sensor refresh.
                 </CardDescription>
               </CardHeader>
               <CardContent>

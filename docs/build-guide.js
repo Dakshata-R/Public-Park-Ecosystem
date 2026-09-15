@@ -360,41 +360,46 @@ doc.splitTextToSize(
 
 doc.setFontSize(9);
 doc.setTextColor(150, 200, 172);
-doc.text('Every section, every tab, every feature - and the technology behind each.', M.left, 218);
+doc.text('Every module, every data source and every formula - and which values are real, simulated or demo.', M.left, 218);
 
 y = 292;
 para(
-  'This guide explains what the project does and how it is built, section by section. It exists so that you can ' +
-  'explore the system confidently and answer questions about it without having written every line yourself.',
+  'GreenPulse monitors the ecological health of six public parks in Bengaluru. It combines live air-quality and ' +
+  'weather observations, biodiversity records published through GBIF, park boundaries and assets mapped in ' +
+  'OpenStreetMap, and image analysis with a pre-trained neural network. On top of that data it provides incident ' +
+  'triage, maintenance planning, citizen reporting, analytics and a retrieval-based assistant.',
   { size: 10.5 }
 );
 
 para(
-  'Each module chapter follows the same shape: what the section is for, what each tab does, exactly which ' +
-  'technology and which file produces it, and the questions an examiner is most likely to ask about it.',
+  'This guide explains how to run it, where every number comes from, how each module works and what it cannot do. ' +
+  'Each module chapter has the same shape: what the page is for, what is on it, which files and endpoints power it, ' +
+  'and the questions an examiner is most likely to ask.',
   { size: 10.5 }
 );
 
 y += 6;
 callout(
   'Read this first if you have five minutes',
-  'Chapter 2 (Tech Stack) and Chapter 4 (Dashboard) together cover most of what a viva will ask. ' +
-  'Chapter 16 is a one-page cheat sheet. Chapter 15 lists what the project deliberately does NOT do - ' +
-  'knowing your own limitations is the single strongest thing you can demonstrate in a review.'
+  'Chapter 5 (Data Sources and Provenance) and Chapter 18 (The AI Pipeline and Its Accuracy) answer the two ' +
+  'questions a viva usually opens with: "is the data real?" and "is the AI real?". Chapter 24 lists the ' +
+  'limitations and Chapter 25 is a one-page cheat sheet. Stating your own limitations precisely is the strongest ' +
+  'thing you can do in a review.'
 );
 
 y += 8;
 table(
   ['At a glance', ''],
   [
-    ['Modules', '12, plus authentication and external integrations'],
-    ['Frontend', 'Next.js 13.5 (App Router), TypeScript, Tailwind, shadcn/ui - 16 routes'],
-    ['Backend', 'Node.js + Express 4, Mongoose 8, JWT - 134 route handlers'],
-    ['Database', 'MongoDB, 16 collections, GeoJSON with 2dsphere indexes'],
-    ['Public APIs', 'Open-Meteo (weather + air quality), GBIF, OpenStreetMap - no API key needed'],
-    ['Code size', 'approx. 29,000 lines across 179 source files'],
+    ['Scope', '6 public parks in Bengaluru, 12 modules, plus sign-in, registration and a personal settings page'],
+    ['Frontend', 'Next.js 13.5 (App Router), React 18, TypeScript, Tailwind, shadcn/ui - 16 page routes'],
+    ['Backend', 'Node.js + Express 4, Mongoose 8, JWT, TensorFlow.js - 18 routers under /api'],
+    ['Database', 'MongoDB, 18 collections, GeoJSON with 2dsphere indexes; in-memory for development'],
+    ['Open data', 'OpenStreetMap, GBIF, GRIIS India, Open-Meteo (forecast + CAMS air quality) - no API keys'],
+    ['Vision model', 'MobileNetV2 (ImageNet), pre-trained by Google, run on the server - 16/22 on labelled photos'],
+    ['Code size', 'about 35,000 lines across 171 source files (backend src, scripts, tests; frontend app, components, lib)'],
   ],
-  [26, 74]
+  [22, 78]
 );
 
 // Contents placeholder - the page is inserted here and filled in at the end,
@@ -415,200 +420,344 @@ doc.rect(M.left, y + 8, 44, 2.5, 'F');
 h1('1. How to Run It');
 
 para(
-  'The project is two separate applications that talk over HTTP. Start the backend first, because the frontend ' +
-  'calls it on load. You need two terminal windows.'
+  'The project is two applications that talk over HTTP: an Express API in backend/ and a Next.js web app in ' +
+  'frontend/. A root package.json delegates to both, so every command below runs from the repository root. There ' +
+  'is deliberately no combined start script: each server gets its own terminal so its logs can be read and it can ' +
+  'be stopped independently.'
 );
 
-h2('Terminal 1 - backend (the API)');
-code([
-  'cd GreenPulse---Escosystem\\backend',
-  'npm install        # first time only',
-  'npm run dev',
-  '',
-  '# wait for: GreenPulse API listening on http://localhost:5000',
+h2('Requirements');
+bullets([
+  ['Node.js 18.17 or newer ', '(20 recommended, see .nvmrc) and npm.'],
+  ['MongoDB ', 'is optional for development - an in-memory database starts automatically - and required for production (for example the MongoDB Atlas free tier).'],
+  ['Internet on first run, ', 'to download the vision model once (about 14 MB). Live Open-Meteo data always needs a connection, as do base-map tiles, species photographs, the GBIF cross-check and address lookup; the rest works offline. No API keys are required.'],
 ]);
 
-h2('Terminal 2 - frontend (the website)');
+h2('First-time setup');
 code([
-  'cd GreenPulse---Escosystem\\frontend',
-  'npm install        # first time only',
-  'npm run build      # do this before a presentation',
-  'npm start',
+  'git clone <repository-url>',
+  'cd GreenPulse---Escosystem',
   '',
-  '# then open http://localhost:3000',
+  'npm run setup                                   # npm install in backend/ and frontend/',
+  'cp backend/.env.example backend/.env',
+  'cp frontend/.env.example frontend/.env.local',
 ]);
+para(
+  'The defaults work as they are: a blank MONGODB_URI starts an in-memory MongoDB that is seeded on every boot, ' +
+  'and NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS=true lists the demonstration accounts on the login page.'
+);
+
+h2('Two terminals');
+code([
+  '# Terminal 1 - API on http://localhost:5000/api',
+  'npm run backend:dev',
+  '#   wait for: GreenPulse API listening on port 5000',
+  '',
+  '# Terminal 2 - web app on http://localhost:3000',
+  'npm run frontend:dev',
+]);
+para(
+  'On first start the backend seeds the database from the committed open-data snapshot (about ten seconds) and ' +
+  'loads the vision model in the background, downloading it once into backend/.cache/mobilenet-v2/ if it is not ' +
+  'cached. "Vision model ready" in the log means image analysis is available. To download the model ahead of ' +
+  'time, run npm run model:download.'
+);
 
 callout(
-  'Use "npm run build && npm start" for the review, not "npm run dev"',
-  'In dev mode Next.js compiles each page the first time you visit it, which takes 5-18 seconds and looks ' +
-  'exactly like a hang. The production build compiles everything up front, and pages then load in under ' +
-  '50 milliseconds. Use dev mode only while editing code.'
+  'For a presentation, consider the production build',
+  'In development mode Next.js compiles each page the first time it is opened, which can take several seconds and ' +
+  'looks like a hang. Either open every page once before the review, or build once with "npm run build" and serve ' +
+  'with "npm run frontend" instead of "npm run frontend:dev". Also avoid editing code while presenting: the ' +
+  'development backend restarts on file changes, and a restart re-seeds the in-memory database.'
 );
 
 h2('Signing in');
-para(
-  'The login page has one-click buttons for all four roles, so you do not need to type anything. Every account ' +
-  'uses the password greenpulse123.'
-);
-
+para('All demonstration accounts use the password greenpulse123. The login page offers one-click buttons for the first four.');
 table(
   ['Account', 'Can do'],
   [
-    ['Officer\nofficer@greenpulse.gov', 'Incidents, work orders, assets, sensors, reviewing citizen reports. Best account for a demo.'],
-    ['Admin\nadmin@greenpulse.gov', 'Everything, plus user management, system settings and the audit log.'],
-    ['Ecologist\necologist@greenpulse.gov', 'Species catalogue and verifying citizen wildlife sightings.'],
-    ['Citizen\ncitizen@greenpulse.gov', 'Submitting reports and sightings, viewing own contributions.'],
+    ['Administrator\nadmin@greenpulse.gov', 'Everything, including users, system settings, the audit log and reseeding.'],
+    ['Ecologist\necologist@greenpulse.gov', 'Species records, observation verification, AI detection reviews, generating and publishing reports.'],
+    ['Park Officer\nofficer@greenpulse.gov', 'Incidents, work orders, assets, sensor refresh, citizen-report review, row-level exports.'],
+    ['Citizen\ncitizen@greenpulse.gov', 'Report issues, log wildlife sightings, upvote reports, analyse images.'],
   ],
   [30, 70]
 );
-
 para(
-  'The dashboard, map and biodiversity pages are public and work without signing in at all. That is deliberate: ' +
-  'transparency to the public is one of the stated benefits of the project.'
+  'The dashboard, map, biodiversity catalogue, sensors, analytics and assistant are readable without signing in. ' +
+  'Public registration always creates a citizen account. The seeder also creates eight further demonstration staff ' +
+  'and citizen accounts, twelve in total.'
 );
+
+h2('Using a persistent local database');
+code([
+  '# backend/.env',
+  'MONGODB_URI=mongodb://127.0.0.1:27017/greenpulse',
+  '',
+  'npm run seed        # REPLACES everything in that database',
+]);
 
 h2('If something goes wrong');
 bullets([
-  ['"Cannot reach the API" on every page - ', 'the backend is not running. Start Terminal 1. The error message on screen tells you the exact command.'],
-  ['"Live data unavailable" in the Conditions panel - ', 'you are offline. Everything else still works; the sensors fall back to their own model. Say so if asked, it is designed behaviour.'],
-  ['Data looks wrong mid-demo - ', 'sign in as admin, go to Administration, System tab, and press Reseed. Takes about ten seconds and restores a known-good dataset.'],
-  ['Port already in use - ', 'another copy is already running. Either use it, or close the other terminal.'],
+  ['"Cannot reach the API" on every page - ', 'the backend is not running. Start Terminal 1; the on-screen error says so.'],
+  ['"Live data unavailable" in Live Conditions - ', 'you are offline. The virtual sensors then store nothing rather than invent values; everything else works.'],
+  ['Image analysis answers 503 - ', 'the model is not cached and cannot be downloaded. Run npm run model:download on a connection; afterwards it works offline.'],
+  ['Data looks wrong - ', 'sign in as admin, Administration, System tab, Reseed database (development only). It signs everyone out.'],
+  ['Port already in use - ', 'another copy is running. Use it, or stop the other terminal.'],
 ]);
 
 // ===========================================================================
-// 2. TECH STACK
+// 2. ENVIRONMENT VARIABLES
 // ===========================================================================
 
-h1('2. The Technology Stack');
+h1('2. Environment Variables');
 
 para(
-  'This chapter is the one to read before a viva. For each library it says what the thing is, what it does in ' +
-  'this project specifically, and why it was chosen over the obvious alternative. Examiners rarely ask "what is ' +
-  'React"; they ask "why did you use this".'
+  'Both applications read their configuration from environment files copied from the committed .env.example ' +
+  'files. Neither example contains a secret that matters outside development.'
 );
 
-h2('Frontend');
-
+h2('backend/.env');
 table(
-  ['Technology', 'What it is, and what it does here'],
+  ['Variable', 'Default', 'Purpose'],
   [
-    ['Next.js 13.5\n(App Router)', 'A React framework. It provides file-based routing (a folder under app/ becomes a URL), server-side rendering for fast first paint, and a production build step. Chosen over plain React because routing, bundling and SSR come built in rather than being assembled by hand.'],
-    ['React 18', 'The UI library. Everything on screen is a React component that re-renders when its data changes.'],
-    ['TypeScript 5.6', 'JavaScript with static types. Every API response has a declared shape in lib/types.ts, so if the backend changes a field name the frontend fails to compile instead of silently showing "undefined" to a user.'],
-    ['Tailwind CSS', 'Utility-first styling. Classes like "flex gap-2 rounded-lg" are composed directly in the markup. Chosen because it keeps styles next to the element they affect, so nothing breaks elsewhere when you change one.'],
-    ['shadcn/ui\n(+ Radix UI)', 'Accessible component primitives - dialogs, dropdowns, tabs, sliders. Not an npm dependency: the source is copied into components/ui/ so it can be edited. Radix supplies the behaviour (keyboard navigation, focus trapping, ARIA); Tailwind supplies the appearance.'],
-    ['TanStack Query v5', 'Server-state management. Handles caching, background refetching, loading and error states, and cache invalidation after a write. Without it every page would need its own useState/useEffect fetch logic with the same bugs repeated.'],
-    ['React Hook Form + Zod', 'Forms and validation. Zod describes the rules once; the same schema shape is used on the server, so the browser and the API agree on what valid input is.'],
-    ['Leaflet + React-Leaflet', 'The interactive map. Open-source, no API key and no usage limits - the reason it was chosen over Google Maps or Mapbox.'],
-    ['Recharts', 'All charts. Built on SVG and composable as React components, so a chart is written the same way as any other part of the UI.'],
-    ['jsPDF + autoTable', 'Client-side PDF export in the Analytics module. Generating PDFs in the browser avoids shipping a headless browser into the server deployment.'],
-    ['Framer Motion', 'Animation - the sidebar drawer, the health gauge sweep, card entrances.'],
-    ['next-themes', 'Dark and light mode, persisted per browser.'],
-    ['Sonner', 'Toast notifications for the result of every write action.'],
+    ['PORT', '5000', 'HTTP port. Hosting platforms usually set it.'],
+    ['NODE_ENV', 'development', 'production enables the start-up safety checks below.'],
+    ['MONGODB_URI', 'blank = in-memory', 'MongoDB connection string. REQUIRED in production.'],
+    ['JWT_SECRET', 'development placeholder', 'Token signing secret. REQUIRED in production: at least 32 random characters.'],
+    ['JWT_EXPIRES_IN', '7d', 'Token lifetime.'],
+    ['CORS_ORIGIN', 'http://localhost:3000', 'Comma-separated frontend origin(s). REQUIRED in production.'],
+    ['AUTO_SEED', 'true', 'Seed on boot when the database has no parks.'],
+    ['SENSOR_SIMULATION_INTERVAL_MS', '60000', 'Sensor refresh interval in milliseconds; 0 disables the background refresh.'],
+    ['LOG_LEVEL', 'info', 'debug, info, warn, error or silent.'],
+    ['OPENWEATHER_API_KEY', 'blank', 'Optional alternative weather source.'],
+    ['EBIRD_API_KEY', 'blank', 'Optional recent bird sightings near a park.'],
   ],
-  [24, 76]
-);
-
-h2('Backend');
-
-table(
-  ['Technology', 'What it is, and what it does here'],
-  [
-    ['Node.js 22', 'The JavaScript runtime the server runs on. Using JavaScript on both sides means one language for the whole project.'],
-    ['Express 4', 'The web framework. Defines the routes, applies middleware in order (security, CORS, rate limiting, authentication, validation), and hands off to controllers.'],
-    ['MongoDB', 'The database. A document store: a park is one document containing its geometry, scores and facilities, rather than being split across five tables. Chosen over SQL because the data is naturally nested and because GeoJSON is a first-class citizen.'],
-    ['Mongoose 8', 'The ODM (object-document mapper) over MongoDB. Provides schemas, validation, indexes, population of references, and pre-save hooks - for example, an asset\'s text status is derived from its numeric condition automatically so the two can never disagree.'],
-    ['mongodb-memory-server', 'Runs a real MongoDB in memory when no connection string is configured. This is why the project runs on any machine with no database installed - a deliberate choice so a marker never has to install anything.'],
-    ['JWT (jsonwebtoken)', 'Authentication. On login the server returns a signed token; the browser sends it back on every request. Stateless, so the server keeps no session store.'],
-    ['bcryptjs', 'Password hashing. Passwords are never stored or logged in plain text.'],
-    ['Zod', 'Request validation on every write route. Rejects bad input with per-field messages before it reaches the database.'],
-    ['Helmet, CORS,\nexpress-rate-limit', 'Security middleware: sets protective HTTP headers, restricts which origins may call the API, and throttles requests. The login route has a stricter limit than everything else because it is the only endpoint worth brute-forcing.'],
-  ],
-  [24, 76]
-);
-
-h2('Public APIs used (none require an API key)');
-
-table(
-  ['Service', 'What it provides'],
-  [
-    ['Open-Meteo\nForecast', 'Live weather and a 7-day forecast for each park\'s real coordinates. Feeds the Conditions panel and anchors the sensor simulator.'],
-    ['Open-Meteo\nAir Quality (CAMS)', 'Raw pollutant concentrations - PM2.5, PM10, NO2, SO2, CO, O3. Important: it returns concentrations, not a finished index, so this project computes the AQI itself using CPCB breakpoints. The formula is genuinely being applied to real measurements.'],
-    ['GBIF', 'The Global Biodiversity Information Facility. Used to cross-check a catalogued species against the world occurrence record: if GBIF has no record of that species within 50 km, the local identification is flagged for review.'],
-    ['OpenStreetMap\nNominatim', 'Reverse geocoding - converts the coordinates of a citizen report into a readable street address.'],
-    ['OpenWeatherMap,\neBird', 'Optional alternatives. They activate automatically if an API key is supplied, and are simply skipped otherwise.'],
-  ],
-  [24, 76]
+  // The first column must fit the longest variable name on one line.
+  [38, 20, 42]
 );
 
 callout(
-  'Why keyless services were chosen',
-  'A project that only works once the marker has registered for four accounts is not a working project. Every ' +
-  'call also has an 8-second timeout and a local fallback, so the entire system still functions with no internet ' +
-  'connection at all - the data is simply generated rather than anchored to reality.'
+  'Production guards',
+  'With NODE_ENV=production the server refuses to start - and prints what is missing - unless MONGODB_URI is set ' +
+  '(the in-memory database is development-only), JWT_SECRET is set, is not the development default and is at ' +
+  'least 32 characters, and CORS_ORIGIN is set. POST /api/admin/reseed is refused in production, and error ' +
+  'responses stop including internal messages.',
+  'warn'
+);
+
+h2('frontend/.env.local');
+table(
+  ['Variable', 'Default', 'Purpose'],
+  [
+    ['NEXT_PUBLIC_API_URL', 'http://localhost:5000/api in development', 'Base URL of the API, including /api. Baked in at build time, so it is REQUIRED for a production build.'],
+    ['NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS', 'false (the example file sets true)', 'Lists the demo accounts and their password on the login page. When false the credentials are not even in the bundle. Leave it false for a public deployment.'],
+  ],
+  [38, 24, 38]
 );
 
 // ===========================================================================
-// 3. ARCHITECTURE
+// 3. TECH STACK
 // ===========================================================================
 
-h1('3. How the Pieces Fit Together');
+h1('3. The Technology Stack');
+
+para(
+  'For each library: what it is, what it does in this project, and why it was chosen. Examiners rarely ask "what ' +
+  'is React"; they ask "why did you use this".'
+);
+
+h2('Frontend');
+table(
+  ['Technology', 'What it is, and what it does here'],
+  [
+    ['Next.js 13.5\n(App Router)', 'React framework with file-based routing (a folder under app/ becomes a URL) and a production build step. Routing, bundling and code-splitting come built in.'],
+    ['React 18 +\nTypeScript 5', 'The UI library, with static types. Every API response shape is declared in lib/types.ts, so a renamed backend field fails compilation instead of showing "undefined".'],
+    ['Tailwind CSS +\nshadcn/ui (Radix)', 'Utility-first styling, and accessible primitives (dialogs, sheets, tabs, sliders) whose source lives in components/ui/ so it can be edited.'],
+    ['TanStack Query v5', 'Server-state cache: loading and error states, background refetching, and invalidation after every write through one query-key factory.'],
+    ['React Hook Form + Zod', 'Forms and validation. The form schemas mirror the server\'s Zod schemas, so both sides reject the same input.'],
+    ['Leaflet 1.9 +\nReact-Leaflet 4', 'The interactive map. Open source, no API key and no usage quota. Base maps: OpenStreetMap, Esri satellite, OpenTopoMap.'],
+    ['Recharts', 'All charts, written as React components.'],
+    ['jsPDF + autoTable', 'PDF export of reports and datasets in the browser - no headless browser on the server.'],
+    ['Framer Motion, next-themes, Sonner', 'Animation, dark and light mode, and toast notifications for the result of every write.'],
+  ],
+  [26, 74]
+);
+
+h2('Backend');
+table(
+  ['Technology', 'What it is, and what it does here'],
+  [
+    ['Node.js + Express 4', 'The runtime and web framework. Middleware runs in order: helmet, compression, CORS, rate limiting, JSON parsing (8 MB, for image uploads), authentication, validation.'],
+    ['MongoDB + Mongoose 8', 'A document store with schemas, indexes and hooks. GeoJSON is first-class, which is what makes "everything within 1 km" a single indexed query.'],
+    ['mongodb-memory-server', 'Starts a real MongoDB in memory when MONGODB_URI is blank, so a marker never has to install a database. Development and tests only.'],
+    ['TensorFlow.js\n(WebAssembly backend)', 'Runs Google\'s pre-trained MobileNetV2 inside the Node process - no Python, no GPU, no native build. About 30-80 ms per image on a laptop CPU; falls back to the slower pure-JavaScript backend if WebAssembly cannot start.'],
+    ['jpeg-js, pngjs', 'Decode uploaded images and re-encode the stored copy (at most 640 px, JPEG).'],
+    ['jsonwebtoken + bcryptjs', 'Stateless JWT authentication and password hashing. The user is reloaded on every request, so a deactivated account stops working immediately.'],
+    ['Zod', 'Validates every write route and answers 422 with per-field messages.'],
+    ['helmet, cors,\nexpress-rate-limit', 'Security headers, allowed origins, and throttling: /api 2000 requests per minute per IP (300 in production), sign-in 20 failed attempts per 15 minutes, image analysis 20 per account per minute.'],
+    ['node:test', 'Node\'s built-in test runner for the unit and integration suites - no test framework dependency.'],
+  ],
+  [26, 74]
+);
+
+// ===========================================================================
+// 4. ARCHITECTURE
+// ===========================================================================
+
+h1('4. How the Pieces Fit Together');
 
 h2('The request path');
-para('Every single action in the application follows this path. If you can recite it, you can answer most architecture questions.');
-
+para('Every action in the application follows this path.');
 code([
   'Browser (React component)',
   '   |  calls a hook, e.g. useDashboard()',
-  'lib/hooks/use-api.ts        - TanStack Query: cache, loading, errors',
-  '   |',
-  'lib/api/endpoints.ts        - one function per API route',
-  '   |',
-  'lib/api/client.ts           - adds the JWT, unwraps the response envelope',
-  '   |  HTTP',
-  'backend: src/app.js         - helmet, CORS, rate limit, JSON parsing',
-  '   |',
-  'src/routes/*.routes.js      - URL matching',
-  '   |',
-  'middleware/auth.js          - is the token valid? is the role high enough?',
-  'middleware/validate.js      - does the body match the Zod schema?',
-  '   |',
-  'src/controllers/*.js        - orchestration',
-  '   |',
-  'src/services/*.js           - the mathematics and business rules',
-  '   |',
-  'src/models/*.js             - Mongoose schemas',
+  'lib/hooks/use-api.ts         TanStack Query: cache, loading, errors, invalidation',
+  'lib/api/endpoints.ts         one function per API route',
+  'lib/api/client.ts            adds the JWT, unwraps the response envelope',
+  '   |  HTTP / JSON',
+  'backend/src/app.js           helmet, compression, CORS, rate limit, JSON parsing',
+  'src/routes/*.routes.js       URL matching (18 routers under /api)',
+  'middleware/auth.js           requireAuth (valid token, active user), requireRole',
+  'middleware/validate.js       Zod schema from validators/schemas.js',
+  'src/controllers/*.js         orchestration; crud.factory.js for the common five',
+  'src/services/*.js            the domain logic and every formula',
+  'src/models/*.js              Mongoose schemas, indexes, hooks',
   '   |',
   'MongoDB',
 ]);
 
 h2('Why the code is split this way');
 bullets([
-  ['Routes only match URLs. ', 'They contain no logic, so the full API surface can be read in a few minutes.'],
-  ['Controllers orchestrate. ', 'They fetch, call services, and shape the response. They contain no formulas.'],
-  ['Services hold the thinking. ', 'Every formula lives in a service, which is why the mathematics can be tested and explained on its own - and why it is not buried inside a route handler.'],
-  ['Models own the data rules. ', 'Validation, indexes and derived fields live with the schema, so they apply no matter which code path writes.'],
-  ['The frontend never builds a URL. ', 'It calls a typed function. Changing a route is a one-line edit rather than a search across a dozen files.'],
+  ['Routes only match URLs. ', 'They hold no logic, so the whole API surface can be read in minutes.'],
+  ['Controllers orchestrate. ', 'They fetch, call services and shape the response. Eleven modules share list, read, create, update and delete through the CRUD factory.'],
+  ['Services hold the thinking. ', 'aqi, biodiversity, ecosystem-score, anomaly, priority, vision, ai-inference, assistant, sensor, report, alert, audit, external. computeEcosystemHealth() has one implementation and many callers, so the number cannot disagree with itself.'],
+  ['The frontend never builds a URL. ', 'Components call typed functions; changing a route is a one-line edit.'],
 ]);
 
 h2('One response shape everywhere');
-para('Every endpoint answers in the same envelope, so the client unwraps it once rather than per endpoint.');
 code([
-  'success: { "success": true, "data": ..., "meta": { pagination } }',
-  'failure: { "success": false, "error": { "message": ..., "details": ... } }',
+  'success: { "success": true,  "data": ..., "meta": { pagination or aggregates } }',
+  'failure: { "success": false, "error": { "message": ..., "details": { field: reason } } }',
 ]);
+para(
+  'One error middleware normalises validation errors (422), bad ids (400), duplicates (409), bad tokens (401), ' +
+  'unparseable JSON (400) and oversized bodies (413). Anything else is treated as a bug and collapsed to a generic 500.'
+);
 
 h2('The role hierarchy');
-para(
-  'Four roles, each including everything below it. A route marked "officer" therefore also admits an admin, ' +
-  'which avoids listing every superior role on every route.'
-);
 code(['citizen (1)  ->  ecologist (2)  ->  officer (3)  ->  admin (4)']);
 para(
-  'The interface hides what your role cannot use, but that is a courtesy, not the control. The API enforces the ' +
-  'same rule independently in middleware/auth.js - hiding a button does not stop anybody calling the endpoint ' +
-  'directly, so the server has to check as well.',
-  { size: 9 }
+  'A route that requires officer also admits an admin. The interface hides what a role cannot use, but that is a ' +
+  'courtesy: middleware/auth.js enforces the same rule on the server. The role is read from the database on every ' +
+  'request, never trusted from the token payload.'
+);
+
+h2('Background jobs');
+table(
+  ['Job', 'What it does'],
+  [
+    ['Sensor refresh', 'Every SENSOR_SIMULATION_INTERVAL_MS (default 60 s). Open-Meteo sensors ingest only when the upstream observation time has advanced; simulated sensors emit one reading each while simulation is enabled; park scores are recomputed when anything was ingested.'],
+    ['Overdue sweep', 'Every 10 minutes, and before every work-order list, calendar and stats read: scheduled orders whose date has passed become overdue.'],
+    ['Vision warm-up', 'Once at boot: loads (or downloads) the model in the background. A failure is logged and retried on the first analysis.'],
+  ],
+  [22, 78]
+);
+
+// ===========================================================================
+// 5. DATA SOURCES AND PROVENANCE
+// ===========================================================================
+
+h1('5. Data Sources and Provenance');
+
+para(
+  'Every value is either real open data, a real live observation, a computation over those, or a demonstration ' +
+  'record that says so. The interface shows a provenance badge wherever a value appears: Live - Open-Meteo, ' +
+  'Simulated, GBIF records, OpenStreetMap, Demo record, Model inference (and Device, for physical sensors, of which ' +
+  'none are deployed).'
+);
+
+table(
+  ['Data', 'Source', 'Status'],
+  [
+    ['Parks: boundaries, areas, facilities', 'OpenStreetMap (Overpass API)', 'Real, committed snapshot'],
+    ['Assets: trees, benches, lamps, paths, water, structures', 'OpenStreetMap features inside each boundary', 'Real positions; condition scores and maintenance history are demo values'],
+    ['Species, IUCN category, photographs', 'GBIF species API', 'Real, committed snapshot'],
+    ['Species observations', 'GBIF occurrence records inside each park boundary since Jan 2023, counted per species, park and month', 'Real - counts are records, not individuals'],
+    ['Invasive / introduced flags', 'GRIIS India checklist (Darwin Core archive)', 'Real'],
+    ['Air quality (CPCB AQI), temperature, humidity', 'Open-Meteo forecast model and CAMS air quality, fetched live', 'Real "virtual sensors"'],
+    ['Noise, soil moisture, water quality', 'Generated: AR(1) process with a daily cycle and noise', 'Simulated, labelled'],
+    ['AI image analysis', 'MobileNetV2 (ImageNet) on the server plus pixel colour analysis', 'Real inference, measured accuracy'],
+    ['Accounts, citizen reports,\nincidents, work orders,\nderived alerts','Seeder (seeded pseudo-random generator)', 'Demo records, demo: true'],
+    ['Ecological reports', 'report.service over all of the above', 'Computed'],
+  ],
+  [30, 38, 32]
+);
+
+h2('The committed snapshot');
+para(
+  'The open data lives in backend/src/seed/data/open-data/ (parks.json, species.json, observations.json, meta.json ' +
+  'and ATTRIBUTION.md), so seeding works offline and gives identical biodiversity figures every time. The current ' +
+  'snapshot covers 1 January 2023 to 15 September 2026:'
+);
+table(
+  ['Item', 'Count in the snapshot'],
+  [
+    ['Parks', '6 - Cubbon Park, Lalbagh Botanical Gardens, Sankey Tank Park, Jayaprakash Narayan Park, Freedom Park, Coles Park'],
+    ['Species with GBIF records\ninside the boundaries','587 (the catalogue adds 9 curated regional species with no records, 596 in total)'],
+    ['Observation rows (species x park x month)', '4,175'],
+    ['GBIF occurrence records', '37,182 - Lalbagh alone holds 33,803; Freedom Park has 1'],
+  ],
+  [40, 60]
+);
+para(
+  'npm run data:refresh (scripts/fetch-open-data.js) rebuilds the snapshot: Overpass boundaries and features kept ' +
+  'by a point-in-polygon test; GBIF occurrence search per month with the simplified boundary as geometry, faceted ' +
+  'by species for exact record counts; GBIF species lookups for taxonomy, an English name, the IUCN category and a ' +
+  'CC-licensed photo; and the GRIIS India archive for introduced and invasive flags. Requests retry with back-off ' +
+  'and are cached on disk for 24 hours so an interrupted run resumes.'
+);
+
+h2('What the seeder adds');
+table(
+  ['Collection', 'Seeded content'],
+  [
+    ['Assets', '339 OpenStreetMap features, capped per park (60 trees, 25 benches, 20 lamps, 12 paths, 10 water bodies, 12 structures), each with a demo condition'],
+    ['Sensors', '33: AQI, temperature and humidity (Open-Meteo) plus noise and soil (simulated) in every park, and water quality (simulated) in the 3 parks with a mapped water body. Virtual sensors are backfilled with 48 hours of real hourly history.'],
+    ['AI detections', '13 real inferences over openly licensed Wikimedia Commons photos, stored without a park, so none opens an incident'],
+    ['Demo records', '12 accounts, 36 citizen reports, 30 incidents, 36 work orders, and the alerts derived from them'],
+    ['Reports', '6 generated ecological reports, published'],
+  ],
+  [20, 80]
+);
+
+callout(
+  'GBIF counts are records, not animals',
+  'A GBIF row is one species in one park in one month, and its count is the number of occurrence records - mostly ' +
+  'eBird checklists and iNaturalist observations. Ten birders reporting the same kite give ten records. Recording ' +
+  'effort differs enormously between parks, and recent months are incomplete because publication lags ' +
+  'observation. The interface says "records" wherever this matters.',
+  'warn'
+);
+
+h2('Live integrations');
+table(
+  ['Service', 'Key?', 'Purpose', 'Cache'],
+  [
+    ['Open-Meteo Forecast', 'No', 'Current weather, 7-day outlook, hourly history for the virtual sensors', '10 min'],
+    ['Open-Meteo Air Quality (CAMS)', 'No', 'Hourly pollutant concentrations; the CPCB AQI is computed here', '15 min'],
+    ['GBIF', 'No', 'Live plausibility cross-check of a species near a park; snapshot build', '24 h'],
+    ['OpenStreetMap Nominatim', 'No', 'Reverse geocoding of citizen report locations', '7 days'],
+    ['TensorFlow Hub', 'No', 'MobileNetV2 checkpoint, downloaded once', 'disk'],
+    ['OpenWeatherMap, eBird', 'Yes', 'Optional extras, skipped when no key is set', '-'],
+  ],
+  [27, 8, 51, 14]
+);
+para(
+  'Every call has an 8-second timeout and returns { ok: false, reason } instead of throwing. When Open-Meteo is ' +
+  'unreachable the virtual sensors ingest nothing - they go stale and, after 3 hours without data, offline - rather ' +
+  'than being filled with invented values. Calls are proxied through the server so one shared cache serves every ' +
+  'visitor and keys never reach the browser.'
 );
 
 // ===========================================================================
@@ -616,602 +765,793 @@ para(
 // ===========================================================================
 
 moduleSection({
-  number: 4,
-  title: 'Ecosystem Monitoring Dashboard',
-  route: '/dashboard   -  Module 1  -  public, no sign-in needed',
-  purpose:
-    'The landing page and the command centre. It answers "how are the parks doing right now" in one screen: a ' +
-    'composite health score, the five sub-indices behind it, live weather and air quality, active alerts, the ' +
-    'highest-priority incidents, a cross-module activity feed, and a ranking of parks worst-to-best.',
-  tabs: [
-    ['KPI row', 'Eight tiles - ecosystem health, biodiversity, air, water, soil, tree health, species count, active alerts. Each is coloured by its normalised score, so an AQI tile can read "84 AQI" while still being coloured by how good 84 actually is.'],
-    ['Health gauge', 'The composite index, plus a bar per sub-index showing its weighted contribution. This is what makes the score auditable: you can see which indicator is dragging it down and by how much.'],
-    ['Live conditions', 'Real weather and real air quality from public APIs, with the per-pollutant CPCB sub-indices shown so the calculation is visible rather than merely claimed.'],
-    ['Biodiversity card', 'Species composition by class, plus the actual index values (Shannon, evenness, Gini-Simpson) rather than just a single score.'],
-    ['Trends', 'Environmental indicators over 7, 30 or 90 days, all normalised to 0-100 so they share one axis.'],
-    ['Queues + alerts', 'Open incidents, reports awaiting review, work orders due. Each links to its module.'],
-    ['Park ranking', 'Every park scored side by side. The lowest bar is where budget should go first.'],
-  ],
-  powered: [
-    ['Page', 'frontend/app/(app)/dashboard/page.tsx'],
-    ['API', 'GET /api/dashboard/overview, /trend, /activity + /integrations/park-conditions'],
-    ['Backend', 'controllers/dashboard.controller.js - one parallel fan-out so the whole page needs a single round trip'],
-    ['Services', 'ecosystem-score.service.js (the composite), biodiversity.service.js, aqi.service.js, external.service.js'],
-    ['Data', 'Reads across Park, Sensor, Observation, Incident, Alert, Asset, EcoReport'],
-  ],
-  viva: [
-    ['How is the ecosystem health score calculated? ', 'A weighted mean of five sub-indices: EHI = sum(w_k * S_k) / sum(w_k), with air 0.25, water 0.20, soil 0.15, tree 0.20, biodiversity 0.20. Dividing by the sum of weights means a park missing a sensor is scored on the indicators it does have, rather than being punished with a zero.'],
-    ['Why those weights? ', 'Air is highest because it moves fastest and affects visitors most directly. Soil is lowest because it changes slowly and is least directly experienced. They are configurable in Administration, not hard-coded.'],
-    ['Why one endpoint instead of several? ', 'The page needs eleven different figures. Eleven requests would mean eleven round trips and a page that assembles itself in stages; one parallel fan-out on the server returns it all at once.'],
-  ],
-});
-
-moduleSection({
-  number: 5,
-  title: 'GIS & Urban Biodiversity Mapping',
-  route: '/map   -  Module 2  -  public',
-  purpose:
-    'An interactive map of the city with eight switchable layers. The important design point: this module has no ' +
-    'database collection of its own. Every layer is a live projection of data another module owns - a tree pin ' +
-    'IS the asset register\'s record of that tree - which is why the map can never go stale relative to the rest ' +
-    'of the system.',
-  tabs: [
-    ['Layers', 'Parks (with boundaries), trees and plants, water bodies, wildlife sightings, pollution hotspots, trails, sensors, citizen reports. Each chip shows a live feature count, so "layer is off" is distinguishable from "layer is on but empty".'],
-    ['Search', 'Matches across every visible layer. Non-matching features are dimmed rather than hidden, because removing them would destroy the spatial context that makes a match meaningful.'],
-    ['Pollution circles', 'Sized by the incident\'s computed priority score - the biggest circle is literally the one to deal with first.'],
-    ['Selection panel', 'Full record for whatever you click, with condition and health shown as bars rather than bare numbers.'],
-  ],
-  powered: [
-    ['Page', 'frontend/app/(app)/map/page.tsx + components/map/biodiversity-map.tsx'],
-    ['API', 'GET /api/gis/layers, /gis/heatmap, /gis/within'],
-    ['Backend', 'controllers/gis.controller.js - composes GeoJSON FeatureCollections from other collections'],
-    ['Library', 'Leaflet 1.9 + React-Leaflet 4; OpenStreetMap, Esri satellite and OpenTopoMap tiles'],
-    ['Data', 'GeoJSON with 2dsphere indexes on Park, Asset, Observation, Incident, Sensor, CitizenReport'],
-  ],
-  viva: [
-    ['Why GeoJSON and not two number columns? ', 'GeoJSON is the standard format Leaflet consumes directly, and MongoDB\'s 2dsphere index understands it - which is what makes "everything within 500 metres of this point" a single indexed query instead of fetching every row and filtering in code.'],
-    ['What is the coordinate trap here? ', 'GeoJSON orders coordinates [longitude, latitude]; Leaflet expects [latitude, longitude]. Getting it backwards puts a park in the Indian Ocean and the bug is invisible until the map renders. The conversion is isolated in lib/api/geo.ts and never done inline.'],
-    ['Why does the map have no collection of its own? ', 'Because duplicating tree positions into a "map features" table would mean two sources of truth that drift apart. Deriving the layers guarantees the map agrees with the asset register.'],
-  ],
-});
-
-moduleSection({
   number: 6,
-  title: 'Park Asset Management',
-  route: '/assets   -  Module 3  -  officer role to edit',
+  title: 'Ecosystem Monitoring Dashboard',
+  route: '/dashboard   -  Module 1  -  public',
   purpose:
-    'The digital inventory of every physical thing in a park: trees, plants, benches, lakes, paths, lights and ' +
-    'structures. Each asset carries a 0-100 condition, a maintenance history, and type-specific attributes. Asset ' +
-    'condition feeds the tree-health sub-index, so this module directly affects the headline ecosystem score.',
+    'The landing page. It answers "how are the parks doing right now" on one screen: the composite Ecosystem ' +
+    'Health Index and the sub-indices behind it, live weather and air quality, biodiversity, environmental trends, ' +
+    'operational queues and a ranking of the parks. A park filter narrows everything to one park. A notice at the ' +
+    'top states which data is real, demo or simulated.',
   tabs: [
-    ['Summary tiles', 'Total assets, mean condition, how many need attention (condition below 50), and total maintenance spend.'],
-    ['Condition by type', 'Count and mean condition per asset type, coloured by condition. The weakest class is where a scheduled maintenance cycle pays off most.'],
-    ['Inventory table', 'Filter by type, status and park; search by name, code or notes. Condition is a bar, not a number, so a bad asset is visible at a glance.'],
-    ['Detail drawer', 'Attributes, maintenance history with costs, and any related work orders. Warns when condition is below 50 and explains the knock-on effect on the park score.'],
-    ['Log maintenance', 'Records work against an asset and raises its condition - because logging a repair without reflecting its effect would leave the register permanently pessimistic.'],
+    ['KPI row', 'Eight tiles: Ecosystem Health, Biodiversity, Air Quality (AQI, badged Live - Open-Meteo), Water Quality, Soil Health, Tree Health, Species Recorded (for example "587 of 596") and Active Alerts. Each is coloured by its normalised score.'],
+    ['Ecosystem Health Index', 'A gauge and grade, plus Weighted contributions: one bar per sub-index with its weight. Sub-indices without data are listed as "No data" and left out, never counted as 0.'],
+    ['Live Conditions', 'Current weather and an AQI computed by this project from CAMS concentrations, with the per-pollutant sub-indices, the dominant pollutant, the averaging method and the upstream time in IST. Offline it says "Live data unavailable".'],
+    ['Biodiversity', 'Records by class, Shannon H\', evenness J\' and Gini-Simpson 1-D, and the number of species of elevated conservation concern.'],
+    ['Environmental Trends', 'Daily 0-100 scores over 7, 30 or 90 days. The legend marks water, soil and noise as simulated; a day without readings is a gap, not a zero.'],
+    ['Queues and feeds', 'Open incidents, reports awaiting review, work orders due (demo records); Active Alerts; Highest Priority incidents; Recent Activity across modules.'],
+    ['Park ranking', 'Parks Ranked by Ecosystem Health, with biodiversity alongside, and a sensor-network strip (online, warning, offline).'],
   ],
   powered: [
-    ['Page', 'frontend/app/(app)/assets/page.tsx'],
-    ['API', 'GET/POST/PATCH/DELETE /api/assets, /assets/stats, /assets/:id/history, /assets/:id/maintenance'],
-    ['Backend', 'controllers/asset.controller.js on top of the generic CRUD factory'],
-    ['Model', 'models/Asset.js - one collection for all types, with a free-form attributes map'],
-    ['Notable', 'A pre-save hook derives the text status from the numeric condition, so the two can never disagree'],
+    ['Page', 'frontend/app/(app)/dashboard/page.tsx, components/shared/conditions-panel.tsx'],
+    ['API', 'GET /api/dashboard/overview, /dashboard/trend, /dashboard/activity; GET /api/integrations/park-conditions'],
+    ['Backend', 'controllers/dashboard.controller.js - the overview returns the whole page in one round trip'],
+    ['Services', 'ecosystem-score.service.js, biodiversity.service.js, aqi.service.js, external.service.js'],
   ],
   viva: [
-    ['Why one collection for seven asset types? ', 'Because they share 90% of their fields. Seven near-identical collections would mean seven near-identical sets of queries and seven chances to get pagination wrong. Type-specific fields live in an attributes map instead.'],
-    ['What is the CRUD factory? ', 'Eleven of the twelve modules need the same five operations - list with filter/sort/pagination, read, create, update, delete. Writing them per module would be around 700 lines of near-identical code. The factory in controllers/crud.factory.js generates them from a config, and each module adds only its genuinely specific handlers on top.'],
-    ['Why is deleting an asset a soft delete? ', 'Its maintenance history and any work orders referencing it must stay intact. The asset is marked inactive rather than erased.'],
+    ['How is the health score calculated? ', 'EHI = sum(w_k * S_k) / sum(w_k) over the sub-indices that have data, with air 0.25, water 0.20, tree 0.20, biodiversity 0.20 and soil 0.15. Dividing by the weights actually present means a park without a water sensor is scored on what it has, not punished with a zero.'],
+    ['Why does Freedom Park score so low? ', 'Its biodiversity sub-index is almost zero because GBIF has a single record inside its boundary - missing survey effort, not a dead park - and it has no mapped trees or water, so those are "No data".'],
+    ['Why can the Air Quality KPI differ from Live Conditions? ', 'The KPI is the mean of the parks\' stored virtual-sensor readings; the panel is a fresh query for the selected location (the mean park position when no park is selected).'],
   ],
 });
 
 moduleSection({
   number: 7,
-  title: 'Biodiversity Management',
-  route: '/biodiversity   -  Module 4  -  public; ecologist role to verify',
+  title: 'GIS & Urban Biodiversity Mapping',
+  route: '/map   -  Module 2  -  public  -  sidebar: Biodiversity Map',
   purpose:
-    'The species catalogue and the ecological mathematics computed over it. This is the most academically ' +
-    'substantial module in the project, and the one worth understanding best before a viva - it is where the ' +
-    'real ecology lives.',
+    'An interactive Leaflet map with eight switchable layers. The module has no collection of its own: every layer ' +
+    'is a live projection of data another module owns - a tree pin is the asset register\'s record of that tree - so ' +
+    'the map cannot go stale relative to the rest of the system.',
   tabs: [
-    ['Indices', 'Species richness, Shannon-Wiener, Pielou evenness, Simpson, Margalef, Berger-Parker dominance - each shown with its formula, its value for the current data, and a plain-English note on what it measures. Also shows the abundance vector the indices were computed from, and per-taxocene indices.'],
-    ['Catalogue', 'Species cards with conservation status, habitat, seasonality and images. Invasive and indicator species are badged. Opening one offers a GBIF cross-check against the global occurrence record.'],
-    ['Observations', 'Field sightings, filterable by verification state and source. Only VERIFIED observations count towards the indices - that gate stops one enthusiastic or mistaken reporter from moving a park\'s score.'],
-    ['Compare', 'Every park side by side on the same indices, so "which park needs conservation attention" has an evidence-based answer.'],
-    ['Index calculator', 'Type any abundance vector and the server recomputes every index live. Use this in the review: enter "100, 1, 1, 1" then "25, 25, 25, 25" - same richness, completely different evenness.'],
+    ['Layers', 'Parks (OSM boundaries), Trees & Plants, Water Bodies, Walking Trails (OSM), Wildlife Records (the latest 500 verified GBIF-based observations), Pollution Hotspots (demo incidents), Sensors, Citizen Reports. Each chip shows its feature count.'],
+    ['Search', 'Matches across visible layers. Non-matching features are dimmed, not hidden, to keep the spatial context. A hit flies the map to the feature.'],
+    ['Selected panel', 'The full record of the clicked feature with its provenance badge; asset condition is labelled "demonstration value".'],
+    ['Base maps', 'OpenStreetMap, Esri satellite or OpenTopoMap through Leaflet\'s own control. The tiles need a connection; the data layers do not.'],
   ],
   powered: [
-    ['Page', 'frontend/app/(app)/biodiversity/page.tsx'],
-    ['API', 'GET /api/biodiversity/indices, /compare, /seasonality, /species, /observations; POST /indices/preview'],
-    ['Service', 'services/biodiversity.service.js - all index mathematics'],
-    ['Models', 'models/Species.js (catalogue) and models/Observation.js (field records)'],
-    ['External', 'GBIF occurrence search and backbone taxonomy matching'],
-    ['Notable', 'Population counts are NOT stored on the species; they are aggregated from observations so the indices always reflect real field records'],
+    ['Page', 'frontend/app/(app)/map/page.tsx, components/map/biodiversity-map.tsx, components/map/layer-config.ts'],
+    ['API', 'GET /api/gis/layers, /gis/heatmap, /gis/within'],
+    ['Backend', 'controllers/gis.controller.js - composes GeoJSON FeatureCollections from other collections'],
+    ['Data', 'GeoJSON with 2dsphere indexes; pollution circles sized by the incident\'s computed priority'],
   ],
   viva: [
-    ['What does the Shannon index actually measure? ', 'H\' = -sum(p_i * ln(p_i)), where p_i is a species\' share of all individuals. It is the uncertainty in guessing the species of a randomly drawn individual. It rises with both the number of species and how evenly they are spread. A single-species site scores 0.'],
-    ['Why report evenness separately? ', 'Because richness alone lies. A park with 500 pigeons and one hawk has two species, the same as one with 250 of each - but they are not equally healthy. Pielou evenness J\' = H\'/ln(S) isolates that, so a park dominated by one invasive species cannot score well on species count alone.'],
-    ['What is the taxocene point? ', 'Ecologists normally compute diversity within one taxonomic group surveyed by one method, not across all life. Pooling bird counts with plant-stem counts mixes units of survey effort. This project reports the pooled score because a manager needs one number per park, but it also reports per-class indices - and says so openly rather than hiding it.'],
-    ['Why do unverified sightings not count? ', 'Because citizen data is unvalidated by definition. Verification by an ecologist is the gate where public input enters the scientific record.'],
+    ['Why GeoJSON? ', 'Leaflet consumes it almost directly, and MongoDB\'s 2dsphere index understands it, so "what is within 1 km" (/gis/within, /parks/near) is one indexed $near query.'],
+    ['What is the coordinate trap? ', 'GeoJSON is [longitude, latitude]; Leaflet is [latitude, longitude]. Backwards, a Bengaluru park lands in the Indian Ocean. Conversion happens only in frontend/lib/api/geo.ts, and the API rejects [0, 0] as "no location picked".'],
   ],
 });
 
 moduleSection({
   number: 8,
-  title: 'AI Ecosystem Monitoring',
-  route: '/ai   -  Module 5',
+  title: 'Park Asset Management',
+  route: '/assets   -  Module 3  -  public to read; officer to edit  -  sidebar: Park Assets',
   purpose:
-    'Vision analysis for five tasks: tree disease, plant identification, wildlife recognition, waste detection ' +
-    'and fire detection. Submit an image and get a prediction, a full class-probability vector, a severity rating ' +
-    'and a recommended action - with automatic escalation to an incident when a finding is both dangerous and ' +
-    'confident.',
+    'The inventory of physical assets - trees, plants, benches, lakes, paths, lights and structures. Positions and ' +
+    'types are real OpenStreetMap features; condition scores and maintenance histories are demonstration values, ' +
+    'badged "Demo condition". Tree and plant condition feeds the tree-health sub-index.',
   tabs: [
-    ['Analyse', 'Pick a task, paste a URL or upload a photo, choose a park. Returns the winning label, the confidence, the complete softmax vector, and the escalation decision with its reasoning shown as three checks.'],
-    ['Detections', 'Every past inference as an image gallery. An ecologist can confirm or overturn each one - that is what builds the ground-truth set a retraining pipeline would consume.'],
-    ['Models', 'A model card per task: backbone, version, input size, and the full output class vocabulary with the severity each label implies.'],
-    ['Performance', 'Detection volume, mean confidence per model, confidence distribution, and - where human reviews exist - the observed precision.'],
+    ['Summary tiles', 'Total assets, Mean condition, Needs attention (condition below 50) and Maintenance spend.'],
+    ['Condition by Asset Type', 'Count and mean condition per type, coloured by condition.'],
+    ['Inventory table', 'Filter by type, status and park; search by name, code or notes. Each row carries an OpenStreetMap badge and, where applicable, a Demo condition badge.'],
+    ['History / Log maintenance', 'The history drawer lists maintenance records and related work orders. Log maintenance records the work and raises the condition by 10 (the API also accepts an explicit condition after the work).'],
+    ['Add, Edit, Retire', 'Officers add and edit; retiring is a soft delete (admin), so history and work orders stay intact.'],
   ],
   powered: [
-    ['Page', 'frontend/app/(app)/ai/page.tsx'],
-    ['API', 'POST /api/ai/analyze, /ai/:id/review; GET /ai/tasks, /ai/gallery, /ai/stats'],
-    ['Service', 'services/ai-inference.service.js'],
-    ['Model', 'models/AiDetection.js - stores the full probability vector, not just the winner'],
-    ['Extension point', 'Set AI_MODEL_ENDPOINT and the same code path POSTs to a real served model instead'],
+    ['Page', 'frontend/app/(app)/assets/page.tsx'],
+    ['API', 'GET/POST/PATCH/DELETE /api/assets; GET /assets/stats, /assets/:id/history; POST /assets/:id/maintenance'],
+    ['Backend', 'controllers/asset.controller.js on the CRUD factory; models/Asset.js'],
+    ['Notable', 'status is derived from condition in a pre-save hook, so the two can never disagree; codes (TRE-0001 ...) come from an atomic counter'],
   ],
   viva: [
-    ['Is the AI real? ', 'Answer honestly, because honesty is the strong answer here. The inference CONTRACT is fully real - class vocabulary, softmax, argmax, severity mapping, the escalation rule, storage of the full probability vector. The logits come from a deterministic hash of the image rather than trained weights. This was the scope agreed at the Week-6 assessor review, which explicitly asked that simulated responses be stated rather than overstated.'],
-    ['What would the real model be? ', 'Transfer learning: decode, resize to 224x224, normalise to ImageNet statistics, MobileNetV2 or EfficientNet-B0 backbone frozen initially, global average pooling, dropout 0.2, dense head of C classes, softmax. Transfer learning because the few thousand labelled images a municipality can realistically gather are far too few to train from scratch but ample to fine-tune a head.'],
-    ['Why deterministic rather than random? ', 'So a demonstration cannot be derailed by a re-roll. The same photo always gives the same answer, and the seeded records stay stable.'],
-    ['Explain the escalation rule. ', 'A high or critical severity finding opens an incident automatically only above a configurable confidence floor (default 85%). Below it, the finding is queued for a human instead - because a false fire alarm is expensive.'],
+    ['Why one collection for seven types? ', 'They share almost every field. Type-specific data goes in a free-form attributes map, so queries, the table and the map layer stay generic.'],
+    ['Is the condition data real? ', 'No - nobody has surveyed these assets. The positions, species and types are real OpenStreetMap data; condition and history are demo values and are labelled so.'],
   ],
 });
 
 moduleSection({
   number: 9,
-  title: 'Environmental Sensor Monitoring',
-  route: '/sensors   -  Module 6',
+  title: 'Biodiversity Management',
+  route: '/biodiversity   -  Module 4  -  public; ecologist to curate and verify',
   purpose:
-    'Live readings from 32 monitoring devices across six measurement types, each normalised onto a common 0-100 ' +
-    'scale and screened by a three-detector statistical anomaly ensemble.',
+    'The species catalogue and the diversity indices computed over GBIF occurrence records inside each park ' +
+    'boundary since January 2023. Only verified observations count; GBIF rows are imported as verified because they ' +
+    'are already published records.',
   tabs: [
-    ['Network health', 'Deployed, online, warning and offline counts. Offline sensors are excluded from scoring rather than counted as zero.'],
-    ['Normalised scores', 'Mean score per sensor type with a note explaining how each raw unit is mapped - this is the step that makes incompatible units comparable.'],
-    ['Device grid', 'One card per sensor: current reading, normalised score, status, battery, threshold breach and staleness. Filterable by type.'],
-    ['Detail drawer', 'Time series over 6h to 7 days with anomalous readings marked as points and warning thresholds drawn as reference lines - so "why is this in warning" is answerable by looking. Also lists every detected anomaly with its z-score and the ensemble\'s reasoning.'],
+    ['Indices', 'Biodiversity Score, species richness, Shannon-Wiener and Pielou evenness; How the score is derived (five formula cards with this data\'s values and the composite); Composition; Threatened; Invasive records (GRIIS India); Per-Taxocene Indices; Abundance Distribution; Seasonality; and the Index Calculator.'],
+    ['Catalogue', 'Species cards with IUCN badges - "Not Evaluated" kept distinct from "Least Concern" - and "Invasive in India (GRIIS)" or "Introduced" badges. The species sheet links to GBIF.org and offers Cross-check against GBIF.'],
+    ['Observations', 'Records filterable by verification and source. GBIF rows read "N GBIF records" and show a month, not a day. Ecologists can Verify or Withdraw.'],
+    ['Compare', 'Biodiversity by Park: every park on the same indices.'],
   ],
   powered: [
-    ['Page', 'frontend/app/(app)/sensors/page.tsx'],
-    ['API', 'GET /api/sensors/live, /:id/readings, /:id/anomalies; POST /:id/readings (ingestion), /simulate'],
-    ['Services', 'sensor.service.js (generation + ingestion), anomaly.service.js (detection)'],
-    ['Models', 'models/Sensor.js (registry) and models/SensorReading.js (time series, approx. 3,000 rows)'],
-    ['External', 'Open-Meteo weather and air quality anchor the simulated baseline every 15 minutes'],
+    ['Page', 'frontend/app/(app)/biodiversity/page.tsx'],
+    ['API', 'GET /api/biodiversity/indices, /compare, /seasonality, /species, /observations; POST /indices/preview, /observations/:id/verify'],
+    ['Service', 'services/biodiversity.service.js - all index mathematics'],
+    ['Models', 'Species (catalogue only) and Observation (the abundance records)'],
+    ['External', 'GET /api/integrations/gbif/:speciesId - live cross-check verdict'],
   ],
   viva: [
-    ['The sensors are not real - is that a problem? ', 'The hardware layer was documented as conceptual from Week 4. What matters is that the INGESTION PATH is real: validation, persistence, anomaly detection, threshold alerting and cached current values all run exactly as they would with physical hardware. POST /api/sensors/:id/readings is the door a real gateway would use; the simulator calls the same service function internally. Replacing simulation with real hardware changes nothing below that endpoint.'],
-    ['How are readings generated? ', 'x_t = alpha * x_(t-1) + (1-alpha) * (base + A*sin(2*pi*(h-phase)/24)) + noise. The AR(1) term makes the series drift rather than jump between independent samples; the sine term gives a daily cycle; noise is Gaussian via Box-Muller. Crucially, "base" is not a constant when online - it is anchored to live weather and CAMS air-quality data for that park\'s real coordinates.'],
-    ['How does anomaly detection work? ', 'Three detectors vote. Z-score (|z| > 3) is cheap and interpretable but its standard deviation is inflated by the very outliers it seeks. The modified z-score uses median absolute deviation, which has a 50% breakdown point and so is not fooled by extreme values. Tukey\'s IQR fence assumes no distribution at all. A reading is flagged when at least two agree - majority voting cuts the false positives any single detector produces on noisy field data.'],
-    ['Why normalise readings? ', 'Because a LOW AQI is good while a HIGH soil-moisture reading is good, and they are in different units entirely. Three shapes cover every sensor: higher-is-better, lower-is-better, and an optimal band (temperature and humidity). AQI is special-cased through the CPCB category map rather than linearly rescaled, because stretching an already-piecewise index would distort its category boundaries.'],
+    ['What does Shannon measure? ', 'H\' = -sum(p_i * ln p_i): the uncertainty in guessing the species of a randomly drawn record. It rises with both richness and evenness; one species gives 0.'],
+    ['Show me the maths is real. ', 'Index Calculator: "100, 1, 1, 1" gives H\' = 0.16, J\' = 0.12; "25, 25, 25, 25" gives H\' = 1.39, J\' = 1.00. Same richness, different ecological health.'],
+    ['Why does Sankey Tank outscore Lalbagh? ', 'A sampling artefact. With 96 records most species appear once or twice, so evenness approaches 1; Lalbagh has 33,803. The indices describe what has been recorded, not how many animals live there.'],
+    ['Is pooling birds and plants valid? ', 'Not really - ecologists compute diversity within a taxocene. The pooled score is reported because a manager needs one number, and the per-taxocene table is the rigorous comparison.'],
   ],
 });
 
 moduleSection({
   number: 10,
-  title: 'Citizen Engagement Portal',
-  route: '/citizen   -  Module 7  -  sign-in required to submit',
+  title: 'AI Ecosystem Monitoring',
+  route: '/ai   -  Module 5  -  public to read; sign-in to analyse  -  sidebar: AI Monitoring',
   purpose:
-    'Where the public reports issues, logs wildlife sightings and gives feedback. The module implements a complete ' +
-    'flow: citizen submits, officer reviews, and on acceptance the report becomes either a tracked incident or a ' +
-    'verified biodiversity record.',
+    'Image analysis for five tasks - Tree & foliage health, Plant & fungus recognition, Wildlife recognition, Litter ' +
+    'detection and Fire & smoke detection - computed by a pre-trained MobileNetV2 on the server plus pixel colour ' +
+    'statistics. Every finding goes to human review; only fire and smoke can open an incident automatically. The ' +
+    'page states the measured accuracy, including where it fails. Chapter 18 has the full pipeline.',
   tabs: [
-    ['All reports', 'Every submission with status, upvotes and - where accepted - a link to the incident it became. That link is the point of the module: it closes the loop between reporting something and seeing it acted on.'],
-    ['My contributions', 'The signed-in citizen\'s own history, upvotes received, and how many submissions were acted on.'],
-    ['Community impact', 'Submissions by category and park, acceptance rate, and a top-contributors leaderboard.'],
-    ['Submit', 'Category, description, park, and location - with "use my location" via browser geolocation and reverse geocoding to a readable street address. Wildlife sightings can name a species.'],
-    ['Officer review', 'Accept, hold or reject. Accepting an issue requires a severity and an exposure estimate, because those feed the incident\'s triage score - the officer is not just saying yes, they are supplying the facts that determine queue position.'],
+    ['Analyse', 'Choose a task, upload a JPEG or PNG (up to 6 MB) or give an image URL, optionally choose a park ("needed for auto-escalation"), then Analyse image. The result shows the stored copy, prediction, severity, confidence, Label probabilities, Recommended action, Caveats, Evidence, Top ImageNet classes, timings and the Escalation decision.'],
+    ['Detections', 'The latest 24 detections. Ecologists mark each Correct, or Wrong with the label it should have had.'],
+    ['Model', 'The model card (weights, input size, runtime and backend, measured accuracy) and one card per task with its labels, severities and "N/M correct".'],
+    ['Performance', 'Total detections, Awaiting review, Confirmed, Observed precision (confirmed / reviewed), detections and mean confidence by task, confidence distribution, findings by severity.'],
   ],
   powered: [
-    ['Page', 'frontend/app/(app)/citizen/page.tsx'],
-    ['API', 'GET/POST /api/citizen/reports, /my-reports, /stats; POST /:id/upvote, /:id/review'],
-    ['Backend', 'controllers/citizen.controller.js - the review handler is where public input enters the record'],
-    ['Model', 'models/CitizenReport.js, linked to Incident and Observation'],
-    ['External', 'OpenStreetMap Nominatim for reverse geocoding'],
+    ['Page', 'frontend/app/(app)/ai/page.tsx'],
+    ['API', 'POST /api/ai/analyze, /ai/:id/review; GET /ai/tasks, /ai/stats, /ai/gallery, /ai/detections, /ai/images/:id'],
+    ['Services', 'vision.service.js (fetch, decode, pixels, network), ai-inference.service.js (task mapping)'],
+    ['Models', 'AiDetection (probabilities, top-5 ImageNet classes, evidence, review), AiImage (stored JPEG, unique SHA-256)'],
   ],
   viva: [
-    ['Why are reports separate from incidents? ', 'Reports are unverified public input; incidents are operational work items officers act on. Merging them would put unvalidated data straight into the work queue. Keeping them separate, with a link on acceptance, preserves the audit trail from citizen to resolution.'],
-    ['Why do upvotes matter? ', 'They are the community-signal term in the triage formula, weighted at 0.10. Upvoting a report re-scores its linked incident, so public attention genuinely moves things up the queue - but only slightly, so it can never outrank a hazard.'],
-    ['What is the acceptance rate metric for? ', 'It measures engagement QUALITY, not volume. A thousand submissions that officers ignore is a worse outcome than fifty that get acted on.'],
+    ['Is the AI real? ', 'Yes - genuine inference on the submitted pixels. But the network was not trained or fine-tuned by this project: it is Google\'s ImageNet checkpoint, and each task pools ImageNet classes and colour evidence into its own labels.'],
+    ['How accurate is it? ', '16 of 22 labelled photos (73 %): fire 9/11, foliage 3/3, wildlife 3/3, plants 1/2, litter 0/3. Those photos also calibrated the thresholds, so the figure is optimistic.'],
+    ['Why is a pond heron a "bittern"? ', 'Species are named at ImageNet granularity; most Indian species are not in ImageNet. The task answers "Bird" and reports the closest ImageNet class.'],
   ],
 });
 
 moduleSection({
   number: 11,
-  title: 'Incident & Alert Management',
-  route: '/incidents   -  Module 8  -  officer role',
+  title: 'Environmental Sensor Monitoring',
+  route: '/sensors   -  Module 6  -  public; officer to refresh',
   purpose:
-    'The operational core. "Priority-based solving" is named as a differentiator in the project deck, so priority ' +
-    'here is COMPUTED from the incident\'s own attributes rather than typed in by whoever filed the report.',
+    'The sensor network, normalised onto a common 0-100 scale and screened by a three-detector anomaly ensemble. ' +
+    'There is no physical deployment: AQI, temperature and humidity sensors are virtual Open-Meteo observations for ' +
+    'each park\'s coordinates; noise, soil moisture and water quality are simulated, to exercise the same ingestion, ' +
+    'anomaly and alert path a physical gateway would use. The page says exactly this at the top.',
   tabs: [
-    ['Triage queue', 'Open incidents in the order they should be worked, each showing its score and the five factor values behind it. Overdue incidents are flagged against their response target.'],
-    ['All incidents', 'Full history with filters, including resolved ones and their resolution times.'],
-    ['Alerts', 'The generated notification stream - sensor thresholds, anomalies, high-severity AI findings. Acknowledge individually or clear the board.'],
-    ['Statistics', 'Incidents by type (bar intensity follows hazard weight), by priority band, and mean response time against target per type.'],
-    ['Detail drawer', 'Full factor breakdown of the score, the status timeline, and the actions: assign an officer, raise a work order, resolve.'],
+    ['Network tiles', 'Deployed (with the split by source, for example "18 Open-Meteo - 15 simulated"), Online, Warning, Offline (excluded from scoring) and Maintenance.'],
+    ['Normalised Scores by Sensor Type', 'Mean score per type with its source badges and a note on how the raw unit is mapped.'],
+    ['Device grid', 'One card per sensor: value, normalised score, status, source badge, threshold breach and staleness, filterable by type. Officers get Refresh readings.'],
+    ['Detail sheet', 'Reading history over 6 h to 7 d with warning thresholds as dashed lines and flagged anomalies as red points; min, max, mean, median, sigma; the anomaly list with z-scores and reasons; calibration.'],
   ],
   powered: [
-    ['Page', 'frontend/app/(app)/incidents/page.tsx'],
-    ['API', 'GET /api/incidents, /triage, /stats; POST /:id/assign, /:id/resolve, /:id/work-order'],
-    ['Service', 'services/priority.service.js (triage), alert.service.js (deduplicated alerts)'],
-    ['Models', 'models/Incident.js with an embedded timeline, models/Alert.js'],
-    ['Notable', 'The API never accepts a priority value from the client - it is always recomputed server-side'],
+    ['Page', 'frontend/app/(app)/sensors/page.tsx'],
+    ['API', 'GET /api/sensors/live, /:id/readings, /:id/anomalies; POST /sensors/refresh (officer), /:id/readings (device sensors only)'],
+    ['Services', 'sensor.service.js (refresh, simulation, ingestion), anomaly.service.js (detection), external.service.js (Open-Meteo)'],
+    ['Models', 'Sensor (source: open-meteo | simulated | device, thresholds, cached value) and SensorReading'],
   ],
   viva: [
-    ['How is priority calculated? ', 'P = 100 * (0.35*hazard + 0.25*severity + 0.20*exposure + 0.10*urgency + 0.10*community). Hazard is the intrinsic danger of the incident type - a fire is 1.0, vandalism 0.4 - so no amount of upvotes can make a broken bench outrank a fire.'],
-    ['Why is exposure log-scaled? ', 'Because the difference between 10 and 100 people affected matters far more than between 4,000 and 4,090. A linear term would let one very large number swamp everything else.'],
-    ['Explain the ageing term. ', 'U(t) = 1 - e^(-t/tau), where tau is the incident type\'s target response time. An unattended incident must climb the queue or it starves behind newer, slightly-higher-scoring ones. But the curve saturates: at t = tau it has about 63% of the ageing weight, at 3*tau about 95%, and it never grows beyond that - so an old complaint can never outrank a new fire.'],
-    ['Why deduplicate alerts? ', 'A sensor that stays out of range produces a reading every minute. Raising a new alert each time buries the operator. Alerts are keyed by the CONDITION, so a repeat bumps an occurrence counter instead of creating a new row - and the alert auto-resolves when the sensor returns to range.'],
+    ['Are the sensors real? ', 'Half of them are real data without real hardware: every stored AQI, temperature and humidity reading is an Open-Meteo observation, ingested only when the upstream time advances. Noise, soil and water are simulated and labelled.'],
+    ['Why did Refresh readings add 0 observations? ', 'Because Open-Meteo had no newer observation. The system refuses to duplicate or invent readings.'],
+    ['Why are two parks\' AQI identical? ', 'CAMS and the forecast model are gridded; one cell can cover several nearby parks.'],
+    ['How would real hardware plug in? ', 'Register a sensor with source "device"; a gateway POSTs to /api/sensors/:id/readings and nothing downstream changes.'],
   ],
 });
 
 moduleSection({
   number: 12,
-  title: 'Maintenance Management',
-  route: '/maintenance   -  Module 9  -  officer role',
+  title: 'Citizen Engagement Portal',
+  route: '/citizen   -  Module 7  -  public to read; sign-in to report and upvote; officer to review',
   purpose:
-    'Work orders - the planned counterpart to incidents. Incidents are unplanned events; work orders are scheduled ' +
-    'tasks. Completing one is what actually restores an asset\'s condition.',
+    'Where the public reports issues, logs wildlife sightings and gives feedback or suggestions. An officer reviews ' +
+    'every submission: an accepted issue becomes a tracked incident, an accepted sighting becomes a verified ' +
+    'observation that enters the biodiversity indices. The seeded reports are demo records.',
   tabs: [
-    ['Work orders', 'Filterable list with progress bars, priority and assignee. Overdue orders carry a red edge.'],
-    ['Calendar', 'A real month grid with orders on their scheduled days, colour-coded by status and navigable month to month.'],
-    ['Workload', 'Cost by work type, orders by status, and open assignments per person - an unbalanced column is the case for reallocating crew rather than hiring.'],
-    ['Detail drawer', 'Update progress with a slider. Setting 100% marks the order complete, appends it to the linked asset\'s maintenance history, and raises that asset\'s condition automatically.'],
+    ['All reports', 'Filter by category, status and park. Each card shows its CR- reference, status, upvote button and, once accepted, "Became incident INC-... - status". Officers and admins see Review on submitted and in-review reports.'],
+    ['My contributions', 'The signed-in user\'s own reports, statuses and upvotes received.'],
+    ['Community impact', 'Submissions by category, participation by park, acceptance rate and top contributors.'],
+    ['Submit a report', 'Issue, Wildlife sighting, Feedback or Suggestion; title, description, park, species (sightings); location from Park centre or Use my location, with a reverse-geocoded address.'],
+    ['Review report', 'Accept, Hold or Reject. Accepting an issue asks for incident type, severity and people affected (they feed the triage score); accepting a sighting needs a species and a count.'],
   ],
   powered: [
-    ['Page', 'frontend/app/(app)/maintenance/page.tsx'],
-    ['API', 'GET /api/maintenance, /calendar, /stats; PATCH /:id/progress'],
-    ['Backend', 'controllers/maintenance.controller.js'],
-    ['Model', 'models/WorkOrder.js - pre-save hook keeps progress, status and completion timestamp consistent'],
-    ['Notable', 'Completion writes to two collections at once, so the asset register and the maintenance log cannot drift apart'],
+    ['Page', 'frontend/app/(app)/citizen/page.tsx'],
+    ['API', 'GET /api/citizen/reports, /my-reports, /my-upvotes, /stats; POST /reports, /reports/:id/upvote, /reports/:id/review; DELETE /reports/:id/upvote'],
+    ['Backend', 'controllers/citizen.controller.js'],
+    ['Model', 'CitizenReport (upvotedBy, linkedIncident, species)'],
   ],
   viva: [
-    ['Why are work orders separate from incidents? ', 'Different lifecycles. An incident is reported, triaged and resolved; a work order is scheduled, worked and completed. One incident may produce several work orders, and most work orders come from a maintenance schedule rather than an incident at all.'],
-    ['What happens when you complete one? ', 'Three things in one operation: the order is marked complete with a timestamp, a maintenance record is appended to the linked asset, and the asset\'s condition rises. That is what stops the inventory staying permanently pessimistic after a repair.'],
-    ['How does an order become overdue? ', 'A pre-save hook flags any scheduled order whose date has passed. It is derived, not a status somebody has to remember to set.'],
+    ['Can one person inflate upvotes? ', 'No. The upvote is one conditional atomic update - add this user and increment only if the user is not already in upvotedBy - so repeats count once. The voter list is never sent to clients.'],
+    ['Do upvotes change priority? ', 'Yes, slightly: the count is mirrored onto the linked incident and feeds its community term, log-scaled and weighted 0.10, so popularity cannot outrank a hazard.'],
+    ['Why keep reports separate from incidents? ', 'Reports are unverified public input; incidents are work items. Acceptance is the gate, and the link preserves the trail from citizen to resolution.'],
   ],
 });
 
 moduleSection({
   number: 13,
-  title: 'Analytics & Reports',
-  route: '/analytics   -  Module 10',
+  title: 'Incident & Alert Management',
+  route: '/incidents   -  Module 8  -  officer (the public alert feed is shown to others)',
   purpose:
-    'Cross-module trend analysis and data export. Read-only aggregation over the whole database, with a saved-report ' +
-    'archive and CSV/PDF export.',
+    'The operational core. Incidents are ordered by a score computed from their own attributes, never typed in. ' +
+    'Incident records carry reporter identities and exact hazard locations, so every incident route - including ' +
+    'reads - requires an officer. The seeded incidents are demo records.',
   tabs: [
-    ['Overview', 'Headline figures for the selected window and park: health, biodiversity, incident resolution rate, maintenance completion, and the five sub-indices as bars.'],
-    ['Trends', 'Environmental indicators with anomaly counts overlaid; biodiversity with Shannon recomputed per month; incident volume against backlog; citizen participation stacked by category.'],
-    ['Compare', 'Every park on all five sub-indices side by side, plus a full comparison table.'],
-    ['Reports', 'Saved ecological assessments with findings and recommendations. Each stores a frozen metric snapshot, so a published report keeps showing the figures it was written against even after live scores move on. Exportable to PDF.'],
-    ['Export', 'Five datasets, each as CSV or PDF, respecting the current park filter.'],
+    ['Triage queue', 'Open incidents highest score first, each with its live score, priority, status, overdue flag and five factor values; Open, Overdue and Critical tiles.'],
+    ['All incidents', 'The full history with filters, including resolved and closed incidents.'],
+    ['Alerts', 'The deduplicated alert stream from sensors, incidents and fire findings: Acknowledge, Resolve, or acknowledge all.'],
+    ['Statistics', 'Incidents by Type, By Priority Band, and Response Time Against Target.'],
+    ['Detail sheet', 'Score breakdown and timeline. Actions: Assign to a member of staff, Raise a work order, Update status & details (severity and people affected re-score it), Resolution notes and Mark resolved. Report an incident creates one by hand.'],
   ],
   powered: [
-    ['Page', 'frontend/app/(app)/analytics/page.tsx'],
-    ['API', 'GET /api/analytics/summary, /environmental-trend, /biodiversity-trend, /incident-trend, /engagement, /park-comparison, /export'],
-    ['Backend', 'controllers/analytics.controller.js - MongoDB aggregation pipelines with $group and $dateToString'],
-    ['Libraries', 'Recharts for charts; jsPDF + autoTable for client-side PDF generation'],
+    ['Page', 'frontend/app/(app)/incidents/page.tsx'],
+    ['API', 'GET /api/incidents, /incidents/triage, /incidents/stats; POST /incidents, /:id/assign, /:id/resolve, /:id/work-order; GET/POST /api/alerts'],
+    ['Services', 'priority.service.js (triage), alert.service.js (deduplicated alerts)'],
+    ['Notable', 'priority and priorityScore are recomputed on every write and ignored if sent; one incident cannot have two open work orders (409)'],
   ],
   viva: [
-    ['Where does the aggregation happen? ', 'In MongoDB, using aggregation pipelines. Grouping thousands of readings by day in the database and returning 30 rows is far cheaper than sending every row to the browser to be grouped there.'],
-    ['Why is the biodiversity trend special? ', 'Because Shannon is genuinely recomputed from each month\'s own observations, not averaged. Averaging an index across months is mathematically meaningless - the index is a property of a distribution, not a quantity you can take a mean of.'],
-    ['Why generate PDFs in the browser? ', 'Server-side PDF rendering means shipping a headless Chrome into the deployment. jsPDF does it client-side from data the browser already has, and nothing leaves the machine.'],
+    ['How is priority calculated? ', 'P = 100 * (0.35*H + 0.25*S + 0.20*E + 0.10*U + 0.10*C): hazard of the type (fire 1.0, vandalism 0.4), severity, log-scaled exposure, urgency from age, log-scaled community upvotes.'],
+    ['Explain the ageing term. ', 'U(t) = 1 - e^(-t/tau), tau being the type\'s response target. It climbs quickly and saturates: at most 10 points, so a week-old vandalism report can never outrank a new fire.'],
+    ['How do you avoid alert spam? ', 'Alerts are keyed by condition (dedupeKey). A repeat increments an occurrence counter instead of adding a row, and the alert auto-resolves when the condition clears.'],
   ],
 });
 
 moduleSection({
   number: 14,
-  title: 'AI Environmental Assistant',
-  route: '/assistant   -  Module 11',
+  title: 'Maintenance Management',
+  route: '/maintenance   -  Module 9  -  officer',
   purpose:
-    'A question-answering chatbot over the live database. Retrieval-augmented: the retrieval half is genuinely ' +
-    'implemented with TF-IDF and cosine similarity, while answers are composed from templates rather than a ' +
-    'language model.',
+    'Work orders - the planned counterpart to incidents. Completing one logs the work against its asset and restores ' +
+    'the asset\'s condition. The seeded work orders are demo records.',
   tabs: [
-    ['Conversation', 'Ask in plain language. Each answer shows the matched intent, the intent confidence and the response time.'],
-    ['Sources', 'The documents the retrieval step surfaced, with their similarity scores - so every claim is traceable to the record it came from.'],
-    ['Suggestions', 'Starter questions covering each supported intent.'],
-    ['How it works', 'The retrieval mathematics stated openly on the page itself.'],
+    ['Work orders', 'Filterable list with progress, priority, assignee and overdue flags. New work order schedules one, optionally against an asset and a member of staff.'],
+    ['Calendar', 'A month grid of orders on their scheduled days, navigable month to month.'],
+    ['Workload', 'Estimated Cost by Work Type, Orders by Status, and Open Assignments per Person.'],
+    ['Detail sheet', 'Update progress with a slider and Save progress. 100 % completes the order, appends a maintenance record to the linked asset and raises its condition by 15. Reschedule, Cancel work order, Delete.'],
   ],
   powered: [
-    ['Page', 'frontend/app/(app)/assistant/page.tsx'],
-    ['API', 'POST /api/assistant/ask, /assistant/search; GET /assistant/suggestions'],
-    ['Service', 'services/assistant.service.js - tokenising, intent routing, TF-IDF index, answer composition'],
-    ['Model', 'models/ChatMessage.js - stores citations and intent per turn'],
-    ['Notable', 'The same retrieval powers the global search box in the navigation bar'],
+    ['Page', 'frontend/app/(app)/maintenance/page.tsx'],
+    ['API', 'GET /api/maintenance, /maintenance/calendar, /maintenance/stats; POST /maintenance; PATCH /:id, /:id/progress'],
+    ['Backend', 'controllers/maintenance.controller.js; models/WorkOrder.js keeps progress, status and completion time consistent'],
   ],
   viva: [
-    ['Is this a real LLM? ', 'No, and say so plainly. Retrieval is real: a corpus is rebuilt from MongoDB, weighted with tf-idf, and ranked by cosine similarity. Generation is template-based. The advantage is that every figure is read from the database and cited, so the assistant cannot hallucinate a number - which a language model at this scale absolutely would.'],
-    ['Explain TF-IDF. ', 'tf(t,d) is how often a term appears in a document, divided by document length. idf(t) = ln(N / (1 + n_t)) + 1 downweights terms appearing everywhere - "park" carries almost no signal in a corpus of parks. The weight is tf * idf.'],
-    ['Why cosine and not dot product? ', 'Document lengths here vary by an order of magnitude. A species description dwarfs an incident title, and without length normalisation the long documents would always win regardless of relevance. Cosine divides by both vector magnitudes.'],
-    ['How would you upgrade it? ', 'Replace the TF-IDF stage with sentence embeddings and a vector database, then feed the retrieved documents to an LLM for generation. The interface - retrieve, then compose - would not change.'],
+    ['Why separate from incidents? ', 'Different lifecycles: an incident is reported, triaged and resolved; a work order is scheduled, worked and completed. Most work orders come from a schedule, not an incident.'],
+    ['How does an order become overdue? ', 'It is derived: a sweep every 10 minutes, and before every list, calendar and stats read, marks scheduled orders past their date as overdue.'],
   ],
 });
 
 moduleSection({
   number: 15,
-  title: 'Administration',
-  route: '/admin   -  Module 12  -  admin role only',
+  title: 'Analytics & Reports',
+  route: '/analytics   -  Module 10  -  public aggregates; ecologist for reports; officer for exports',
   purpose:
-    'User management, system configuration, the audit trail, and platform maintenance actions. The consequential ' +
-    'control here is the health-index weight editor.',
+    'Cross-module trend analysis, park comparison, ecological reports computed from the data, and exports. ' +
+    'Aggregation happens in MongoDB pipelines; the page labels which series are real and which are demo or simulated.',
   tabs: [
-    ['Users', 'Full CRUD over accounts with role assignment and home park. Public registration always creates a citizen; elevated roles can only be granted here.'],
-    ['Settings', 'The five health-index weights as sliders, validated to sum to 1.00 before saving, with a normalise button. Also the anomaly z-score threshold and the AI escalation confidence floor - the two algorithm parameters worth tuning in the field.'],
-    ['Audit log', 'Append-only record of every create, update and delete, with the changed fields shown as before-and-after. Filterable by action and entity.'],
-    ['System', 'Collection sizes, database and runtime status, live status of every external integration, and maintenance actions: recompute all scores, reindex the assistant, regenerate the demo dataset.'],
+    ['Overview', 'Health Sub-Indices, Operational Summary and Threatened Species Recorded for the selected window and park.'],
+    ['Trends', 'Environmental Indicators with anomaly counts, Biodiversity Over Time (Shannon recomputed per month), Incident Volume & Backlog, Citizen Participation.'],
+    ['Compare', 'Ecosystem Health by Park on all sub-indices, with a comparison table.'],
+    ['Reports', 'Generate report (type, park, period) creates a draft whose metrics, findings and recommendations are computed from recorded data; Publish makes it visible to everyone; Archive; Export PDF. Drafts are visible to ecologists and above only.'],
+    ['Export', 'Incidents, assets, observations, citizen reports and work orders as CSV or PDF - officers and administrators only.'],
+  ],
+  powered: [
+    ['Page', 'frontend/app/(app)/analytics/page.tsx'],
+    ['API', 'GET /api/analytics/summary, /environmental-trend, /biodiversity-trend, /incident-trend, /engagement, /park-comparison, /export, /reports; POST /reports/generate; PATCH /reports/:id'],
+    ['Services', 'report.service.js (generated reports), plus the scoring services'],
+    ['Model', 'EcoReport - a frozen metric snapshot, findings, recommendations, draft/published/archived'],
+  ],
+  viva: [
+    ['How is a report "computed"? ', 'Each sentence comes from a stated rule over the frozen metrics - weakest sub-index below 55, evenness below 0.6, invasive records present, mean AQI above 100, overdue work orders and so on. A metric with no data produces a sentence saying so.'],
+    ['Why is the biodiversity trend special? ', 'Shannon is recomputed from each month\'s own records. Averaging an index across months would be meaningless: it is a property of a distribution.'],
+  ],
+});
+
+moduleSection({
+  number: 16,
+  title: 'AI Environmental Assistant',
+  route: '/assistant   -  Module 11  -  public  -  sidebar: Eco Assistant',
+  purpose:
+    'Question answering over the live database. Retrieval is genuine - TF-IDF weighting and cosine similarity over a ' +
+    'corpus rebuilt from MongoDB - and answers are composed from templates over the retrieved records and live ' +
+    'computations. It is not a large language model, and it says so.',
+  tabs: [
+    ['Conversation', 'Ask in plain language; each answer shows its intent, confidence and response time. New conversation starts a fresh thread; a reload restores the last one.'],
+    ['Try asking', 'Suggested questions, for example "How is the air quality at Cubbon Park?" and "How diverse are the species recorded at Lalbagh?".'],
+    ['Sources', 'The records the retrieval step surfaced, with similarity scores and links to their modules.'],
+    ['How it works', 'The retrieval mathematics, stated on the page.'],
+  ],
+  powered: [
+    ['Page', 'frontend/app/(app)/assistant/page.tsx'],
+    ['API', 'POST /api/assistant/ask, /assistant/search; GET /assistant/suggestions, /assistant/history/:sessionId'],
+    ['Service', 'services/assistant.service.js - tokenising, intent routing, TF-IDF index, answer templates'],
+    ['Model', 'ChatMessage - both turns with citations; a signed-in conversation is private to its account'],
+  ],
+  viva: [
+    ['Is it an LLM? ', 'No. Retrieval is real; generation is templates. Every figure is read from the database and traceable, so it cannot invent a number.'],
+    ['Why cosine, not a dot product? ', 'Document lengths vary by an order of magnitude; without length normalisation long species descriptions would win every query.'],
+    ['Why does naming a park not hijack the intent? ', 'A park name sets the scope; if a more specific intent also scored, that intent is used - so "air quality at Cubbon Park" is answered about air.'],
+  ],
+});
+
+moduleSection({
+  number: 17,
+  title: 'Administration',
+  route: '/admin   -  Module 12  -  admin only',
+  purpose:
+    'User management, system configuration, the audit trail and maintenance actions. The consequential control is ' +
+    'the health-index weight editor.',
+  tabs: [
+    ['Users', 'Add user, edit role and home park, deactivate. Elevated roles can only be granted here; an admin cannot change their own role or deactivate themselves.'],
+    ['Settings', 'Ecosystem Health Index Weights (must sum to 1.00, with Normalise to 1.00; saving re-scores every park); Algorithm Parameters & Switches (anomaly z-score threshold, AI auto-escalation confidence floor, sensor simulation, public reporting); Organisation.'],
+    ['Audit log', 'Append-only record of privileged writes with before-and-after fields.'],
+    ['System', 'Runtime and collection sizes; Public API Integrations with Reachable badges and Clear integration cache; Maintenance Actions: Recompute, Reindex, Reseed database (development only).'],
   ],
   powered: [
     ['Page', 'frontend/app/(app)/admin/page.tsx'],
-    ['API', 'GET/POST/PATCH/DELETE /api/admin/users; GET/PATCH /admin/settings; GET /admin/audit-log, /admin/stats'],
+    ['API', '/api/admin/users, /admin/settings, /admin/audit-log, /admin/stats, /admin/recompute-scores, /admin/reindex-assistant, /admin/reseed; /api/integrations/status'],
     ['Backend', 'controllers/admin.controller.js - the whole router is behind requireRole("admin")'],
-    ['Models', 'models/User.js, models/Setting.js (single document), models/AuditLog.js'],
+    ['Models', 'User, Setting (singleton), AuditLog'],
   ],
   viva: [
-    ['Why validate that weights sum to 1? ', 'Because they define the composite index. Saving weights that sum to 1.3 would silently inflate every score in the system. The save is rejected, and on success every park is re-scored immediately - leaving some parks on the old formula and some on the new one would be worse than not allowing the change.'],
-    ['Why an audit log? ', 'Municipal systems must answer "who changed this and when". It is append-only: corrections are new entries, never edits, so the history cannot be rewritten.'],
-    ['Can an admin lock themselves out? ', 'No. The controller refuses to let an administrator change their own role or deactivate their own account.'],
+    ['Why validate that weights sum to 1? ', 'They define the composite. Weights summing to 1.3 would silently inflate every score; and re-scoring every park on save avoids parks being scored under two formulas.'],
+    ['What stops self-promotion? ', 'Registration hard-codes the citizen role and ignores a role in the body; the role is re-read from the database on every request.'],
   ],
 });
 
 // ===========================================================================
-// MATHEMATICS
+// 18. AI PIPELINE AND ACCURACY
 // ===========================================================================
 
-h1('16. The Mathematics, in Plain English');
+h1('18. The AI Pipeline and Its Accuracy');
 
 para(
-  'Every formula in the project, with what it means and why that form was chosen. This chapter and the tech stack ' +
-  'chapter together cover the large majority of viva questions.'
+  'The model is Google\'s MobileNetV2 1.0 / 224 ImageNet classification checkpoint from TensorFlow Hub ' +
+  '(imagenet/mobilenet_v2_100_224/classification/2), run by TensorFlow.js on its WebAssembly backend. It is ' +
+  'downloaded once (about 14 MB) into backend/.cache/mobilenet-v2/ - at build time on Render - and loaded from ' +
+  'disk after that. Nothing was trained or fine-tuned by this project.'
 );
 
-h2('Ecosystem Health Index');
+h2('What happens on POST /api/ai/analyze');
 code([
-  'EHI = sum(w_k * S_k) / sum(w_k)',
-  '',
-  'w_air 0.25   w_water 0.20   w_soil 0.15',
-  'w_tree 0.20  w_biodiversity 0.20',
+  'requireAuth, rate limit 20 analyses / account / minute',
+  'loadImageBytes   URL: DNS check refuses loopback, private, link-local, CGNAT,',
+  '                 multicast; redirects followed manually (max 3), each re-checked;',
+  '                 15 s timeout, 8 MB max.   data URL: base64 decode, 8 MB max',
+  'decode           JPEG or PNG only, detected from the bytes, at least 16x16',
+  'describePixels   excess green, green leaf index, HSV foliage bands,',
+  '                 flame and smoke chromaticity',
+  'MobileNetV2      bilinear resize to 224x224, scale to [0,1], 1001 logits,',
+  '                 softmax, drop "background" -> 1000 ImageNet probabilities',
+  'interpret(task)  pool ImageNet class groups + pixel stats -> task scores',
+  'storeImage       <= 640 px JPEG, stored once per SHA-256 in AiImage',
+  'recordDetection  probabilities, top-5 ImageNet classes, evidence, notes',
+  'escalation rule  incident only for fire/smoke >= floor with a park',
 ]);
+
+h2('Turning ImageNet into park tasks');
 para(
-  'A weighted mean of five sub-indices, each normalised to 0-100 where higher is better. Dividing by the sum of ' +
-  'the weights actually present handles missing data correctly: a park with no soil sensor is scored on the four ' +
-  'indicators it does have rather than being punished with a zero.'
+  'ImageNet has no class for "chlorosis" or "overflowing bin". Each task is therefore built from signals the network ' +
+  'does produce. A group\'s evidence is the probability mass on its members, E_g = sum of p_i over the group - the 59 ' +
+  'bird classes become one "bird" signal. Where ImageNet has nothing useful, pixel statistics decide. Scores are ' +
+  'normalised into a probability vector, P(k) = s_k / sum(s_j); the prediction is the argmax and the confidence is ' +
+  '100 * max P.'
+);
+table(
+  ['Task', 'Labels', 'How it is scored'],
+  [
+    ['Tree & foliage health', 'Healthy green / Yellowing (chlorosis) / Browning (necrosis or dieback) / No foliage in frame', 'Shares of green, yellow and brown HSV pixels, gated by foliage cover and by strong animal evidence. A colour measurement, not a diagnosis.'],
+    ['Plant & fungus recognition', 'Flowering plant / Fruit, seed or vegetable / Fungus or mushroom / Foliage (outside vocabulary) / No plant', 'ImageNet flower, fruit and fungus groups, with pixel vegetation cover for the remainder.'],
+    ['Wildlife recognition', 'Bird / Butterfly or moth / Other insect or invertebrate / Reptile or amphibian / Wild mammal / Domestic or stray animal / No animal', 'ImageNet animal groups; the closest ImageNet class is reported as the detail.'],
+    ['Litter detection', 'Litter recognised / Waste bin recognised / No litter objects recognised', 'ImageNet bottle, bag, packet, cup and bin classes.'],
+    ['Fire & smoke detection', 'Flames visible (critical) / Smoke visible (high) / No fire or smoke detected', 'ImageNet fire and plume classes, corroborated by strict flame and smoke chromaticity - which only counts when the network itself sees fire, so sunsets and autumn leaves do not.'],
+  ],
+  [22, 38, 40]
 );
 
-h2('Normalising a sensor reading');
-code([
-  'higher-is-better:  S = 100 * (x - min) / (max - min)',
-  'lower-is-better:   S = 100 * (max - x) / (max - min)',
-  'optimal band:      S = 100 * (1 - |x - centre| / halfwidth)',
+h2('Measured accuracy (npm run eval:vision)');
+para(
+  'scripts/evaluate-vision.js runs the 22 openly licensed Wikimedia Commons photographs listed in ' +
+  'src/seed/data/sample-images/attribution.json through the real pipeline and counts a prediction correct when it ' +
+  'is one of that photo\'s accepted labels.'
+);
+table(
+  ['Task', 'Correct', 'Misses'],
+  [
+    ['Fire & smoke (7 fires, 4 negatives)', '9 / 11', 'Smoke plume read as "No fire"; Welsh grass fire read as "No fire". All four sunset and autumn-leaf negatives correct - no false alarms.'],
+    ['Tree & foliage health', '3 / 3', '-'],
+    ['Wildlife', '3 / 3', 'Correct at group level: the Indian pond heron is "Bird", closest ImageNet class "bittern".'],
+    ['Plant & fungus', '1 / 2', 'Flowering tree in Cubbon Park read as "No plant detected".'],
+    ['Litter', '0 / 3', 'Garbage dump, plastic bottle and overflowing bin all "No litter objects recognised".'],
+    ['Overall', '16 / 22 (73 %)', ''],
+  ],
+  [30, 16, 54]
+);
+
+callout(
+  'The calibration caveat - say it before you are asked',
+  'The weights and exponents in the task scoring were calibrated on these same 22 photographs, so 73 % is in-sample ' +
+  'accuracy on a very small set: an optimistic upper bound, not a validated error rate. A real figure needs a ' +
+  'larger held-out labelled set. Litter detection does not work: ImageNet recognises a bottle in a clear shot, not a ' +
+  'heap of mixed waste.',
+  'warn'
+);
+
+h2('Escalation and review');
+bullets([
+  ['An incident opens automatically only when all three hold: ', 'the prediction is "Flames visible" or "Smoke visible"; confidence is at or above the floor (Setting.aiAutoIncidentConfidence, default 85 %); and a park was selected, so the incident has a location. Flames open a severity-5 fire incident (priority 60.0, high); smoke a severity-4 one.'],
+  ['Everything else is queued for review, ', 'with the reason returned in escalationRule. A colour-based foliage reading or a litter guess is never trusted to dispatch a crew.'],
+  ['Review builds ground truth. ', 'An ecologist confirms a detection or rejects it with a corrected label from the task\'s own vocabulary. Observed precision = 100 * confirmed / (confirmed + rejected), shown once a review exists.'],
+  ['Demonstration photos: ', 'eval-fire-bonfire.jpg on Fire & smoke with a park selected gives "Flames visible" at high confidence and opens an incident; wildlife-indian-pond-heron.jpg on Wildlife gives "Bird", closest class bittern.'],
 ]);
+
+// ===========================================================================
+// 19. ALGORITHMS
+// ===========================================================================
+
+h1('19. The Algorithms, in Plain English');
+
 para(
-  'Three shapes cover every sensor. Temperature and humidity use the band form, because both too hot and too cold ' +
-  'are bad. AQI is special-cased through the CPCB category map instead of a linear rescale, since it is already a ' +
-  'piecewise-linear index and stretching it again would move its category boundaries.'
+  'A summary of every formula. docs/algorithms.md has the derivations, constants and worked examples, reproduced ' +
+  'by calling the service functions themselves.'
 );
 
-h2('Air Quality Index (CPCB method)');
+h2('Air Quality Index (aqi.service.js)');
 code([
-  'Sub-index for one pollutant, by linear interpolation:',
-  '',
+  'Sub-index, by linear interpolation inside the CPCB band containing C:',
   '  I = ((I_high - I_low) / (C_high - C_low)) * (C - C_low) + I_low',
   '',
-  'Overall AQI = max(I_pm25, I_pm10, I_no2, I_so2, I_co, I_o3)',
+  'Averaging:  24-hour means for PM2.5, PM10, NO2, SO2; 8-hour means for CO, O3',
+  '            a pollutant counts only with >= 75 % of its hours present',
+  'Truncation: C is truncated to the table precision first (whole ug/m3; CO 0.1)',
+  'Units:      Open-Meteo CO is ug/m3; divided by 1000 for the mg/m3 CO table',
+  '',
+  'AQI = max(sub-indices)          no qualifying pollutant -> AQI is null',
 ]);
 para(
-  'The MAXIMUM, not the mean - and this is a favourite examiner question. Air is only as clean as its worst ' +
-  'pollutant; averaging would let one hazardous pollutant hide behind five clean ones. CPCB breakpoints are the ' +
-  'Indian standard, which is why the demonstration city is Indian.'
+  'The MAXIMUM, not the mean: air is only as clean as its worst pollutant. Truncation matters because the printed ' +
+  'bands have gaps - PM2.5 [0, 30] then [31, 60] - and 30.9 would otherwise fall through to 500. For scoring, AQI is ' +
+  'inverted band by band: AQI 0-50 scores 100, 100 scores 80, 200 scores 60, 300 scores 40, 400 scores 20, 500 scores 0.'
 );
 
-h2('Biodiversity indices');
-para('For S species with abundances n_1 ... n_S, total N, and share p_i = n_i / N:', { gap: 3 });
+h2('Ecosystem Health Index (ecosystem-score.service.js)');
 code([
-  "Richness           S = number of distinct species",
-  "Shannon-Wiener     H' = -sum(p_i * ln(p_i))",
-  "Pielou evenness    J' = H' / ln(S)          range 0 to 1",
-  "Simpson            D = sum(p_i^2)           reported as 1 - D",
-  "Margalef           D_Mg = (S - 1) / ln(N)",
-  "Berger-Parker      d = max(p_i)",
-  "",
-  "Composite score = 100 * (0.35*H_norm + 0.25*J' + 0.20*S_norm + 0.20*C)",
+  'EHI = sum(w_k * S_k) / sum(w_k)     over k with S_k not null',
+  '',
+  'air 0.25 (AQI score and noise score)   water 0.20   tree 0.20',
+  'biodiversity 0.20                      soil 0.15',
+  '',
+  'grades: >= 85 excellent, >= 70 good, >= 55 moderate, >= 40 poor, else critical',
 ]);
-bullets([
-  ["Shannon ", "is information-theoretic - the uncertainty in guessing the species of a randomly drawn individual. It carries the largest weight because it is the only term reacting to richness and evenness at the same time."],
-  ["Evenness ", "is separated out so a park dominated by one invasive species cannot score well on species count alone."],
-  ["Margalef ", "corrects richness for sampling effort, so parks surveyed with different intensity stay comparable."],
-  ["The conservation term C ", "rewards recording threatened species, because their presence is stronger evidence of habitat quality than a common species is."],
-]);
+para(
+  'Missing is null, never 0. A sensor counts only if it is active, not offline and has reported. Readings are ' +
+  'normalised first: noise is lower-is-better (35 dB scores 100, 85 dB scores 0); water and soil are already 0-100; ' +
+  'temperature and humidity use an optimal band (centre 24 C, half-width 14; centre 55 %, half-width 35) but do not ' +
+  'enter the EHI. Weights live in Setting and are editable by an admin.'
+);
 
-h2('Incident triage score');
+h2('Biodiversity (biodiversity.service.js)');
+code([
+  "Richness        S = number of distinct species",
+  "Shannon         H' = -sum(p_i * ln p_i)          p_i = n_i / N",
+  "Pielou          J' = H' / ln(S)                  0 when S = 1",
+  "Simpson         D = sum(p_i^2), reported as 1 - D",
+  "Margalef        D_Mg = (S - 1) / ln(N)",
+  "Berger-Parker   d = max(p_i)",
+  "",
+  "Score = 100 * (0.35*H_n + 0.25*J' + 0.20*R_n + 0.20*C)",
+  "  H_n = min(1, H' / ln 40)   R_n = min(1, S / 40)",
+  "  C   = conservation term: IUCN weights NT 2, VU 3, EN 4, CR 5, others 1",
+]);
+para(
+  'Only verified observations count, and n_i is a number of GBIF records. "Not Evaluated" and "Least Concern" both ' +
+  'weigh 1, so neither inflates the score. Per-class indices (byClassIndices) are returned alongside the pooled figure.'
+);
+
+h2('Incident triage (priority.service.js)');
 code([
   'P = 100 * (0.35*H + 0.25*S + 0.20*E + 0.10*U + 0.10*C)',
   '',
-  '  H  hazard weight of the type   (fire 1.0 ... vandalism 0.4)',
-  '  S  severity, (s - 1) / 4 for s in 1..5',
-  '  E  exposure, ln(1 + people) / ln(1 + 5000), capped at 1',
-  '  U  urgency,  1 - e^(-t / tau)',
-  '  C  community, ln(1 + upvotes) / ln(1 + 200), capped at 1',
-]);
-para(
-  'Exposure and community signal are log-scaled so a single very large number cannot swamp the rest. Urgency ' +
-  'saturates on a bounded curve, so an old complaint climbs quickly while genuinely late and then stops - it can ' +
-  'never outrank a new fire.'
-);
-
-h2('Anomaly detection - three detectors, majority vote');
-code([
-  'Z-score            z = (x - mean) / stddev            flag |z| > 3',
-  'Modified z-score   M = 0.6745 * (x - median) / MAD    flag |M| > 3.5',
-  'Tukey IQR fence    outside [Q1 - 1.5*IQR, Q3 + 1.5*IQR]',
+  '  H  hazard of the type: fire 1.00, water pollution 0.80, air pollution 0.75,',
+  '     tree fall 0.70, infrastructure 0.60, dumping 0.50, dead animal 0.45,',
+  '     vandalism 0.40',
+  '  S  severity (s - 1) / 4',
+  '  E  ln(1 + people) / ln(5001), capped at 1',
+  '  U  1 - e^(-t / tau), tau = response target (fire 0.5 h ... vandalism 48 h)',
+  '  C  ln(1 + upvotes) / ln(201), capped at 1',
   '',
-  'Flagged when at least 2 of the 3 agree.',
+  'bands: >= 75 critical, >= 55 high, >= 35 medium, else low',
 ]);
-para(
-  'The constant 0.6745 is the 75th percentile of the standard normal, which makes median absolute deviation a ' +
-  'consistent estimator of the standard deviation - so the 3.5 threshold is comparable to the z-score\'s 3. The ' +
-  'modified z-score matters because the plain z-score\'s standard deviation is inflated by the very outliers it ' +
-  'is looking for, while the median has a 50% breakdown point.'
-);
 
-h2('Softmax (AI module)');
+h2('Anomaly detection (anomaly.service.js)');
 code([
-  'p_i = e^(z_i / T) / sum_j( e^(z_j / T) )',
+  'Z-score           z = (x - mean) / sd                flag |z| > 3 (configurable)',
+  'Modified z-score  M = 0.6745 * (x - median) / MAD    flag |M| > 3.5',
+  'Tukey IQR fence   outside [Q1 - 1.5*IQR, Q3 + 1.5*IQR], only when IQR > 0',
   '',
-  'implemented as e^((z_i - max z)/T) for numerical stability',
+  'Window: previous 50 readings; suppressed below 8.  Flag when >= 2 of 3 agree.',
 ]);
 para(
-  'Converts raw scores into probabilities that sum to 1. Subtracting the maximum prevents overflow without ' +
-  'changing the result. Temperature T below 1 sharpens the distribution, making the model more confident.'
+  '0.6745 is the 75th percentile of the standard normal, which makes MAD a consistent estimator of the standard ' +
+  'deviation, so 3.5 is comparable to 3. The median has a 50 % breakdown point, so the robust detector is not fooled ' +
+  'by the outliers it is looking for. An anomaly raises an alert: high if all three voted, else medium.'
 );
 
-h2('TF-IDF retrieval (assistant)');
+h2('Simulated sensors (sensor.service.js)');
+code([
+  'x_t = 0.7 * x_(t-1) + 0.3 * (base + A * sin(2*pi*(h - phase) / 24)) + sigma * z',
+  '',
+  'h = local hour in Asia/Kolkata;  z ~ N(0,1) by Box-Muller',
+  'with probability 0.03 a spike of A * (2.5 + 2u) is injected',
+]);
+para(
+  'Only noise, soil moisture and water quality are generated this way. Note that sin(2*pi*(h - phase)/24) peaks six ' +
+  'hours after "phase" - the code calls it peakHour, which is a naming slip worth admitting if asked.'
+);
+
+h2('Retrieval (assistant.service.js)');
 code([
   'tf(t,d)  = count of t in d / length of d',
-  'idf(t)   = ln( N / (1 + n_t) ) + 1',
-  'weight   = tf * idf',
-  '',
-  'cos(q,d) = dot(q, d) / ( ||q|| * ||d|| )',
+  'idf(t)   = ln(N / (1 + n_t)) + 1',
+  'cos(q,d) = dot(q, d) / (||q|| * ||d||)         top 5 positive matches cited',
 ]);
 
-h2('Sensor generation');
-code([
-  'x_t = alpha * x_(t-1)',
-  '    + (1 - alpha) * (base + A * sin(2*pi*(h - phase) / 24))',
-  '    + noise',
-  '',
-  'alpha = 0.7 (AR(1) persistence), noise ~ N(0, sigma) via Box-Muller',
+h2('Integrity rules');
+bullets([
+  ['Reference codes ', '(INC-YYYY-NNNN, WO-, CR-, TRE-) come from a Counter document incremented atomically with $inc and initialised from the highest stored code, so deleting a record can never make the next code collide.'],
+  ['Upvotes ', 'are a single conditional update, so a double-click or replay counts once; the linked incident is re-scored after each change.'],
 ]);
+
+// ===========================================================================
+// 20. API OVERVIEW
+// ===========================================================================
+
+h1('20. API Overview');
+
 para(
-  'Real environmental variables have a daily cycle and are strongly autocorrelated - they drift rather than ' +
-  'jumping between independent samples. When the machine is online, "base" is replaced by live weather and CAMS ' +
-  'air-quality data for that park\'s real coordinates.'
+  'Base URL http://localhost:5000/api. GET /api lists every module mount point and GET /api/health reports database ' +
+  'status (503 when disconnected). docs/api-reference.md documents every route, role and body.'
 );
 
+h2('Conventions');
+bullets([
+  ['Authentication: ', 'Authorization: Bearer <jwt> from POST /auth/login or /auth/register; tokens last JWT_EXPIRES_IN (7 days by default).'],
+  ['Ids ', 'are returned as id (never _id). A malformed id is 400 or 422; an unknown one is 404.'],
+  ['Lists ', 'accept page, limit (max 200), sort, q (search) and exact-match field filters, and return pagination in meta.'],
+  ['Geometry ', 'is GeoJSON { type: "Point", coordinates: [lng, lat] }; [0, 0] is rejected.'],
+  ['Upstream failure is not an HTTP error: ', 'integration payloads carry { ok: false, reason }.'],
+]);
+
+h2('Endpoints by module');
+table(
+  ['Module', 'Main routes', 'Role'],
+  [
+    ['Auth', 'POST /auth/register, /auth/login, /auth/change-password; GET/PATCH /auth/me', 'public / signed-in'],
+    ['1 Dashboard', 'GET /dashboard/overview, /trend, /activity', 'public'],
+    ['2 GIS', 'GET /gis/layers, /gis/heatmap, /gis/within', 'public'],
+    ['3 Parks & Assets', 'GET /parks, /parks/near, /parks/:id/health; CRUD /assets, /assets/stats, POST /assets/:id/maintenance', 'public read; officer write; admin delete'],
+    ['4 Biodiversity', 'GET /biodiversity/indices, /compare, /seasonality, /species, /observations; POST /indices/preview, /observations/:id/verify', 'public read; ecologist curate'],
+    ['5 AI', 'GET /ai/tasks, /stats, /gallery, /images/:id; POST /ai/analyze, /ai/:id/review', 'signed-in analyse; ecologist review'],
+    ['6 Sensors', 'GET /sensors/live, /:id/readings, /:id/anomalies; POST /sensors/refresh, /:id/readings (device only)', 'public read; officer refresh'],
+    ['7 Citizen', 'GET /citizen/reports, /my-reports, /stats; POST /reports, /:id/upvote, /:id/review', 'signed-in submit; officer review'],
+    ['8 Incidents & Alerts', 'GET /incidents, /triage, /stats; POST /:id/assign, /:id/resolve, /:id/work-order; /alerts', 'officer (alerts public to read)'],
+    ['9 Maintenance', 'GET /maintenance, /calendar, /stats; PATCH /:id/progress', 'public read; officer write'],
+    ['10 Analytics', 'GET /analytics/summary, trends, /park-comparison, /export, /reports; POST /reports/generate', 'public; officer export; ecologist reports'],
+    ['11 Assistant', 'POST /assistant/ask, /search; GET /suggestions, /history/:sessionId', 'public'],
+    ['12 Admin', '/admin/users, /settings, /audit-log, /stats, /recompute-scores, /reindex-assistant, /reseed', 'admin'],
+    ['Integrations', 'GET /integrations/status, /weather, /air-quality, /park-conditions, /gbif/:speciesId, /geocode', 'public'],
+  ],
+  [19, 57, 24]
+);
+
+h2('Try it');
+code([
+  'curl -X POST localhost:5000/api/biodiversity/indices/preview \\',
+  '  -H "Content-Type: application/json" -d "{\\"abundances\\":[25,25,25,25]}"',
+  '# -> richness 4, shannon 1.3863, evenness 1, simpsonDiversity 0.75',
+]);
+
 // ===========================================================================
-// DATABASE
+// 21. DATABASE
 // ===========================================================================
 
-h1('17. The Database');
+h1('21. The Database');
 
 para(
-  'MongoDB with 16 collections. Documents rather than tables: a park is one document containing its geometry, ' +
-  'cached scores and facilities, instead of being split across several joined tables.'
+  'MongoDB with 18 collections. A park is one document holding its OSM boundary, area, facilities and cached ' +
+  'scores, rather than rows spread across joined tables.'
 );
 
 table(
   ['Collection', 'What it holds'],
   [
-    ['Park', 'The 6 parks. GeoJSON centre point and boundary polygon, cached scores, facilities.'],
-    ['Asset', '231 physical assets of 7 types. Condition, maintenance history, type-specific attributes.'],
-    ['Species', '30 species. Conservation status, habitat, seasonality, invasive and indicator flags.'],
-    ['Observation', '420 field sightings. The abundance records every biodiversity index is computed from.'],
-    ['Sensor', '32 devices. Registry, calibration bounds, thresholds, cached current value.'],
-    ['SensorReading', 'About 3,000 readings. The time series, with each reading\'s anomaly verdict.'],
-    ['CitizenReport', '41 public submissions, linked to incidents or observations on acceptance.'],
-    ['Incident', '34 incidents with a computed priority score and an embedded status timeline.'],
-    ['WorkOrder', '38 scheduled maintenance tasks.'],
-    ['AiDetection', '30 inference results, each with its full class-probability vector.'],
-    ['Alert', 'Generated notifications, deduplicated by condition.'],
-    ['EcoReport', 'Saved assessments with frozen metric snapshots.'],
-    ['User', '12 accounts across the four roles.'],
-    ['AuditLog', 'Append-only change history.'],
-    ['Setting', 'Single document - index weights and algorithm parameters.'],
-    ['ChatMessage', 'Assistant conversation history with citations.'],
+    ['Park', '6 parks: GeoJSON centre and OSM boundary polygon, area, facilities, source, cached scores.'],
+    ['Asset', 'Trees, benches, lamps, paths (with a LineString), water bodies, structures; OSM source id; condition; embedded maintenance history; demo flag.'],
+    ['Species', 'Catalogue only: gbifKey, IUCN category, isInvasive / isIntroduced (GRIIS), photo and credit. No population count.'],
+    ['Observation', 'Species, park, count, source (gbif, citizen-report, officer-survey ...), verified. The abundance records every index uses.'],
+    ['Sensor / SensorReading', 'Registry with source (open-meteo, simulated, device), thresholds and cached value; the time series with anomaly verdicts.'],
+    ['CitizenReport', 'Public submissions with upvotedBy, linked incident or species; demo flag.'],
+    ['Incident / Alert', 'Computed priority, upvotes, embedded timeline, assignee; alerts deduplicated by dedupeKey.'],
+    ['WorkOrder', 'Scheduled tasks linked to an asset and optionally an incident; progress and cost.'],
+    ['AiDetection / AiImage', 'Inference results with probabilities, top ImageNet classes, evidence and review; stored JPEGs, unique by SHA-256.'],
+    ['EcoReport', 'Frozen metric snapshot, findings, recommendations; draft, published or archived.'],
+    ['User, AuditLog, Setting', 'Accounts (bcrypt hash, role); append-only change history; singleton settings (weights, thresholds, switches).'],
+    ['ChatMessage, Counter', 'Assistant history with citations; atomic reference-code sequences.'],
   ],
   [24, 76]
 );
 
 h2('Design decisions worth defending');
 bullets([
-  ['Observations are separate from Species. ', 'Population counts are never stored on the species document; they are aggregated from observations. That way the indices always reflect real field records rather than a manually edited number that drifts.'],
-  ['Readings are separate from Sensors. ', 'The reading collection is by far the largest and grows without bound, so it is kept deliberately narrow. Only the latest value is cached on the sensor.'],
-  ['Maintenance is embedded in Asset. ', 'Records are always read together with their asset, are append-only, and are bounded in practice - so embedding avoids a join for no cost.'],
-  ['Timelines are embedded in Incident. ', 'Same reasoning: the detail view needs the whole history, and it never grows large.'],
-  ['GeoJSON everywhere with 2dsphere indexes. ', 'Makes proximity queries a single indexed operation and lets the map consume the data almost directly.'],
+  ['Abundance is derived, not stored. ', 'Species carries no count; indices aggregate Observation on every read, so they always match the records.'],
+  ['Readings are their own narrow collection, ', 'with a compound index on (sensor, recordedAt) serving both the chart query and the detector\'s rolling window.'],
+  ['Maintenance history and timelines are embedded, ', 'because they are always read with their parent, append-only and bounded.'],
+  ['Images are stored once by content hash, ', 'so detections and incidents reference /api/ai/images/:id instead of a third-party URL that can disappear.'],
+  ['The GIS module has no collection. ', 'Every layer is a projection of another module\'s data.'],
 ]);
 
 // ===========================================================================
-// LIMITATIONS
+// 22. TESTING
 // ===========================================================================
 
-h1('18. What This Project Does Not Do');
+h1('22. Testing');
+
+code([
+  'npm test                               # backend unit + integration suites (node:test)',
+  'npm run typecheck                      # frontend: tsc --noEmit',
+  'npm run build                          # frontend production build',
+  'npm run eval:vision                    # AI accuracy report on 22 labelled photos',
+]);
+
+h2('Unit suites (backend/test/unit)');
+table(
+  ['Suite', 'What it checks'],
+  [
+    ['aqi', 'Interpolation, band edges, truncation between bands, 24 h / 8 h averaging, clamping, maximum operator, score inversion.'],
+    ['biodiversity', 'Even and single-species communities, a hand-computed Shannon value, Margalef, dominance, empty and invalid input, bounded composite score.'],
+    ['priority', 'Fire outranks a bench repair, bounded 0-100 score, severity clamping, saturating urgency, overdue flag, capped community signal, queue ordering.'],
+    ['anomaly', 'Spikes and drops flagged, two-of-three voting, insufficient history, constant series (MAD fallback), zero-IQR windows, configurable thresholds.'],
+    ['vision', 'ImageNet groups do not overlap, probability vectors sum to one, fire needs network evidence, only fire escalates, internal addresses refused, JPEG/PNG only.'],
+    ['services, serialisation', 'Open-Meteo local time to UTC, Kolkata diurnal hour, intent routing, report findings quote their metrics; response ids, dates and GeoJSON serialise correctly.'],
+  ],
+  [22, 78]
+);
+
+h2('Integration suites (backend/test/integration)');
+para(
+  'The integration suites seed the real open-data snapshot into their own in-memory MongoDB and drive the API over ' +
+  'HTTP. They cover every module - for example: map layers are valid GeoJSON; indices are computed from stored ' +
+  'observations; inference comes from the pixels, not the request; a confident fire photo opens an incident whose ' +
+  'alert clears on resolution; a citizen report escalates to an incident and a work order; role hierarchy, ' +
+  'soft-delete and pagination behaviour; reference codes never collide after a delete; an account upvotes once; ' +
+  'virtual and simulated sensors refuse posted readings; registration cannot grant a privileged role and a tampered ' +
+  'token gains nothing.'
+);
+callout(
+  'Test dependencies',
+  'Live Open-Meteo history is skipped under test, so the suite does not depend on the network. The vision model must ' +
+  'already be cached or be downloadable, because the AI tests run real inference.'
+);
+
+// ===========================================================================
+// 23. DEPLOYMENT
+// ===========================================================================
+
+h1('23. Deployment');
+
+para(
+  'The backend needs a long-running Node process - it refreshes sensors on a timer and holds the vision model in ' +
+  'memory - so it is not suited to serverless functions. A free-tier setup:'
+);
+
+h2('1. Database - MongoDB Atlas');
+para('Create a free cluster and a database user, allow network access from the host, and copy the mongodb+srv:// connection string.');
+
+h2('2. Backend - Render');
+para(
+  'New, Blueprint, select the repository. render.yaml defines the web service: root directory backend/, Node 20, ' +
+  'build "npm ci --omit=dev && npm run model:download" (so the model is downloaded at build time), start "npm start", ' +
+  'health check /api/health, NODE_ENV=production, AUTO_SEED=true, and a generated JWT_SECRET. Enter MONGODB_URI and ' +
+  'CORS_ORIGIN when prompted. The first boot seeds the database.'
+);
+
+h2('3. Frontend - Vercel or Netlify');
+para(
+  'Import the repository with the root directory set to frontend, and set NEXT_PUBLIC_API_URL to ' +
+  'https://<your-render-service>.onrender.com/api before the first build - it is baked in. For Netlify, netlify.toml ' +
+  'at the repository root already sets base = "frontend", the build command and Node 20. Leave ' +
+  'NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS unset for a public site.'
+);
+
+h2('4. Connect them');
+para('Put the frontend URL into the backend\'s CORS_ORIGIN and redeploy the backend.');
+
+h2('Any other Node host');
+code([
+  'cd backend',
+  'npm ci --omit=dev',
+  'npm run model:download',
+  'npm start          # with MONGODB_URI, JWT_SECRET, CORS_ORIGIN, NODE_ENV=production',
+]);
+
+callout(
+  'Production behaviour to know',
+  'The server refuses to start without a real MONGODB_URI, a strong JWT_SECRET and CORS_ORIGIN. Reseeding is ' +
+  'refused. The /api rate limit tightens to 300 requests per minute per IP. Rate limiters and the upstream cache are ' +
+  'in memory, so they are per process - several instances would need a shared store such as Redis.',
+  'warn'
+);
+
+// ===========================================================================
+// 24. LIMITATIONS
+// ===========================================================================
+
+h1('24. Limitations');
 
 callout(
   'Read this chapter carefully',
-  'Being able to state your own limitations precisely is the single strongest thing you can do in a review. ' +
   'An examiner who finds a weakness you did not mention will press it. An examiner you have already told will ' +
-  'usually move on - and will trust everything else you said more.'
+  'usually move on - and trust everything else you said more.'
 );
 
 table(
   ['Limitation', 'The honest position'],
   [
-    ['No physical sensors', 'The hardware layer was documented as conceptual from Week 4. The ingestion path is real and a physical gateway would POST to the same endpoint; only the source of the numbers differs. Readings are anchored to live weather data where the network allows.'],
-    ['No trained vision models', 'The inference contract is fully implemented; the logits come from a deterministic surrogate. This was the scope agreed at the Week-6 assessor review, which asked that simulated responses be stated explicitly rather than overstated. Setting AI_MODEL_ENDPOINT swaps in a real served model with no other change.'],
-    ['The assistant is not an LLM', 'Retrieval is genuine TF-IDF with cosine ranking; generation is template-based. The trade-off is deliberate: templates cannot hallucinate a number, and every figure stays traceable to its record.'],
-    ['JWT stored in localStorage', 'Convenient for a prototype with a separate API origin, but vulnerable to XSS. A production deployment should use httpOnly cookies with SameSite=Lax and a CSRF token.'],
-    ['Pooled diversity index', 'Mixing bird counts with plant-stem counts mixes units of survey effort. The project reports the pooled score because a manager needs one number per park, and reports per-taxocene indices alongside it precisely because the pooled figure is imperfect.'],
-    ['No automated test suite', 'Verification was done with a 52-check end-to-end script against both live servers plus TypeScript compilation, rather than unit tests. Adequate for a prototype; a production system would want unit tests around the service layer especially.'],
-    ['Single-process cache', 'The external-API cache is an in-memory Map. Fine for one server; multiple instances would need Redis.'],
+    ['No physical sensors', 'AQI, temperature and humidity are real observations from gridded models, so nearby parks can share a cell. Noise, soil and water are simulated - which makes the water and soil sub-indices, and half of the air sub-index, simulated. A device sensor would use the same ingestion path.'],
+    ['General-purpose vision model', 'Pre-trained ImageNet weights, not trained on park imagery. 16/22 on photos the thresholds were calibrated on, so optimistic; litter 0/3; species at ImageNet granularity; foliage health is colour, not diagnosis. Hence human review, and only fire escalates.'],
+    ['GBIF counts are not population counts', 'They are records, dominated by eBird and iNaturalist activity. Lalbagh holds about nine in ten; lightly recorded parks look artificially even; recent months are incomplete.'],
+    ['Pooled diversity index', 'Mixes units of survey effort across taxa; the per-taxocene indices are the rigorous comparison.'],
+    ['Operational records are demo data', 'Accounts, citizen reports, incidents, work orders and asset condition scores are flagged demo: true until the portal is really used.'],
+    ['The assistant is not an LLM', 'Retrieval is TF-IDF with cosine ranking; generation is templates, by design.'],
+    ['JWT in localStorage', 'Readable by any successful XSS. A hardened deployment should use httpOnly SameSite cookies with CSRF protection.'],
+    ['Server-side image fetching', 'Private and link-local addresses are refused and redirects re-checked, but the DNS lookup and the fetch are separate, so a DNS-rebinding race remains possible.'],
+    ['Single-process state', 'Rate limiters and the upstream cache live in memory.'],
   ],
   [26, 74]
 );
 
 // ===========================================================================
-// CHEAT SHEET
+// 25. CHEAT SHEET
 // ===========================================================================
 
-h1('19. One-Page Cheat Sheet');
+h1('25. One-Page Cheat Sheet');
 
 h2('If you remember only five things');
 bullets([
-  ['The health score is a weighted mean of five sub-indices, ', 'and dividing by the weights actually present is what makes missing sensors harmless.'],
-  ['AQI is the MAXIMUM of the pollutant sub-indices, not the mean, ', 'because air is only as clean as its worst pollutant.'],
-  ['Shannon measures richness and evenness together; ', 'evenness is reported separately so one dominant invasive species cannot hide behind a long species list.'],
-  ['Incident priority is computed, never entered, ', 'and its ageing term saturates so an old complaint can never outrank a new fire.'],
-  ['The AI and the sensors are simulated, but their contracts are real. ', 'Say this before you are asked.'],
+  ['Real open data, labelled: ', 'OpenStreetMap parks and assets, GBIF species and records, GRIIS invasive flags, Open-Meteo weather and CAMS air quality. Demo and simulated values carry a badge.'],
+  ['AQI is the MAXIMUM sub-index, ', 'computed here from CAMS concentrations with CPCB averaging periods and truncation.'],
+  ['The health index ignores missing data ', 'by dividing by the weights actually present; missing is null, never 0.'],
+  ['The AI is real inference with measured limits: ', '16/22 on calibration photos, litter 0/3, only fire and smoke escalate, and only with a park.'],
+  ['GBIF counts are records, not individuals, ', 'and recording effort differs hugely between parks.'],
 ]);
 
 h2('Numbers worth knowing');
 table(
   ['Figure', 'Value'],
   [
-    ['Modules', '12, plus auth and integrations'],
-    ['Frontend routes', '16 (plus an auto-generated 404 page)'],
-    ['API route handlers', '134'],
-    ['MongoDB collections', '16'],
-    ['Lines of code', 'about 29,000 across 179 files'],
-    ['Seeded data', '6 parks, 30 species, 231 assets, 32 sensors, 3,000 readings, 420 observations, 34 incidents, 38 work orders, 41 reports, 30 AI detections'],
-    ['End-to-end checks passing', '52 of 52'],
-    ['Public APIs needing no key', '4 (Open-Meteo x2, GBIF, Nominatim)'],
+    ['Parks / modules', '6 Bengaluru parks / 12 modules'],
+    ['Open-data snapshot', '587 species, 4,175 observation rows, 37,182 GBIF records (Jan 2023 - Sep 2026)'],
+    ['Seeded', '339 assets, 33 sensors (18 Open-Meteo, 15 simulated), 13 AI detections, 6 reports; demo: 12 accounts, 36 citizen reports, 30 incidents, 36 work orders'],
+    ['Collections / routers / page routes', '18 / 18 / 16'],
+    ['Vision model', 'MobileNetV2 1.0 / 224, ~14 MB, ~30-80 ms per image'],
+    ['AI accuracy', '16 / 22 (73 %), in-sample'],
+    ['Default weights', 'air 0.25, water 0.20, tree 0.20, biodiversity 0.20, soil 0.15'],
+    ['Escalation floor', '85 % confidence, fire or smoke, park selected'],
   ],
-  [30, 70]
+  [32, 68]
 );
 
 h2('Questions you should not be caught out by');
 bullets([
-  ['"Why MongoDB and not SQL?" ', 'The data is naturally nested, GeoJSON is first-class, and the schema evolved during the build. A production GIS platform with heavy spatial joins would justify PostGIS.'],
-  ['"Why Node on both sides?" ', 'One language, shared validation schemas between client and server, and shared type definitions.'],
-  ['"What was hardest?" ', 'Making the numbers defensible rather than decorative - choosing index weights that can be justified, handling missing sensors correctly, and getting the ageing curve to age without letting it dominate.'],
-  ['"What would you do next?" ', 'Real hardware on the existing ingestion endpoint, a trained model on the existing AI_MODEL_ENDPOINT hook, embeddings plus an LLM for the assistant, and unit tests around the service layer.'],
-  ['"Show me it working." ', 'Open the Index Calculator on the Biodiversity page and type two abundance vectors with the same richness but different evenness. It proves the mathematics is real in about fifteen seconds.'],
+  ['"Is the data real?" ', 'Mostly, and the interface labels which is which (Chapter 5).'],
+  ['"Is the AI real?" ', 'Real inference with Google\'s pre-trained weights; not trained by me; accuracy measured and stated, with the calibration caveat.'],
+  ['"Why MongoDB?" ', 'Nested documents, first-class GeoJSON with 2dsphere indexes, and a schema that evolved during the build. Heavy spatial joins would justify PostGIS.'],
+  ['"What would you do next?" ', 'Fine-tune the vision tasks on labelled park photos (litter first) and evaluate on a held-out set; real device sensors on the existing endpoint; structured equal-effort biodiversity surveys; embeddings for retrieval; httpOnly cookies.'],
+  ['"Show me it working." ', 'Index Calculator with "100, 1, 1, 1" and "25, 25, 25, 25"; then the bonfire photo on Fire & smoke with a park selected.'],
 ]);
 
 y += 4;
 callout(
   'The most important advice',
-  'Do not claim more than the project does. Every simulated part of this system is clearly labelled in the ' +
-  'interface itself, and that is an asset in a review, not a weakness. A student who says "the inference contract ' +
-  'is real, the weights are a surrogate, and here is exactly where a trained model would plug in" sounds far more ' +
-  'credible than one who claims a working CNN and then cannot answer how it was trained.'
+  'Do not claim more than the project does. Every simulated or demonstration value is labelled in the interface, ' +
+  'and the AI page states its own accuracy, including the task that fails. A student who says "real inference, ' +
+  'pre-trained weights, 16 of 22 on photos I also calibrated on, and litter does not work" sounds far more credible ' +
+  'than one who claims a working detector and cannot say how it was evaluated.'
 );
+
 
 // ===========================================================================
 // CONTENTS PAGE (filled in now that page numbers are known)

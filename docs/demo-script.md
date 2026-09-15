@@ -1,246 +1,450 @@
 # Demo Script — 10 minutes
 
-A walkthrough for the review. Timings are generous; the whole thing fits in ten
-minutes at a normal pace.
+A walkthrough of the running system for a review. It follows the order an
+assessor is most likely to care about: what is real, how it is computed, and
+what the operational workflow looks like. Timings add up to a little under ten
+minutes; the "If asked" notes are for questions, not for reading aloud.
+
+Figures that come from live data (AQI, temperature, sensor counts, health
+scores) change from hour to hour. Where this script quotes one, it is marked
+"at the time of writing" — read the screen, not the script.
 
 ---
 
 ## Before you start
 
-**Two terminals, in this order:**
+### 1. Environment files (first time only)
 
 ```bash
-# Terminal 1
-cd backend && npm run dev
-# wait for: "GreenPulse API listening on http://localhost:5000"
-
-# Terminal 2
-cd frontend && npm run dev
+npm run setup                               # npm install in backend/ and frontend/
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
 ```
 
-Open **http://localhost:3000**. Have a second browser tab on
-**http://localhost:5000/api** to show the API index if asked.
+The defaults are right for a demo: a blank `MONGODB_URI` starts an in-memory
+MongoDB that is seeded on every boot, and `NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS=true`
+puts one-click sign-in buttons on the login page.
 
-**Check before presenting:** the dashboard shows a health score and the Live
-Conditions panel shows a real temperature. If Live Conditions says "unavailable",
-you are offline — say so if it comes up; everything else still works.
+### 2. Two terminals, from the repository root
 
----
+```bash
+# Terminal 1 — API on http://localhost:5000/api
+npm run backend:dev
+# wait for "GreenPulse API listening on port 5000"
+# and "Vision model ready in … ms (disk cache | downloaded from TensorFlow Hub …)"
 
-## 1 · The problem (30 s)
+# Terminal 2 — web app on http://localhost:3000
+npm run frontend:dev
+```
 
-> "Urban parks are tracked the old way — periodic manual walk-throughs.
-> Tree disease, pollution and hazards are found only after they escalate,
-> biodiversity isn't logged systematically, and citizens have no way to report
-> anything. GreenPulse is one platform that senses, maps, and manages all of it."
+On the very first start the backend downloads MobileNetV2 (~14 MB, once) into
+`backend/.cache/mobilenet-v2/`. To do that ahead of time — for example the night
+before, on good Wi-Fi — run `npm run model:download`.
 
----
+**Tip for the review itself:** development mode compiles each page the first
+time it is opened, which can look like a hang. Either click through every page
+once before the assessor arrives, or run the production build instead of
+Terminal 2: `npm run build`, then `npm run frontend`.
 
-## 2 · Dashboard — the composite index (90 s)
+### 3. Pre-flight check (one minute)
 
-Land on `/dashboard`.
+- `http://localhost:5000/api/health` answers `"status":"ok"`.
+- `/dashboard` shows a health score and **Live Conditions** shows a real
+  temperature and an AQI. If it says **Live data unavailable**, you are offline
+  — see [Offline](#offline) below.
+- `/ai` → **Detections** shows the 13 sample photographs. If none are there,
+  the model was not available when the database was seeded (see Fallbacks).
+- The login page lists four **Demonstration accounts**. All use `greenpulse123`.
 
-> "Eight KPIs, all computed — none of these are stored numbers."
-
-Point at the **Ecosystem Health gauge**, then the contribution bars beneath it.
-
-> "The index is a weighted mean of five sub-indices. This breakdown is the
-> important part: you can see *soil* contributing only 7 points of the 69.5,
-> which tells a park manager exactly where remediation earns most. A single
-> score would hide that."
-
-Scroll to **Live Conditions**.
-
-> "This is real data. Open-Meteo gives us raw pollutant concentrations — PM2.5,
-> NO₂, ozone — and *our* code converts them to an AQI using the CPCB breakpoint
-> tables. These per-pollutant bars are the sub-indices we computed. The overall
-> AQI is the **maximum**, not the average, because air is only as clean as its
-> worst pollutant."
-
-**If asked "is that really live?"** — change the park in the top-right filter;
-the temperature and AQI change with the coordinates.
+**Do not edit code while presenting.** `backend:dev` restarts on file changes,
+and a restart re-seeds the in-memory database, wiping whatever you created in
+the demo.
 
 ---
 
-## 3 · Biodiversity — the mathematics (2 min)
+## 1 · The problem, and the honesty statement (20 s)
 
-Go to `/biodiversity`, **Indices** tab.
-
-> "Biodiversity isn't a number we store. It's computed from 420 field
-> observations."
-
-Point at the five formula cards.
-
-> "Shannon–Wiener, Pielou's evenness, Gini–Simpson, Margalef, Berger–Parker.
-> Each shows the formula and this dataset's actual value."
-
-Scroll to the **Index Calculator** — this is the strongest moment in the demo.
-
-Type `100, 1, 1, 1` → **Compute**. Note H′ ≈ 0.19, J′ ≈ 0.14.
-Then type `25, 25, 25, 25` → **Compute**. Note H′ ≈ 1.39, J′ = 1.00.
-
-> "Same four species both times. Completely different ecological health. The
-> first is a park overrun by one invasive; the second is balanced. That's why
-> species count alone is a poor measure — and it's why evenness has its own
-> weight in our composite score."
-
-Scroll to **Per-Taxocene Indices**.
-
-> "One caveat we're explicit about: ecologists compute diversity *within* a
-> taxonomic group, not across all life, because counting plant stems and
-> counting herons use different units of survey effort. We report the pooled
-> score because a manager needs one number per park — but we also give the
-> per-class breakdown, which is the defensible comparison."
+> "Parks are still managed by periodic walk-throughs, so tree loss, pollution
+> and hazards are noticed late, biodiversity isn't recorded systematically, and
+> the public has no channel to report problems. GreenPulse monitors six real
+> Bengaluru parks. Before I show it: the park boundaries, species records, air
+> quality and weather are real open data; the incidents, work orders and
+> citizen reports are demonstration records; three sensor types are simulated.
+> The interface labels which is which everywhere."
 
 ---
 
-## 4 · Incidents — computed priority (90 s)
+## 2 · Dashboard — real data, labelled (75 s)
 
-Go to `/incidents`. Sign in as **officer** if prompted (`officer@greenpulse.gov`
-/ `greenpulse123` — the login page has one-click buttons).
+Open `/dashboard` (no sign-in needed).
 
-The **Triage queue** is the default tab.
+Point at the grey **data notice** under the title, then at the badges.
 
-> "Incidents are ordered by a computed score, not by arrival time and not by
-> someone typing 'urgent'."
+> "Every value says where it comes from. 'Live · Open-Meteo' is a real
+> observation, 'GBIF records' is published occurrence data, 'Simulated' is
+> generated, 'Demo record' is a demonstration."
 
-Point at the factor chips on the top incident.
+Point at the **Ecosystem Health Index** gauge and **Weighted contributions**.
 
-> "Hazard, severity, exposure, urgency, community. Exposure is log-scaled
-> because the gap between 10 and 100 people affected matters far more than
-> between 4,000 and 4,090."
+> "The index is a weighted mean of five sub-indices — air, water, soil, tree
+> health and biodiversity — over the ones that have data. The bars show each
+> one's share, so you can see which indicator is pulling the score down. A
+> missing indicator is left out, never counted as zero."
 
-Click an incident → the detail sheet shows the full breakdown.
+Point at **Live Conditions**.
 
-> "Ageing is the interesting one. An unattended incident has to climb the queue
-> or it starves — but linear ageing would eventually let a week-old graffiti
-> report outrank a new fire. So we use `1 − e^(−t/τ)`, which saturates. Ageing
-> can contribute at most 10 points: enough to break ties, never enough to
-> outrank an emergency."
+> "This is live. Open-Meteo returns raw CAMS pollutant concentrations; our code
+> averages them over the CPCB periods — 24 hours for particulates, 8 hours for
+> ozone and CO — applies the CPCB breakpoint tables, and takes the **maximum**
+> sub-index. These bars are the per-pollutant sub-indices we computed."
 
----
+Change the park filter (top right) to **Freedom Park**, then back to
+**All parks (citywide)**.
 
-## 5 · AI module — and honesty about it (90 s)
+> "Park by park. Freedom Park scores lowest mainly because its biodiversity
+> sub-index is almost zero: GBIF has a single record inside its boundary. That's
+> missing survey effort, not a dead park — and it has no mapped trees or water,
+> so those sub-indices show 'No data' rather than zero."
 
-Go to `/ai`.
+**If asked "is that really live?"** — the panel shows **Updated HH:MM IST**;
+open `http://localhost:5000/api/integrations/air-quality` in a tab to show the
+raw concentrations, the averages and the `method` string.
 
-Read the blue banner aloud, or paraphrase:
+**If asked why the Air Quality KPI and the panel differ by a few points** — the
+KPI is the mean of the six parks' stored virtual-sensor readings; the panel is a
+fresh query for the selected location (the mean park position when no park is
+selected).
 
-> "We're explicit that these are prototype-stage models. The pipeline is real —
-> class vocabulary, softmax, argmax, severity mapping, the escalation rule all
-> run — but the weights are a deterministic surrogate rather than a trained
-> network. That was the scope agreed at the Week-6 review."
-
-Pick **Fire & Smoke**, select a sample image, pick a park, click **Analyse**.
-
-> "Note we show the *full* probability vector, not just the winner. A classifier
-> that's 88% sure is a different thing from one that's 34% sure, and hiding that
-> is how AI features mislead people."
-
-Scroll to **Escalation decision**.
-
-> "Three conditions: is it dangerous, is it confident, and do we have a location.
-> All three, and it opens an incident automatically. Below the confidence floor
-> it queues for a human — because a false fire alarm is expensive."
+**If asked about the species tile ("587 of 596")** — 587 species have GBIF
+records inside the boundaries; the catalogue also keeps 9 curated regional
+species that GBIF has not recorded there, which do not affect any index.
 
 ---
 
-## 6 · Sensors — anomaly detection (60 s)
+## 3 · Map — OpenStreetMap and GBIF (40 s)
 
-Go to `/sensors`, click any sensor.
+Open `/map` (**Biodiversity Map** in the sidebar).
 
-> "Every reading carries a raw value and a normalised 0–100 score, because
-> sensors report in incompatible directions — low AQI is good, high soil moisture
-> is good."
+> "Park boundaries, trees, water bodies and trails are the real OpenStreetMap
+> features inside each park. The wildlife layer is GBIF occurrence records. None
+> of this is stored for the map — every layer is drawn from the module that
+> owns the data."
 
-Point at the chart: the dashed threshold lines and any red anomaly points.
+Click a park boundary, then a tree pin. Point at the **Selected** panel's
+provenance badge and at **Condition (demonstration value)**.
 
-> "Three detectors vote on each reading: a z-score test, a modified z-score
-> using median absolute deviation — which is robust to the very outliers it's
-> looking for — and Tukey's IQR fence. Two out of three flags it. Voting cuts
-> the false positives any single detector produces on noisy field data."
+> "The tree's position and species are real; its condition score is a demo
+> value, and the panel says so."
 
-> "And the simulator anchors itself to live weather every 15 minutes, so these
-> aren't invented numbers — they track real conditions at that park's
-> coordinates."
+Toggle **Pollution Hotspots** off and on.
 
----
+> "These circles are demonstration incidents, sized by their computed priority
+> score."
 
-## 7 · The citizen loop (90 s)
-
-Go to `/citizen`.
-
-> "This closes the loop from the public back into operations."
-
-Click **Review** on a submitted issue (you need the officer account).
-
-> "When an officer accepts an issue, it becomes a tracked incident — and the
-> severity and exposure they enter here feed the triage score directly. When they
-> accept a *wildlife sighting*, it becomes a verified observation, and that
-> observation enters the biodiversity indices we just looked at."
-
-> "Only verified observations count. That gate is what stops one enthusiastic —
-> or mistaken — reporter from moving a park's score."
-
-Show an already-accepted report with the "Became incident INC-…" link.
+**If asked about the coordinate order** — GeoJSON is `[lng, lat]`, Leaflet is
+`[lat, lng]`; conversion lives only in `frontend/lib/api/geo.ts`.
 
 ---
 
-## 8 · Assistant and map (60 s)
+## 4 · Biodiversity — records, not individuals (80 s)
 
-Go to `/assistant`. Click a suggested question, e.g. *"Which species have been
-recorded and how diverse are they?"*
+Open `/biodiversity`, **Indices** tab.
 
-> "Retrieval-augmented, over the live database. TF-IDF weighting with cosine
-> similarity — cosine rather than a raw dot product because document lengths
-> here vary by an order of magnitude."
+> "These indices are computed from about 37,000 GBIF occurrence records, and the
+> page is explicit that a record is not an animal: ten birders reporting the
+> same kite are ten records."
 
-Point at the **Sources** panel.
+Point at the four headline tiles, then **How the score is derived**
+(Shannon–Wiener, Pielou, Gini–Simpson, Margalef, Berger–Parker).
 
-> "Every answer cites which records it drew on, with similarity scores. It
-> retrieves genuinely; it composes the answer from templates rather than an LLM.
-> The advantage is that every figure is traceable to a record — nothing is
-> invented."
+Point at **Invasive records** (GRIIS India) and **Threatened**.
 
-Go to `/map` briefly.
+> "Invasive flags come from the GRIIS India checklist; conservation status from
+> IUCN via GBIF."
 
-> "Eight layers, all GeoJSON from MongoDB with a 2dsphere index. And none of
-> this is stored for the map's benefit — a tree pin *is* the asset register's
-> record of that tree, a pollution circle *is* an open incident, sized by its
-> priority score. The map can't go stale relative to the modules it draws."
+Scroll to **Index Calculator**. Type `100, 1, 1, 1` → **Compute** (H′ ≈ 0.16,
+J′ ≈ 0.12). Then `25, 25, 25, 25` → **Compute** (H′ ≈ 1.39, J′ = 1.00).
+
+> "Same four species, completely different ecological health. That's why
+> evenness has its own weight in the score."
+
+Switch to **Catalogue**, open any insect or plant.
+
+> "Most insects and plants have never been assessed by the IUCN, so they are
+> 'Not Evaluated' — deliberately not 'Least Concern', which would be a false
+> claim. The species sheet can also cross-check the record against GBIF live."
+
+**If asked "isn't pooling birds and plants wrong?"** — yes, methodologically;
+scroll to **Per-Taxocene Indices**, which computes the same mathematics within
+each class. That is the figure to quote when comparing sites.
+
+**If asked why Sankey Tank outscores Lalbagh on biodiversity** — sampling
+artefact. With few records most species appear once or twice, so evenness
+approaches 1. Lalbagh holds about nine records in ten.
 
 ---
 
-## 9 · Close (30 s)
+## 5 · Sensors — virtual vs simulated (50 s)
 
-Go to `/admin` → **Settings** tab. Show the weight sliders.
+Sign in first: **Sign in** (top right) → **Park Officer**.
 
-> "And the whole index is configurable. Change these weights and every park is
-> re-scored — with validation that they sum to 1, because a partial update would
-> leave parks scored under two different formulas."
+Open `/sensors`. Read the blue notice, or paraphrase:
 
-> "Frontend and backend run separately, sixteen collections, about fifty
-> endpoints, and it runs with no MongoDB installation because the backend boots
-> an in-memory instance and seeds it."
+> "There is no hardware. Air-quality, temperature and humidity sensors are
+> virtual: every stored reading is a real Open-Meteo observation for that
+> park's coordinates. Noise, soil moisture and water quality have no public
+> source at park scale, so they are simulated to exercise the same ingestion,
+> anomaly and alert pipeline a real gateway would use."
+
+Point at the **Deployed** tile hint (at the time of writing "18 Open-Meteo · 15
+simulated") and the source badge on each card.
+
+Click **Refresh readings**. Read the toast.
+
+> "Virtual sensors store a value only when Open-Meteo's observation time has
+> moved on, so often this says zero new observations — that's correct, it
+> refuses to duplicate or invent readings. Simulated sensors add one reading
+> each."
+
+Open a **Noise (simulated)** card: the chart, the dashed warning thresholds,
+any red **Flagged anomaly** points, and the **Anomaly detection** list (it may
+be empty — spikes are rare).
+
+> "Three detectors vote — z-score, a MAD-based modified z-score, and Tukey's
+> IQR fence. Two of three flags a reading."
+
+**If asked "why do two parks show the same AQI?"** — CAMS and the forecast
+model are gridded; one cell can cover several nearby parks.
 
 ---
 
-## Fallbacks if something breaks
+## 6 · AI — real inference, honest accuracy (90 s)
+
+Open `/ai` (**AI Monitoring**). Point at the blue notice.
+
+> "This is real inference: Google's pre-trained MobileNetV2 runs on the server
+> with TensorFlow.js. It was not trained on park imagery, so each task pools
+> ImageNet classes — all 59 bird classes into 'bird' — and adds pixel colour
+> statistics. The measured accuracy is on the page: 16 of 22 labelled photos
+> overall, and **litter 0 of 3**. Those 22 are the same photos the thresholds
+> were calibrated on, so treat it as optimistic."
+
+**Fire.** On **Analyse**, pick **Fire & smoke detection**. **Upload a photo** →
+`backend/src/seed/data/sample-images/eval-fire-bonfire.jpg`. Under **Park
+(needed for auto-escalation)** choose **Cubbon Park**. Click **Analyse image**.
+
+Point at the result: **Flames visible**, critical, a confidence in the high 90s
+at the time of writing, the **Label probabilities**, **Evidence** and **Top
+ImageNet classes**.
+
+Scroll to **Escalation decision** — all three checks ticked, and the red box
+**Incident INC-… opened at high priority**.
+
+> "Only fire or smoke can open an incident by itself, only at or above the 85 %
+> confidence floor, and only with a park so the crew has a location. Every other
+> finding waits for a human."
+
+**Wildlife.** Pick **Wildlife recognition**, upload
+`wildlife-indian-pond-heron.jpg`, leave the park as **Not specified**, analyse.
+
+> "It says **Bird**, and the detail line says the closest ImageNet class is a
+> **bittern**. That's the limit of an ImageNet model: most Indian species aren't
+> in its vocabulary, so species are named at ImageNet granularity."
+
+Point at **Escalation decision**: not escalatable, queued for review.
+
+**If asked "so what about litter?"** — open **Model**: the litter task shows
+**0/3 correct**. ImageNet recognises a bottle or a bag, not a heap of mixed
+waste. It is never allowed to open an incident; fixing it needs training on
+labelled litter photos.
+
+**If asked "how would you measure accuracy properly?"** — a held-out labelled
+set, much larger than 22 images. The review queue (**Detections** → **Correct**
+/ **Wrong**) is how those labels would be collected; **Performance** turns
+reviews into observed precision.
+
+**If asked "is the same image always the same answer?"** — yes: fixed weights,
+no randomness. An integration test checks that renaming an image does not
+change the result and a different image does.
+
+---
+
+## 7 · Incidents — triage, assign, work order, resolve (60 s)
+
+Still signed in as **Park Officer**, open `/incidents`. **Triage queue** is the
+default tab; the incident the fire photo just opened is in it.
+
+> "Incidents are ordered by a computed score — hazard, severity, exposure,
+> urgency and community signal — not by arrival time and not by whoever typed
+> 'urgent'."
+
+Click an incident to open the sheet. Walk the **Actions**:
+
+1. **Assign to** → pick a member of staff → **Assign**.
+2. **Raise a work order** → the sheet then shows *Work order WO-… is open for
+   this incident*.
+3. Type a line in **Resolution notes** → **Mark resolved**.
+
+> "Resolving stamps the resolution time, stops the incident ageing and resolves
+> its alert."
+
+**If asked about ageing** — urgency is `1 − e^(−t/τ)` with τ the type's
+response target: it saturates, so ageing adds at most 10 points and a week-old
+vandalism report can never outrank a new fire.
+
+**If asked "can an officer set the priority?"** — no. The API ignores a
+priority sent by the client and recomputes it on every write.
+
+---
+
+## 8 · Citizen portal — report and upvote (55 s)
+
+Open the user menu → **Sign out**, then sign in as **Citizen**. Open `/citizen`
+(**Citizen Portal**).
+
+Click **Submit a report** → **Issue**, a title and description, choose a park,
+**Park centre** for the location → **Submit report**.
+
+> "It gets a CR- reference and waits for an officer."
+
+On **All reports**, click the thumbs-up on someone else's report; click it again
+to withdraw.
+
+> "One upvote per account, enforced by a single atomic database update, so a
+> double-click or a replay counts once. When a report has become an incident,
+> its upvotes feed that incident's community term — log-scaled and weighted at
+> 0.10, so popularity can never outrank a hazard."
+
+Point at a card showing **Became incident INC-… — status**.
+
+**If there is time:** sign in as **Park Officer**, click **Review** on your new
+report → **Accept**, set incident type, severity and people affected →
+**Submit decision**. Accepting an issue opens an incident; accepting a wildlife
+sighting writes a verified observation into the biodiversity indices.
+
+---
+
+## 9 · Analytics — a report computed from data (45 s)
+
+Sign in as **Ecologist**. Open `/analytics` → **Reports** tab.
+
+Click **Generate report** → type **Ecosystem health assessment**, **All
+monitored parks**, **Last 90 days** → **Generate draft**.
+
+> "The metrics, findings and recommendations are computed from the recorded
+> data by stated rules — weakest sub-index below 55, evenness below 0.6,
+> invasive records present, and so on. The metrics are frozen with the report,
+> so a published report keeps the figures it was written against."
+
+Click **Publish**. Optionally **Export PDF**.
+
+> "Drafts are visible only to ecologists and above; once published, anyone can
+> read it."
+
+---
+
+## 10 · Assistant (30 s)
+
+Open `/assistant` (**Eco Assistant**). Under **Try asking**, click *How is the
+air quality at Cubbon Park?*
+
+Point at **Sources**.
+
+> "It retrieves with TF-IDF and cosine similarity over the database, then fills
+> an answer template from those records and live computations. It is not a
+> language model — which means every number is traceable and it can't invent
+> one."
+
+**If asked why the park name didn't turn it into a 'parks' question** — a park
+name sets the scope; it does not override a more specific intent.
+
+---
+
+## 11 · Administration (30 s)
+
+Sign in as **Administrator**. Open `/admin` → **Settings**.
+
+Point at **Ecosystem Health Index Weights** and **AI auto-escalation confidence
+floor**.
+
+> "Weights must sum to 1.00 before they can be saved, and saving re-scores every
+> park at once. The escalation floor is the 85 % we saw on the fire photo."
+
+Switch to **System**: **Public API Integrations** (Reachable badges), and
+**Maintenance Actions**.
+
+> "No API keys are needed. In production the server refuses to start without a
+> real database, a strong JWT secret and a CORS origin, and it refuses to
+> reseed."
+
+Close:
+
+> "Real open data scored by our own code, real inference with its accuracy
+> measured and stated, and every simulated or demonstration value labelled."
+
+---
+
+## What to say about limitations
+
+Say these before being asked. An assessor who hears them from you moves on.
+
+| Limitation | What to say |
+|---|---|
+| No physical sensors | "AQI, temperature and humidity are real model observations for the park's coordinates — gridded, so nearby parks can match. Noise, soil and water are simulated. A device would POST to `/api/sensors/:id/readings` and nothing downstream changes." |
+| General-purpose vision model | "16 of 22 on photos the thresholds were tuned on, so it's optimistic. Litter is 0 of 3. Species come out at ImageNet granularity. That is why everything goes to review and only fire escalates." |
+| GBIF counts are records | "They measure recording effort as much as wildlife. Lalbagh holds about nine in ten records; small samples look artificially even; recent months are incomplete because publication lags." |
+| Pooled diversity index | "Methodologically imperfect; the per-taxocene table is the rigorous comparison." |
+| Demonstration operational data | "Accounts, incidents, work orders, citizen reports and asset condition scores are demo records flagged `demo: true` — a portal only gets those from real use." |
+| Assistant | "Retrieval is real; generation is templates, by design." |
+| Security | "The JWT lives in `localStorage`; production should use httpOnly cookies. The image-URL fetcher blocks private addresses and re-checks redirects, but a DNS-rebinding race is still possible." |
+
+---
+
+## Offline
+
+Only two features need the internet at run time: **Live Conditions** and the
+**virtual sensors** (Open-Meteo), including **Refresh readings**. Offline, the
+panel says **Live data unavailable** and the virtual sensors store nothing — they
+turn stale and, after three hours, offline — rather than invent values.
+
+Everything else — seeding from the committed snapshot, the dashboard scores,
+biodiversity indices, simulated sensors, incidents, citizen reports, reports,
+the assistant and **image analysis** — works offline **once the vision model is
+cached** in `backend/.cache/mobilenet-v2/`.
+
+Cosmetic things that also need a connection: the base-map tiles (the data layers
+still draw on a blank background), species photographs (hosted by iNaturalist
+and others), the GBIF cross-check in a species sheet, and street-address lookup
+in the citizen report form.
+
+---
+
+## Fallbacks
 
 | Problem | What to do |
 |---|---|
-| "Cannot reach the API" everywhere | Backend isn't running. `cd backend && npm run dev`. The error state on screen says this. |
-| Live Conditions unavailable | You're offline. Say so — everything else is unaffected, and the simulator falls back to its own model. |
-| Blank map | Leaflet CSS is loaded from a CDN. Offline, the layers still load; only the base tiles are missing. |
-| Data looks wrong | `/admin` → System → **Reseed**. Takes ~10 s and restores a known-good dataset. |
-| Wrong role for an action | Sign in as admin (`admin@greenpulse.gov`) — it can do everything. |
+| "Cannot reach the API" on every page | The backend is not running. Start `npm run backend:dev`; the error state says so. |
+| Live Conditions says **Live data unavailable** | You are offline. Say so — see [Offline](#offline). |
+| Image analysis fails with "model unavailable" (503) | The model is not cached and there is no network. Run `npm run model:download` on a connection; once cached it works offline. |
+| **Detections** is empty | The model was unavailable when the database was seeded. Once it is cached, restart the backend (the in-memory database re-seeds) or use `/admin` → **System** → **Reseed database**. |
+| The fire photo did not open an incident | Check that a park was selected and that the confidence floor in `/admin` → **Settings** is still 85 %. |
+| Data looks wrong mid-demo | `/admin` → **System** → **Reseed database** (development only). Parks, species and observations come back identically; sensor readings and live values differ. It signs everyone out. |
+| A page takes seconds to open | Development-mode compilation on first visit. Use the production build for the review. |
+| Wrong role for an action | Sign in as **Administrator** — it can do everything. |
 
 ---
 
-## The five things worth remembering
+## Five things worth remembering
 
-1. **The mathematics is real** — Shannon, CPCB AQI, weighted composite, three-detector anomaly ensemble, exponential-ageing triage. The Index Calculator proves it live.
-2. **Live public data, scored by our own code** — Open-Meteo gives concentrations; the CPCB conversion is ours.
-3. **Nothing is stored that should be derived** — biodiversity from observations, priority from attributes, map layers from other modules.
-4. **The system is honest about its limits** — the AI banner says exactly what is simulated.
-5. **It runs anywhere** — no database install, no API keys, works offline.
+1. **Real open data, labelled** — OpenStreetMap parks and assets, GBIF species
+   and records, GRIIS invasive flags, Open-Meteo weather and CAMS air quality.
+   Demo and simulated values carry a badge.
+2. **Our own mathematics on it** — CPCB AQI with averaging periods and the
+   maximum operator, Shannon and evenness on GBIF records, a weighted composite
+   that ignores missing data, a two-of-three anomaly vote, bounded ageing in
+   triage.
+3. **Real inference, measured** — MobileNetV2 on the server; 16/22 on
+   calibration photos, litter 0/3; only fire escalates.
+4. **Records are not individuals** — and effort differs hugely between parks.
+5. **It runs anywhere** — no database install, no API keys; offline except for
+   live conditions once the model is cached.

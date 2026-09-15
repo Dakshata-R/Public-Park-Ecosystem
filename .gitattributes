@@ -1,0 +1,12 @@
+# Binary files must never have line endings converted (core.autocrlf would
+# corrupt the PDF's byte offsets on a Windows checkout).
+*.pdf binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.zip binary
+*.bin binary
+*.wasm binary

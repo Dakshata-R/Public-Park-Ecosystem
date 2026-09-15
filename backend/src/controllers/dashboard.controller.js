@@ -86,7 +86,9 @@ const getOverview = asyncHandler(async (req, res) => {
   const kpis = [
     { key: 'ecosystemHealth', label: 'Ecosystem Health', value: health.ecosystemHealth, unit: '/100', score: health.ecosystemHealth, icon: 'Leaf' },
     { key: 'biodiversity', label: 'Biodiversity', value: hasBiodiversity ? biodiversity.score : null, unit: '/100', score: hasBiodiversity ? biodiversity.score : null, icon: 'Bird' },
-    { key: 'airQuality', label: 'Air Quality', value: meanAqi === null ? null : Math.round(meanAqi), unit: 'AQI', score: health.subIndices.airQuality, icon: 'Wind', source: aqiSensors[0]?.source || null },
+    // Citywide, the tile is a mean of stored park readings, so it can differ by a
+    // few points from the Live Conditions panel's fresh single-location query.
+    { key: 'airQuality', label: parkId || aqiSensors.length < 2 ? 'Air Quality' : 'Air Quality (park average)', value: meanAqi === null ? null : Math.round(meanAqi), unit: 'AQI', score: health.subIndices.airQuality, icon: 'Wind', source: aqiSensors[0]?.source || null },
     { key: 'waterQuality', label: 'Water Quality', value: health.subIndices.waterQuality, unit: '/100', score: health.subIndices.waterQuality, icon: 'Droplets' },
     { key: 'soilHealth', label: 'Soil Health', value: health.subIndices.soilHealth, unit: '/100', score: health.subIndices.soilHealth, icon: 'Sprout' },
     { key: 'treeHealth', label: 'Tree Health', value: health.subIndices.treeHealth, unit: '/100', score: health.subIndices.treeHealth, icon: 'TreePine' },
