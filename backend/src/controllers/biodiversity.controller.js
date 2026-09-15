@@ -17,7 +17,8 @@ const { queryObjectId } = require('../utils/objectId');
 const speciesCrud = createCrudController({
   model: Species,
   name: 'Species',
-  filterable: ['class', 'conservationStatus', 'isInvasive', 'isIndicator'],
+  // `parks=<id>` matches species recorded in that park (an array field).
+  filterable: ['class', 'conservationStatus', 'isInvasive', 'isIntroduced', 'isIndicator', 'parks'],
   searchable: ['commonName', 'scientificName', 'habitat', 'family'],
   populate: { path: 'parks', select: 'name slug' },
   defaultSort: { commonName: 1 },

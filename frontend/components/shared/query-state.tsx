@@ -69,16 +69,24 @@ export function ErrorState({
 
         <div className="space-y-1">
           <p className="font-medium">
-            {offline ? 'Cannot reach the API' : apiError?.isForbidden ? 'Not permitted' : 'Something went wrong'}
+            {offline
+              ? 'Cannot reach the server'
+              : apiError?.isForbidden
+              ? 'Not permitted'
+              : apiError?.isAuthError
+              ? 'Sign-in required'
+              : apiError?.isRateLimited
+              ? 'Too many requests'
+              : 'Something went wrong'}
           </p>
           <p className="mx-auto max-w-md text-sm text-muted-foreground">
             {apiError?.message || (error instanceof Error ? error.message : 'An unexpected error occurred.')}
           </p>
         </div>
 
-        {offline && (
+        {offline && process.env.NODE_ENV !== 'production' && (
           <pre className="mt-1 rounded-lg bg-muted px-3 py-2 text-left text-xs text-muted-foreground">
-            cd server{'\n'}npm run dev
+            cd backend{'\n'}npm run dev
           </pre>
         )}
 

@@ -33,7 +33,7 @@ async function markOverdueOrders(now = new Date()) {
 const crud = createCrudController({
   model: WorkOrder,
   name: 'Work order',
-  filterable: ['type', 'status', 'priority', 'park', 'assignedTo'],
+  filterable: ['type', 'status', 'priority', 'park', 'assignedTo', 'sourceIncident'],
   searchable: ['title', 'description', 'orderCode', 'assetName'],
   populate: [
     { path: 'park', select: 'name slug' },

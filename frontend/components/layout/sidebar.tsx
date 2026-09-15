@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Leaf, X, LogIn } from 'lucide-react';
+import { Leaf, X, LogIn, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { navFor, APP_NAME, APP_TAGLINE } from '@/lib/nav';
 import { useAuth } from '@/components/providers/auth-provider';
 import { useDashboard } from '@/lib/hooks/use-api';
+import { ApiError } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
@@ -27,7 +28,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
   // The footer reports what is actually being monitored rather than a
   // hard-coded "6 parks" that silently goes stale.
-  const { data: overview } = useDashboard();
+  const overviewQuery = useDashboard();
+  const overview = overviewQuery.data;
+  const offline = overviewQuery.error instanceof ApiError && overviewQuery.error.isNetworkError;
 
   const content = (
     <div className="flex h-full flex-col">
@@ -112,14 +115,34 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </Button>
         )}
 
-        <div className="rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 p-3.5">
-          <p className="text-xs font-semibold text-foreground">Smart City v1.0</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {overview
-              ? `${overview.parkRanking.length} parks · ${overview.counts.sensorsOnline} sensors online`
-              : 'Connecting…'}
-          </p>
-        </div>
+        {overviewQuery.isError && !overview ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3.5">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-destructive">
+              <WifiOff className="h-3.5 w-3.5" />
+              {offline ? 'Offline' : 'Status unavailable'}
+            </p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {offline ? 'Cannot reach the GreenPulse server.' : 'The server could not report park and sensor counts.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => void overviewQuery.refetch()}
+              disabled={overviewQuery.isFetching}
+              className="mt-1.5 text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
+            >
+              {overviewQuery.isFetching ? 'Retrying…' : 'Try again'}
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 p-3.5">
+            <p className="text-xs font-semibold text-foreground">{APP_NAME} · prototype</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {overview
+                ? `${overview.parkRanking.length} parks · ${overview.counts.sensorsOnline} sensors online`
+                : 'Connecting…'}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

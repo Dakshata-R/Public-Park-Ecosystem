@@ -23,11 +23,11 @@ const isHexId = (value) => typeof value === 'string' && /^[0-9a-f]{24}$/.test(va
 
 test('a top-level _id becomes a string id', () => {
   const id = oid();
-  const result = normaliseId({ _id: id, name: 'Central Green Park' });
+  const result = normaliseId({ _id: id, name: 'Cubbon Park' });
 
   assert.equal(result.id, id.toString());
   assert.ok(!('_id' in result));
-  assert.equal(result.name, 'Central Green Park');
+  assert.equal(result.name, 'Cubbon Park');
 });
 
 test('an un-populated ObjectId reference becomes a hex string, not a buffer', () => {

@@ -15,6 +15,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
 const env = require('./config/env');
+const ApiError = require('./utils/ApiError');
 const routes = require('./routes');
 const { notFoundHandler, errorHandler } = require('./middleware/error');
 
@@ -34,7 +35,7 @@ app.use(
       if (!origin || env.corsOrigins.includes(origin) || env.corsOrigins.includes('*')) {
         return callback(null, true);
       }
-      return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+      return callback(ApiError.forbidden(`Origin ${origin} is not allowed by CORS — add it to CORS_ORIGIN`));
     },
     credentials: true,
   })

@@ -42,6 +42,9 @@ export function ConfirmDialog({
     try {
       await onConfirm();
       onOpenChange(false);
+    } catch {
+      // The mutation hooks already toast the failure; keep the dialog open so
+      // the user can retry or cancel, and never leak an unhandled rejection.
     } finally {
       setWorking(false);
     }

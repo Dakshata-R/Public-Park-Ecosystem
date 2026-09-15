@@ -32,7 +32,7 @@
  * ---------------------------------------------------------------------------
  * The generative model for simulated sensors
  * ---------------------------------------------------------------------------
- *   x_t = α·x_{t−1} + (1 − α)·( base + A·sin(2π(h − φ)/24) ) + ε
+ *   x_t = α·x_{t−1} + (1 − α)·( base + A·cos(2π(h − φ)/24) ) + ε
  *
  *   α  persistence (0.7) — an AR(1) term, so the series drifts rather than
  *      jumping between independent samples
@@ -109,7 +109,8 @@ function nextValue(sensor, now = new Date()) {
   const profile = DIURNAL[sensor.type] || { base: 50, amplitude: 10, peakHour: 12, sigma: 4 };
   const hour = localHour(now);
 
-  const seasonal = profile.base + profile.amplitude * Math.sin((2 * Math.PI * (hour - profile.peakHour)) / 24);
+  // cos, not sin: the cycle must peak at `peakHour`, not six hours after it.
+  const seasonal = profile.base + profile.amplitude * Math.cos((2 * Math.PI * (hour - profile.peakHour)) / 24);
 
   const alpha = 0.7;
   const previous = Number.isFinite(sensor.currentValue) && sensor.currentValue > 0 ? sensor.currentValue : seasonal;

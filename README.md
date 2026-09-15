@@ -2,88 +2,209 @@
 
 **Public Park Ecosystem Health Monitoring System & Urban Biodiversity Mapping Portal**
 
-A full-stack platform for monitoring the ecological health of urban parks: live
-environmental sensing, computed biodiversity indices, GIS mapping, AI image
-analysis, citizen reporting, and priority-based incident response.
+GreenPulse monitors the ecological health of six public parks in Bengaluru. It
+combines live air-quality and weather observations, biodiversity records
+published through GBIF, park boundaries and assets mapped in OpenStreetMap, and
+image analysis with a trained neural network. On top of that data it provides
+incident triage, maintenance planning, citizen reporting, analytics and a
+retrieval-based assistant.
 
 ```
 GreenPulse---Escosystem/
-├── frontend/     Next.js 13 · TypeScript · Tailwind · shadcn/ui · Leaflet · Recharts
-├── backend/      Node.js · Express · MongoDB (Mongoose) · JWT
-└── docs/         Architecture, API reference, algorithms, viva preparation
+├── backend/    Node.js · Express · MongoDB (Mongoose) · TensorFlow.js · JWT
+├── frontend/   Next.js 13 · TypeScript · Tailwind · shadcn/ui · TanStack Query · Leaflet · Recharts
+└── docs/       Architecture, algorithms, API reference, demo script, viva preparation
 ```
 
 ---
 
-## Running it
+## What is real, and what is not
 
-Two terminals. **No MongoDB installation is required** — the backend boots an
-in-memory instance and seeds it automatically.
+The interface labels the origin of every value. In short:
 
-### Terminal 1 — backend
+| Data | Source | Status |
+|---|---|---|
+| Parks — boundaries, areas, facilities | OpenStreetMap (Overpass API) | **Real**, committed snapshot |
+| Park assets — trees, benches, lamps, paths, water, structures | OpenStreetMap | **Real positions**; condition scores and maintenance history are demo values |
+| Species, IUCN status, photographs | GBIF species API | **Real**, committed snapshot |
+| Species observations | GBIF occurrence records inside each park boundary since Jan 2023, counted per month | **Real** (counts are records, not individuals) |
+| Invasive / introduced species | GRIIS India checklist (Darwin Core archive) | **Real** |
+| Air quality (CPCB AQI), temperature, humidity | Open-Meteo forecast model and CAMS air quality, fetched live | **Real** "virtual sensors" |
+| Noise, soil moisture, water quality sensors | Generated (AR(1) + daily cycle + noise) | **Simulated**, labelled as such |
+| AI image analysis | MobileNetV2 (ImageNet) run on the server with TensorFlow.js, plus pixel colour analysis | **Real inference** — see accuracy below |
+| User accounts, citizen reports, incidents, work orders | Seeder | **Demo records**, flagged `demo: true` and badged in the UI |
+| Ecological reports | Generated from the data above | **Computed** |
+
+The open-data snapshot lives in `backend/src/seed/data/open-data/` with its
+attribution in `ATTRIBUTION.md`, so the app starts and seeds **offline**. Run
+`npm run data:refresh` in `backend/` to rebuild it from the live APIs.
+
+---
+
+## Requirements
+
+- **Node.js 18.17 or newer** (20 recommended — see `.nvmrc`)
+- **npm**
+- **MongoDB** — optional for development (an in-memory database starts
+  automatically), required for production (e.g. MongoDB Atlas free tier)
+- Internet access on first run, to download the vision model once (~14 MB)
+  and for live Open-Meteo data. Everything else works offline.
+
+No API keys are required.
+
+---
+
+## Setup and run (development)
 
 ```bash
-cd backend
-npm install
-npm run dev
+git clone <repository-url>
+cd GreenPulse---Escosystem
+
+# 1. Install both halves
+npm run setup                     # = npm install in backend/ and frontend/
+
+# 2. Environment files
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
 ```
 
-→ API on **http://localhost:5000/api**
-
-### Terminal 2 — frontend
+The defaults work as they are: a blank `MONGODB_URI` starts an in-memory
+MongoDB, seeded on every boot.
 
 ```bash
-cd frontend
-npm install
-npm run dev
+# 3. Terminal 1 — API on http://localhost:5000/api
+npm run backend:dev
+
+# 4. Terminal 2 — web app on http://localhost:3000
+npm run frontend:dev
 ```
 
-→ Web on **http://localhost:3000**
+On first start the backend seeds the database (about 10 seconds) and loads the
+vision model in the background — downloading it once if it is not cached. You
+can pre-download it with `npm --prefix backend run model:download`.
 
-### Sign-in accounts
+### Sign-in accounts (demo)
 
-All four use the password **`greenpulse123`**. The sign-in page lists them and
-signs you in with one click.
+All use the password **`greenpulse123`**. The login page lists them when
+`NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS=true` (the default in `.env.example`).
 
 | Role | Email | Can do |
 |---|---|---|
 | Administrator | `admin@greenpulse.gov` | Everything, including users and system settings |
-| Ecologist | `ecologist@greenpulse.gov` | Curate species records, verify sightings |
-| Park Officer | `officer@greenpulse.gov` | Incidents, work orders, assets, sensors |
-| Citizen | `citizen@greenpulse.gov` | Report issues, log wildlife sightings |
+| Ecologist | `ecologist@greenpulse.gov` | Species records, sighting verification, AI reviews, reports |
+| Park Officer | `officer@greenpulse.gov` | Incidents, work orders, assets, sensors, exports |
+| Citizen | `citizen@greenpulse.gov` | Report issues, log sightings, upvote, analyse images |
 
-The dashboard, map and biodiversity catalogue are public — no sign-in needed.
+The dashboard, map and biodiversity catalogue are public.
 
-### Using a persistent database (optional)
+### Using a persistent local database
 
-Copy `backend/.env.example` to `backend/.env` and set `MONGODB_URI` to a local
-`mongod` or an Atlas cluster. Then `npm run seed` once to populate it.
+Set `MONGODB_URI=mongodb://127.0.0.1:27017/greenpulse` in `backend/.env`, then
+seed it once (this **replaces** everything in that database):
+
+```bash
+npm run seed
+```
 
 ---
 
-## What is in the seeded dataset
+## Environment variables
 
-| | |
+### `backend/.env`
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `PORT` | no | `5000` | HTTP port |
+| `NODE_ENV` | no | `development` | `production` enables the safety checks below |
+| `MONGODB_URI` | **production** | blank → in-memory | MongoDB connection string |
+| `JWT_SECRET` | **production** | dev placeholder | Token signing secret, ≥ 32 random characters |
+| `JWT_EXPIRES_IN` | no | `7d` | Token lifetime |
+| `CORS_ORIGIN` | **production** | `http://localhost:3000` | Comma-separated frontend origin(s) |
+| `AUTO_SEED` | no | `true` | Seed when the database has no parks |
+| `SENSOR_SIMULATION_INTERVAL_MS` | no | `60000` | Sensor refresh interval; `0` disables |
+| `LOG_LEVEL` | no | `info` | `debug` · `info` · `warn` · `error` · `silent` |
+| `OPENWEATHER_API_KEY` | no | — | Optional alternative weather source |
+| `EBIRD_API_KEY` | no | — | Optional recent bird sightings near a park |
+
+In production the server **refuses to start** without `MONGODB_URI`, a strong
+`JWT_SECRET` and `CORS_ORIGIN`, and prints what is missing.
+
+### `frontend/.env.local`
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | **production build** | `http://localhost:5000/api` in development | Base URL of the API, including `/api`. Baked in at build time. |
+| `NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS` | no | `false` | Show the demo sign-in accounts on the login page |
+
+---
+
+## Tests and checks
+
+```bash
+npm test                       # backend: unit + integration suites (in-memory MongoDB, real vision model)
+npm run typecheck              # frontend: tsc --noEmit
+npm --prefix frontend run build
+npm --prefix backend run eval:vision   # AI accuracy report on 22 labelled photographs
+```
+
+The integration suites seed the real snapshot into their own in-memory MongoDB
+and drive the API over HTTP; live Open-Meteo history is skipped under test so
+the suite does not depend on the network (the vision model must be cached or
+downloadable).
+
+### AI accuracy (`npm run eval:vision`)
+
+Measured on 22 openly licensed Wikimedia Commons photographs with known labels.
+These are the same photographs the task thresholds were calibrated on, so the
+figures are optimistic — there is no separate held-out test set:
+
+| Task | Correct |
 |---|---|
-| Parks | 6 |
-| Species catalogue | 30 (Indian urban biodiversity, incl. 3 invasives) |
-| Park assets | 231 trees, plants, benches, lakes, paths, lights |
-| Sensors | 32 across six measurement types |
-| Sensor readings | ~3,000 (48 h of history per device) |
-| Species observations | 420, spanning 14 months |
-| Incidents | 34 with full status timelines |
-| Work orders | 38 |
-| Citizen reports | 41 |
-| AI detections | 30 |
+| Fire & smoke | 9 / 11 (no false alarms on sunsets or autumn leaves) |
+| Tree & foliage health | 3 / 3 |
+| Wildlife | 3 / 3 |
+| Plant & fungus | 1 / 2 |
+| Litter | **0 / 3** |
+| **Overall** | **16 / 22 (73 %)** |
 
-The generator is seeded, so the same dataset comes back on every reseed — a
-figure quoted in a presentation will still be there afterwards.
+MobileNetV2 is a general ImageNet classifier: it names animals at ImageNet
+granularity (an Indian pond heron is its closest class, "bittern"), foliage
+health is a colour measurement rather than a diagnosis, and it does not
+recognise litter scenes. Every detection therefore enters a human review
+queue, and only fire findings may open an incident automatically.
+
+---
+
+## Deployment
+
+The backend needs a long-running Node process (it refreshes sensors on a timer
+and holds the vision model in memory), so it is not suited to serverless
+functions. A free-tier setup:
+
+**1. Database — MongoDB Atlas.** Create a free cluster, a database user, and
+allow network access from your host. Copy the `mongodb+srv://…` string.
+
+**2. Backend — Render.** New → Blueprint → select this repository.
+`render.yaml` defines the service (`backend/` root, `npm ci --omit=dev && npm
+run model:download` build, `/api/health` health check) and generates
+`JWT_SECRET`. Enter `MONGODB_URI` and `CORS_ORIGIN` (your frontend URL) when
+prompted. The first boot seeds the database.
+
+**3. Frontend — Vercel** (or Netlify). Import the repository, set the root
+directory to `frontend`, and set `NEXT_PUBLIC_API_URL` to
+`https://<your-render-service>.onrender.com/api`. For Netlify, `netlify.toml`
+at the repository root already sets the base directory.
+
+**4.** Put the frontend URL into the backend's `CORS_ORIGIN` and redeploy it.
+
+Any Node host works the same way: `cd backend && npm ci --omit=dev && npm run
+model:download && npm start` with the environment variables above.
 
 ---
 
 ## The twelve modules
 
-| # | Module | Where |
+| # | Module | Route |
 |---|---|---|
 | 1 | Ecosystem Monitoring Dashboard | `/dashboard` |
 | 2 | GIS & Urban Biodiversity Mapping | `/map` |
@@ -100,85 +221,53 @@ figure quoted in a presentation will still be there afterwards.
 
 ---
 
-## What makes this more than CRUD
+## How it works
 
-**Real ecological mathematics.** Biodiversity is not a stored number — it is
-computed from field observations using Shannon–Wiener, Pielou's evenness,
-Simpson, Margalef and Berger–Parker, with per-taxocene breakdowns. The
-Biodiversity page includes a calculator so the formulas can be exercised with
-arbitrary input.
+**Ecological mathematics on real records.** Shannon–Wiener, Pielou, Simpson,
+Margalef and Berger–Parker indices are computed from GBIF occurrence records
+for each park, with per-taxon breakdowns.
 
-**Live public data, scored by our own code.** Open-Meteo returns raw pollutant
-*concentrations*; the CPCB breakpoint mathematics that turns them into an AQI is
-implemented in this project (`backend/src/services/aqi.service.js`). The sensor
-simulator anchors itself to live weather every 15 minutes, so a simulated probe
-tracks genuine conditions at that coordinate.
+**CPCB AQI computed here.** Open-Meteo returns pollutant concentrations; this
+project applies the CPCB breakpoints with the official averaging periods
+(24-hour means for PM2.5, PM10, NO₂, SO₂; 8-hour means for CO and O₃).
 
-**Computed priority, not typed-in priority.** Incident ranking comes from a
-weighted formula over hazard type, severity, log-scaled exposure, exponential
-ageing against a per-type response target, and community signal. The triage
-queue shows the factor breakdown, so the ordering is arguable rather than
-asserted.
+**Composite Ecosystem Health Index.** A weighted mean over the sub-indices that
+have data. A missing indicator is reported as "no data", never as zero.
 
-**A three-detector anomaly ensemble.** Z-score, modified z-score (median
-absolute deviation), and Tukey's IQR fence vote; two of three flags a reading.
+**Real image inference.** MobileNetV2 runs on the server (TensorFlow.js,
+WebAssembly backend, ~30–80 ms per image). Each task turns ImageNet class
+evidence and pixel colour statistics into its own labels, and returns the
+evidence with the result.
 
-**Retrieval that cites its sources.** The assistant ranks database documents by
-TF-IDF cosine similarity and shows which records each answer drew on, with
-scores.
+**Computed priority.** Incident ranking comes from hazard type, severity,
+exposure, ageing against a response target, and community upvotes (one per
+account).
 
-**Honest about the AI.** The vision pipeline's contract is real — class
-vocabulary, softmax vector, argmax, severity mapping, auto-escalation rule — but
-the logits come from a deterministic surrogate rather than trained weights, and
-the interface says so. Setting `AI_MODEL_ENDPOINT` swaps in a served model
-through the same code path.
+**Anomaly ensemble.** Z-score, modified z-score (MAD) and Tukey's IQR fence
+vote on each reading.
+
+**Retrieval that cites its sources.** The assistant ranks database records by
+TF-IDF cosine similarity and composes its answers from templates over those
+records; it is not a large language model.
+
+Full derivations are in [`docs/algorithms.md`](docs/algorithms.md).
 
 ---
 
-## Public API integrations
+## Limitations
 
-Four work with **no API key at all**:
-
-| Service | Used for |
-|---|---|
-| Open-Meteo Forecast | Current weather and 7-day outlook |
-| Open-Meteo Air Quality (CAMS) | Pollutant concentrations → CPCB AQI |
-| GBIF | Species occurrence records, taxonomy validation |
-| OpenStreetMap Nominatim | Reverse geocoding for report locations |
-
-Two more activate if you supply a key in `backend/.env`: OpenWeatherMap
-(`OPENWEATHER_API_KEY`) and eBird (`EBIRD_API_KEY`).
-
-Every upstream call has a timeout and a local fallback. **The system works fully
-offline** — readings simply stop being anchored to live data.
-
----
-
-## Tests
-
-```bash
-npm test                         # from the repository root
-```
-
-**113 automated tests, all passing, in about thirteen seconds.** No server needs to
-be running: each suite starts its own in-memory MongoDB
-(`mongodb-memory-server`) and binds the Express app to a free port, so the
-tests never touch your development database and can run in parallel.
-
-| Suite | Tests | Covers |
-|---|---|---|
-| `test/unit/aqi.test.js` | 13 | CPCB sub-indices, band edges, AQI→score inversion, monotonicity |
-| `test/unit/biodiversity.test.js` | 12 | Shannon, Pielou, Simpson, Margalef, dominance, composite score |
-| `test/unit/anomaly.test.js` | 11 | Three-detector majority vote, constant history, zero IQR, short history |
-| `test/unit/priority.test.js` | 14 | Triage weighting, ageing, clamping, queue ordering |
-| `test/unit/serialisation.test.js` | 12 | ObjectId/Date wire normalisation (regression) |
-| `test/integration/auth.test.js` | 13 | Registration, sign-in, JWT tampering, role escalation, password rotation |
-| `test/integration/modules.test.js` | 37 | All twelve modules, the full incident workflow, RBAC, pagination, soft delete |
-
-Expected values in the unit suites are derived from the published formulae
-rather than captured from the implementation, so a regression cannot pass by
-agreeing with itself. The integration suites seed the real dataset and drive
-the API over HTTP — nothing is stubbed.
+- **No physical sensors.** Air quality, temperature and humidity are real
+  observations from gridded models (nearby parks can share a grid cell); noise,
+  soil and water readings are simulated.
+- **General-purpose vision model.** See the accuracy table above; litter
+  detection does not work reliably.
+- **GBIF record counts are not population counts**, and recent months are
+  incomplete because publication lags observation.
+- **Operational records are demonstration data** until the portal is used.
+- **JWT in `localStorage`.** A hardened deployment should use httpOnly cookies.
+- **Image URLs are fetched server-side.** Private and link-local addresses are
+  refused and redirects re-checked, but the DNS lookup and the fetch are
+  separate, so a DNS-rebinding race remains possible.
 
 ---
 
@@ -187,34 +276,18 @@ the API over HTTP — nothing is stubbed.
 | Document | Contents |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | System design, layers, data flow, schema |
-| [`docs/algorithms.md`](docs/algorithms.md) | Every formula, with derivations and worked examples |
+| [`docs/algorithms.md`](docs/algorithms.md) | Every formula, with derivations |
 | [`docs/api-reference.md`](docs/api-reference.md) | All endpoints, roles, request and response shapes |
-| [`docs/demo-script.md`](docs/demo-script.md) | A 10-minute walkthrough for the review |
+| [`docs/demo-script.md`](docs/demo-script.md) | A 10-minute walkthrough |
 | [`docs/viva-questions.md`](docs/viva-questions.md) | Anticipated questions with answers |
+| [`backend/src/seed/data/open-data/ATTRIBUTION.md`](backend/src/seed/data/open-data/ATTRIBUTION.md) | Data sources and licences |
 
 ---
 
-## Technology
+## Data attribution
 
-**Frontend** — Next.js 13 (App Router), TypeScript, Tailwind CSS, shadcn/ui,
-TanStack Query, React Hook Form + Zod, Leaflet, Recharts, Framer Motion, jsPDF.
-
-**Backend** — Node.js, Express, MongoDB with Mongoose, JWT, bcrypt, Zod, Helmet,
-rate limiting.
-
----
-
-## Honest scope
-
-This is a semester prototype, and it is worth being clear about the boundaries:
-
-- **No physical sensors.** The ingestion path is real; the readings are
-  generated (anchored to live weather where the network allows).
-- **No trained vision models.** The inference contract is real; the weights are
-  a deterministic surrogate.
-- **The assistant retrieves but does not generate.** TF-IDF ranking is genuine;
-  answers are composed from templates over retrieved records.
-- **JWT in `localStorage`.** Appropriate for a cross-origin prototype; a
-  production deployment should move to httpOnly cookies.
-
-Each of these is documented at the point in the code where it matters.
+© OpenStreetMap contributors (ODbL) · GBIF.org and the publishing datasets ·
+GRIIS India · Open-Meteo.com (CC BY 4.0) with Copernicus CAMS data · sample
+photographs from Wikimedia Commons (credits in
+`backend/src/seed/data/sample-images/attribution.json`) · MobileNetV2 by
+Google via TensorFlow Hub.

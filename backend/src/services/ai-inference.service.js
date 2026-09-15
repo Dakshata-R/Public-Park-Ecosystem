@@ -232,7 +232,7 @@ const TASKS = {
       return {
         // The residual is sharpened (^6) so a grass fire drawing ~17 % onto
         // the fire and plume classes registers, while sunsets and autumn
-        // leaves — under 3 % — still resolve to "no fire" at ≥ 95 %.
+        // leaves — under 3 % — still resolve to "no fire" at ≈ 94 % or more.
         scores: [fire + flameColour, smoke + smokeColour, (1 - clamp01(fire + smoke)) ** 6],
         signals: { fireEvidence: fire, smokeEvidence: smoke, flameColour: strictFlameFraction, smokeColour: stats.smokeFraction },
       };

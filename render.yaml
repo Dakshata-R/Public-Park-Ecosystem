@@ -1,0 +1,41 @@
+# Render Blueprint for the GreenPulse API (https://render.com/docs/blueprint-spec).
+#
+# New → Blueprint → select this repository. Render creates the web service and
+# asks for the values marked `sync: false`. The frontend is deployed separately
+# (Vercel or Netlify — see README.md), and its URL goes into CORS_ORIGIN.
+
+services:
+  - type: web
+    name: greenpulse-api
+    runtime: node
+    rootDir: backend
+    # Download the vision model during the build so the first analysis after a
+    # deploy does not wait for it (and a blocked download fails the build).
+    buildCommand: npm ci --omit=dev && npm run model:download
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+      # MongoDB Atlas connection string (mongodb+srv://…/greenpulse).
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      # The deployed frontend origin, e.g. https://greenpulse.vercel.app
+      - key: CORS_ORIGIN
+        sync: false
+      - key: AUTO_SEED
+        value: "true"
+      - key: SENSOR_SIMULATION_INTERVAL_MS
+        value: "60000"
+      - key: LOG_LEVEL
+        value: info
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: EBIRD_API_KEY
+        sync: false

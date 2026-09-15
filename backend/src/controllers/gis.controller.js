@@ -57,8 +57,10 @@ const getLayers = asyncHandler(async (req, res) => {
             description: p.description,
             areaAcres: p.areaAcres,
             weeklyVisitors: p.weeklyVisitors,
-            ecosystemHealth: p.scores?.ecosystemHealth ?? 0,
-            biodiversity: p.scores?.biodiversity ?? 0,
+            ecosystemHealth: p.scores?.ecosystemHealth ?? null,
+            biodiversity: p.scores?.biodiversity ?? null,
+            source: p.source?.provider || '',
+            sourceId: p.source?.id || '',
             boundary: p.boundary || null,
           })
         )
@@ -80,6 +82,9 @@ const getLayers = asyncHandler(async (req, res) => {
             status: a.status,
             park: a.park?.name,
             species: a.attributes?.species || '',
+            source: a.source?.provider || '',
+            sourceId: a.source?.id || '',
+            demo: Boolean(a.demo),
           })
         )
       );
@@ -97,8 +102,10 @@ const getLayers = asyncHandler(async (req, res) => {
             condition: a.condition,
             status: a.status,
             park: a.park?.name,
-            depth: a.attributes?.depth || '',
-            area: a.attributes?.area || '',
+            areaM2: a.attributes?.areaM2 || '',
+            source: a.source?.provider || '',
+            sourceId: a.source?.id || '',
+            demo: Boolean(a.demo),
           })
         )
       );
@@ -117,8 +124,11 @@ const getLayers = asyncHandler(async (req, res) => {
             name: a.name,
             condition: a.condition,
             park: a.park?.name,
-            length: a.attributes?.length || '',
-            difficulty: a.attributes?.difficulty || '',
+            lengthM: a.attributes?.lengthM || '',
+            surface: a.attributes?.surface || '',
+            source: a.source?.provider || '',
+            sourceId: a.source?.id || '',
+            demo: Boolean(a.demo),
           })
         )
       );
@@ -143,6 +153,7 @@ const getLayers = asyncHandler(async (req, res) => {
             count: o.count,
             observedAt: o.observedAt,
             observer: o.observerName,
+            source: o.source,
             park: o.park?.name,
           })
         )
@@ -172,6 +183,7 @@ const getLayers = asyncHandler(async (req, res) => {
             park: i.park?.name,
             /** Heatmap weight — the priority score normalised to [0, 1]. */
             intensity: Math.round((i.priorityScore / 100) * 100) / 100,
+            demo: Boolean(i.demo),
           })
         )
       );
@@ -187,10 +199,12 @@ const getLayers = asyncHandler(async (req, res) => {
             name: s.name,
             sensorCode: s.sensorCode,
             type: s.type,
-            value: s.currentValue,
+            value: s.lastReadingAt ? s.currentValue : null,
             unit: s.unit,
-            score: normaliseReading(s.type, s.currentValue),
+            score: s.lastReadingAt ? normaliseReading(s.type, s.currentValue) : null,
             status: s.status,
+            source: s.source,
+            lastReadingAt: s.lastReadingAt,
             park: s.park?.name,
           })
         )
@@ -211,6 +225,7 @@ const getLayers = asyncHandler(async (req, res) => {
             upvotes: r.upvotes,
             submittedBy: r.submittedByName,
             park: r.park?.name,
+            demo: Boolean(r.demo),
           })
         )
       );
@@ -289,7 +304,7 @@ const getWithinRadius = asyncHandler(async (req, res) => {
   return ok(res, {
     centre: [lng, lat],
     radiusMetres: radius,
-    parks: parks.map((p) => ({ id: String(p._id), name: p.name, health: p.scores?.ecosystemHealth ?? 0 })),
+    parks: parks.map((p) => ({ id: String(p._id), name: p.name, health: p.scores?.ecosystemHealth ?? null })),
     assets: assets.map((a) => ({ id: String(a._id), name: a.name, type: a.type, condition: a.condition })),
     wildlife: observations.map((o) => ({ id: String(o._id), species: o.species?.commonName, count: o.count })),
     incidents: incidents.map((i) => ({ id: String(i._id), title: i.title, type: i.type, priority: i.priority })),

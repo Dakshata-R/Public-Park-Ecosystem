@@ -34,6 +34,9 @@ const toneMap: Record<string, Tone> = {
   scheduled: 'secondary',
   completed: 'success',
   overdue: 'destructive',
+  cancelled: 'secondary',
+  closed: 'secondary',
+  maintenance: 'info',
 };
 
 export function StatusBadge({
@@ -59,7 +62,7 @@ export function StatusBadge({
       )}
       variant="outline"
     >
-      {status.replace('-', ' ')}
+      {status.replace(/-/g, ' ')}
     </Badge>
   );
 }
@@ -80,6 +83,10 @@ export function PriorityBadge({ priority }: { priority: IncidentPriority }) {
 }
 
 const conservationTone: Record<ConservationStatus, string> = {
+  // Not assessed is not "safe": neutral styling, never the green of Least Concern.
+  'Not Evaluated': 'bg-secondary text-muted-foreground border-border',
+  'Data Deficient': 'bg-secondary text-muted-foreground border-border',
+  'Extinct in the Wild': 'bg-destructive/15 text-destructive border-destructive/30',
   'Least Concern': 'bg-success/15 text-success border-success/30',
   'Near Threatened': 'bg-info/15 text-info border-info/30',
   Vulnerable: 'bg-warning/15 text-warning border-warning/30',

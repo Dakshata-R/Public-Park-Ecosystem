@@ -6,10 +6,14 @@
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "nodemon src/server.js",
+    "dev": "nodemon --ignore .cache/ src/server.js",
     "start": "node src/server.js",
     "seed": "node src/seed/seed.js",
-    "test": "node --test"
+    "test": "node --test",
+    "model:download": "node scripts/download-model.js",
+    "eval:vision": "node scripts/evaluate-vision.js",
+    "data:refresh": "node scripts/fetch-open-data.js",
+    "data:images": "node scripts/fetch-sample-images.js"
   },
   "dependencies": {
     "@tensorflow-models/mobilenet": "^2.1.1",

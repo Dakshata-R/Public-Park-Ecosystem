@@ -13,7 +13,7 @@ import { useMemo, useState } from 'react';
 import {
   Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { Plus, Pencil, Trash2, Wrench, History, TreePine, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Wrench, History, AlertTriangle, ExternalLink, Sparkles } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -29,21 +29,25 @@ import {
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar } from '@/components/shared/filter-bar';
 import { Pagination } from '@/components/shared/pagination';
 import { StatusBadge } from '@/components/shared/status-badges';
-import { MetricTile, ScoreBar } from '@/components/shared/score-badge';
+import { MetricTile, ScoreBar, NO_DATA } from '@/components/shared/score-badge';
+import { DataNotice, SourceBadge } from '@/components/shared/data-source';
 import { ParkFilter, ALL_PARKS, parkParam } from '@/components/shared/park-filter';
-import { QueryState, SkeletonCards, LoadingState } from '@/components/shared/query-state';
+import { QueryState, SkeletonCards, LoadingState, EmptyState, ErrorState } from '@/components/shared/query-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { useAuth } from '@/components/providers/auth-provider';
 import {
   useAssets, useAssetStats, useAssetHistory, useParks,
   useCreateAsset, useUpdateAsset, useDeleteAsset, useAddMaintenance,
 } from '@/lib/hooks/use-api';
+import { ApiError } from '@/lib/api/client';
 import { makePoint } from '@/lib/api/geo';
+import { cn } from '@/lib/utils';
 import type { Asset, AssetType } from '@/lib/types';
 
 const ASSET_TYPES: AssetType[] = ['tree', 'plant', 'bench', 'lake', 'path', 'light', 'structure'];
@@ -56,25 +60,69 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
+/** An empty coordinate box is "not set", not zero. */
+const coordinate = (label: string, min: number, max: number) =>
+  z.coerce
+    .number({ invalid_type_error: `Enter a ${label}`, required_error: `Enter a ${label}` })
+    .min(min, `${label[0].toUpperCase()}${label.slice(1)} must be between ${min} and ${max}`)
+    .max(max, `${label[0].toUpperCase()}${label.slice(1)} must be between ${min} and ${max}`);
+
 /** Matches the server's `assets.create` schema, minus the fields we derive. */
-const assetSchema = z.object({
-  name: z.string().min(2, 'Give the asset a name'),
-  type: z.enum(['tree', 'plant', 'bench', 'lake', 'path', 'light', 'structure']),
-  park: z.string().min(1, 'Select a park'),
-  condition: z.number().min(0).max(100),
-  lat: z.coerce.number().min(-90).max(90),
-  lng: z.coerce.number().min(-180).max(180),
-  notes: z.string().max(2000).optional(),
-});
+const assetSchema = z
+  .object({
+    name: z.string().min(2, 'Give the asset a name'),
+    type: z.enum(['tree', 'plant', 'bench', 'lake', 'path', 'light', 'structure']),
+    park: z.string().min(1, 'Select a park'),
+    condition: z.number().min(0).max(100),
+    lat: coordinate('latitude', -90, 90),
+    lng: coordinate('longitude', -180, 180),
+    notes: z.string().max(2000).optional(),
+  })
+  // The API rejects [0, 0]: it is what an unset location looks like, and it is in the Atlantic.
+  .refine((v) => !(v.lat === 0 && v.lng === 0), {
+    message: 'Set a real location — choose a park to start from its centre',
+    path: ['lat'],
+  });
 
 type AssetValues = z.infer<typeof assetSchema>;
+
+type ParkOption = { id: string; name: string; location: { coordinates: [number, number] } };
 
 const parkName = (park: Asset['park']) => (typeof park === 'object' && park ? park.name : '—');
 const shortDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
+/** `node/123` or `way/123` → the OpenStreetMap page for that element. */
+const osmUrl = (id: string) => `https://www.openstreetmap.org/${id}`;
+const isOsm = (asset: Asset) => asset.source?.provider === 'OpenStreetMap' && Boolean(asset.source.id);
+
+const DEMO_CONDITION_TOOLTIP =
+  'Condition and maintenance history are demonstration values. The asset’s position and type are real (OpenStreetMap), but no condition survey has been recorded for it.';
+
+/** Marks an asset whose condition and maintenance history are demonstration values. */
+function DemoConditionBadge({ compact = false, className }: { compact?: boolean; className?: string }) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <UiTooltip>
+        <TooltipTrigger asChild>
+          <Badge
+            variant="outline"
+            className={cn('gap-1 whitespace-nowrap border-muted-foreground/30 bg-muted font-normal text-muted-foreground', className)}
+          >
+            <Sparkles className="h-3 w-3" />
+            {!compact && 'Demo condition'}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-xs">{DEMO_CONDITION_TOOLTIP}</TooltipContent>
+      </UiTooltip>
+    </TooltipProvider>
+  );
+}
+
 export default function AssetsPage() {
   const { can } = useAuth();
   const canEdit = can('officer');
+  // Retiring an asset is an administrator action on the API.
+  const canRetire = can('admin');
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -119,7 +167,10 @@ export default function AssetsPage() {
         render: (asset: Asset) => (
           <div className="min-w-0">
             <p className="truncate font-medium">{asset.name}</p>
-            <p className="font-mono text-[11px] text-muted-foreground">{asset.assetCode}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="font-mono text-[11px] text-muted-foreground">{asset.assetCode}</p>
+              {isOsm(asset) && <SourceBadge source="osm" compact className="px-1 py-0" />}
+            </div>
           </div>
         ),
       },
@@ -132,8 +183,13 @@ export default function AssetsPage() {
       {
         key: 'condition',
         header: 'Condition',
-        className: 'w-[180px]',
-        render: (asset: Asset) => <ScoreBar score={asset.condition} />,
+        className: 'w-[200px]',
+        render: (asset: Asset) => (
+          <div className="flex items-center gap-1.5">
+            <ScoreBar score={asset.condition} className="flex-1" />
+            {asset.demo && <DemoConditionBadge compact className="px-1 py-0" />}
+          </div>
+        ),
       },
       {
         key: 'status',
@@ -164,23 +220,27 @@ export default function AssetsPage() {
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditing(asset)} title="Edit">
                   <Pencil className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-destructive"
-                  onClick={() => setDeleting(asset)}
-                  title="Retire"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
               </>
+            )}
+            {canRetire && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-destructive"
+                onClick={() => setDeleting(asset)}
+                title="Retire"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
             )}
           </div>
         ),
       },
     ],
-    [canEdit]
+    [canEdit, canRetire]
   );
+
+  const selectedPark = parks?.items.find((p) => p.id === parkParam(park));
 
   return (
     <div className="space-y-6">
@@ -201,28 +261,42 @@ export default function AssetsPage() {
         }
       />
 
+      <DataNotice>
+        Asset positions and types come from OpenStreetMap (© OpenStreetMap contributors). For assets
+        marked &ldquo;Demo condition&rdquo;, the condition score and maintenance history are demonstration
+        values — so the mean condition, needs-attention count and maintenance spend below illustrate the
+        workflow rather than describe the parks.
+      </DataNotice>
+
       {/* --- Inventory summary --- */}
       <QueryState query={stats} skeleton={<SkeletonCards count={4} height="h-24" />}>
-        {(data) => (
+        {(data) => {
+          // An empty register has no mean condition; the API reports 0, which is not a score.
+          const empty = data.total === 0;
+          return (
           <>
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <MetricTile label="Total assets" value={data.total} hint="Active in the register" />
+              <MetricTile
+                label="Total assets"
+                value={data.total}
+                hint={selectedPark ? `Active in ${selectedPark.name}` : 'Active in the register'}
+              />
               <MetricTile
                 label="Mean condition"
-                value={`${data.avgCondition}`}
-                hint="0–100 across every asset"
-                tone={data.avgCondition >= 70 ? 'success' : data.avgCondition >= 50 ? 'warning' : 'destructive'}
+                value={empty ? NO_DATA : `${data.avgCondition}`}
+                hint={empty ? 'No assets in this scope' : '0–100 across every asset'}
+                tone={empty ? undefined : data.avgCondition >= 70 ? 'success' : data.avgCondition >= 50 ? 'warning' : 'destructive'}
               />
               <MetricTile
                 label="Needs attention"
-                value={data.needsAttention}
+                value={empty ? NO_DATA : data.needsAttention}
                 hint="Condition below 50"
-                tone={data.needsAttention > 0 ? 'warning' : 'success'}
+                tone={empty ? undefined : data.needsAttention > 0 ? 'warning' : 'success'}
               />
               <MetricTile
                 label="Maintenance spend"
-                value={`₹${data.maintenanceSpend.toLocaleString()}`}
-                hint="Logged against all assets"
+                value={empty ? NO_DATA : `₹${data.maintenanceSpend.toLocaleString()}`}
+                hint={selectedPark ? `Logged against ${selectedPark.name} assets` : 'Logged against all assets'}
               />
             </div>
 
@@ -235,6 +309,9 @@ export default function AssetsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {data.byType.length === 0 ? (
+                  <EmptyState title="No assets in this scope" icon="TreePine" />
+                ) : (
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={data.byType}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -257,10 +334,12 @@ export default function AssetsPage() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
           </>
-        )}
+          );
+        }}
       </QueryState>
 
       {/* --- Filters + table --- */}
@@ -313,7 +392,9 @@ export default function AssetsPage() {
         open={creating || Boolean(editing)}
         asset={editing}
         parks={parks?.items ?? []}
+        defaultParkId={parkParam(park)}
         onClose={() => { setCreating(false); setEditing(null); }}
+        // Rejections propagate to the dialog, which keeps itself open and maps field errors.
         onSubmit={async (values) => {
           const payload = {
             name: values.name,
@@ -342,7 +423,12 @@ export default function AssetsPage() {
         description="The asset is marked inactive rather than erased, so its maintenance history and any work orders referencing it stay intact."
         confirmLabel="Retire asset"
         onConfirm={async () => {
-          if (deleting) await deleteAsset.mutateAsync(deleting.id);
+          if (!deleting) return;
+          try {
+            await deleteAsset.mutateAsync(deleting.id);
+          } catch {
+            /* toast already shown */
+          }
         }}
       />
     </div>
@@ -351,15 +437,19 @@ export default function AssetsPage() {
 
 /** Create / edit form. */
 function AssetFormDialog({
-  open, asset, parks, onClose, onSubmit, submitting,
+  open, asset, parks, defaultParkId, onClose, onSubmit, submitting,
 }: {
   open: boolean;
   asset: Asset | null;
-  parks: { id: string; name: string; location: { coordinates: [number, number] } }[];
+  parks: ParkOption[];
+  /** The page's park filter, used to pre-fill a new asset's park and location. */
+  defaultParkId?: string;
   onClose: () => void;
   onSubmit: (values: AssetValues) => Promise<void>;
   submitting: boolean;
 }) {
+  const defaultPark = parks.find((p) => p.id === defaultParkId);
+
   const form = useForm<AssetValues>({
     resolver: zodResolver(assetSchema),
     values: asset
@@ -372,11 +462,26 @@ function AssetFormDialog({
           lng: asset.location.coordinates[0],
           notes: asset.notes,
         }
-      : { name: '', type: 'tree', park: '', condition: 85, lat: 0, lng: 0, notes: '' },
+      : {
+          name: '',
+          type: 'tree',
+          park: defaultPark?.id ?? '',
+          condition: 85,
+          // Unset until a park is chosen — never 0,0, which the API rejects.
+          lat: (defaultPark?.location.coordinates[1] ?? undefined) as number,
+          lng: (defaultPark?.location.coordinates[0] ?? undefined) as number,
+          notes: '',
+        },
   });
 
   const condition = form.watch('condition');
   const selectedPark = form.watch('park');
+
+  const setCentre = (park: ParkOption) => {
+    const validate = form.formState.isSubmitted;
+    form.setValue('lng', park.location.coordinates[0], { shouldValidate: validate });
+    form.setValue('lat', park.location.coordinates[1], { shouldValidate: validate });
+  };
 
   /**
    * Placing a new asset at 0,0 puts it in the Atlantic. Defaulting to the
@@ -384,17 +489,47 @@ function AssetFormDialog({
    */
   const applyParkCentre = () => {
     const park = parks.find((p) => p.id === selectedPark);
-    if (park) {
-      form.setValue('lng', park.location.coordinates[0]);
-      form.setValue('lat', park.location.coordinates[1]);
-    }
+    if (park) setCentre(park);
+  };
+
+  /**
+   * Choosing a park for a new asset moves the location to that park's centre,
+   * unless the user has already typed a position of their own.
+   */
+  const onParkChange = (id: string) => {
+    const previous = parks.find((p) => p.id === form.getValues('park'));
+    form.setValue('park', id, { shouldValidate: form.formState.isSubmitted });
+    const next = parks.find((p) => p.id === id);
+    if (asset || !next) return;
+
+    const lat = form.getValues('lat');
+    const lng = form.getValues('lng');
+    const unset = lat == null || lng == null || Number.isNaN(lat) || Number.isNaN(lng) || (lat === 0 && lng === 0);
+    const atPreviousCentre =
+      previous && lat === previous.location.coordinates[1] && lng === previous.location.coordinates[0];
+    if (unset || atPreviousCentre) setCentre(next);
   };
 
   const handle = form.handleSubmit(async (values) => {
-    await onSubmit(values);
-    onClose();
-    form.reset();
+    try {
+      await onSubmit(values);
+      onClose();
+      form.reset();
+    } catch (err) {
+      // The mutation has already toasted; also pin server validation onto the fields.
+      if (err instanceof ApiError && err.details) {
+        for (const [key, message] of Object.entries(err.details)) {
+          if (key.startsWith('location')) form.setError('lat', { message });
+          else if (['name', 'type', 'park', 'condition', 'notes'].includes(key)) {
+            form.setError(key as keyof AssetValues, { message });
+          }
+        }
+      }
+    }
   });
+
+  const coordinateInput = { setValueAs: (v: unknown) => (v === '' || v == null ? undefined : Number(v)) };
+  const locationError = form.formState.errors.lat?.message ?? form.formState.errors.lng?.message;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -432,7 +567,7 @@ function AssetFormDialog({
 
             <div className="space-y-1.5">
               <Label>Park</Label>
-              <Select value={selectedPark} onValueChange={(v) => form.setValue('park', v)}>
+              <Select value={selectedPark} onValueChange={onParkChange}>
                 <SelectTrigger><SelectValue placeholder="Select a park" /></SelectTrigger>
                 <SelectContent>
                   {parks.map((p) => (
@@ -478,11 +613,17 @@ function AssetFormDialog({
               </Button>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Input type="number" step="any" placeholder="Latitude" {...form.register('lat')} />
-              <Input type="number" step="any" placeholder="Longitude" {...form.register('lng')} />
+              <Input type="number" step="any" placeholder="Latitude" aria-label="Latitude" {...form.register('lat', coordinateInput)} />
+              <Input type="number" step="any" placeholder="Longitude" aria-label="Longitude" {...form.register('lng', coordinateInput)} />
             </div>
-            {(form.formState.errors.lat || form.formState.errors.lng) && (
-              <p className="text-xs text-destructive">Enter a valid latitude and longitude.</p>
+            {locationError ? (
+              <p className="text-xs text-destructive">{locationError}</p>
+            ) : (
+              !asset && (
+                <p className="text-xs text-muted-foreground">
+                  Choosing a park starts the location at its centre; adjust it to the asset&apos;s position.
+                </p>
+              )
             )}
           </div>
 
@@ -513,12 +654,16 @@ function MaintenanceDialog({ asset, onClose }: { asset: Asset | null; onClose: (
 
   const submit = async () => {
     if (!asset) return;
-    await addMaintenance.mutateAsync({
-      id: asset.id,
-      body: { type, description, cost: Number(cost) || 0, technician },
-    });
-    setDescription(''); setCost(''); setTechnician('');
-    onClose();
+    try {
+      await addMaintenance.mutateAsync({
+        id: asset.id,
+        body: { type, description, cost: Number(cost) || 0, technician },
+      });
+      setDescription(''); setCost(''); setTechnician('');
+      onClose();
+    } catch {
+      /* toast already shown; keep the dialog open so nothing typed is lost */
+    }
   };
 
   return (
@@ -527,8 +672,9 @@ function MaintenanceDialog({ asset, onClose }: { asset: Asset | null; onClose: (
         <DialogHeader>
           <DialogTitle>Log maintenance</DialogTitle>
           <DialogDescription>
-            {asset?.name} · condition currently {asset?.condition}/100. Recording work also
-            advances the condition, so the register does not stay pessimistic after a repair.
+            {asset?.name} · condition currently {asset?.condition}/100
+            {asset?.demo && ' (a demonstration value)'}. Recording work also advances the condition, so
+            the register does not stay pessimistic after a repair.
           </DialogDescription>
         </DialogHeader>
 
@@ -587,16 +733,46 @@ function AssetDetailSheet({ asset, onClose }: { asset: Asset | null; onClose: ()
 
         {asset && (
           <div className="mt-6 space-y-6">
+            {(isOsm(asset) || asset.demo) && (
+              <div className="space-y-2 rounded-lg border p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {isOsm(asset) && <SourceBadge source="osm" />}
+                  {asset.demo && <DemoConditionBadge />}
+                  {isOsm(asset) && (
+                    <a
+                      href={osmUrl(asset.source!.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {asset.source!.id} on OpenStreetMap
+                    </a>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {isOsm(asset) && 'Position and type from OpenStreetMap (© OpenStreetMap contributors). '}
+                  {asset.demo && 'Condition and maintenance history are demonstration values.'}
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
-              <MetricTile label="Condition" value={asset.condition} hint={asset.status} />
+              <MetricTile
+                label="Condition"
+                value={asset.condition}
+                hint={asset.demo ? `${asset.status} · demonstration value` : asset.status}
+              />
               <MetricTile label="Installed" value={shortDate(asset.installedAt)} hint="Date entered service" />
             </div>
 
-            {Object.keys(asset.attributes ?? {}).length > 0 && (
+            {Object.values(asset.attributes ?? {}).some((value) => value !== '' && value != null) && (
               <div>
                 <p className="mb-2 text-sm font-medium">Attributes</p>
                 <div className="space-y-1 rounded-lg border p-3">
-                  {Object.entries(asset.attributes).map(([key, value]) => (
+                  {Object.entries(asset.attributes)
+                    .filter(([, value]) => value !== '' && value != null)
+                    .map(([key, value]) => (
                     <p key={key} className="flex justify-between text-xs">
                       <span className="capitalize text-muted-foreground">
                         {key.replace(/([A-Z])/g, ' $1')}
@@ -616,10 +792,15 @@ function AssetDetailSheet({ asset, onClose }: { asset: Asset | null; onClose: ()
             )}
 
             <div>
-              <p className="mb-2 text-sm font-medium">Maintenance history</p>
+              <p className="mb-2 flex items-center gap-2 text-sm font-medium">
+                Maintenance history
+                {asset.demo && <DemoConditionBadge compact />}
+              </p>
               {history.isPending ? (
                 <LoadingState label="Loading history…" />
-              ) : !history.data?.maintenance.length ? (
+              ) : history.isError ? (
+                <ErrorState error={history.error} onRetry={() => history.refetch()} />
+              ) : !history.data.maintenance.length ? (
                 <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
                   No maintenance recorded yet.
                 </p>
@@ -668,8 +849,10 @@ function AssetDetailSheet({ asset, onClose }: { asset: Asset | null; onClose: ()
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                 <p className="text-xs">
                   This asset is below a condition of 50 and should be prioritised for a work
-                  order. Assets in poor condition also drag down the park&apos;s tree-health
-                  sub-index, and through it the Ecosystem Health Index.
+                  order.
+                  {(asset.type === 'tree' || asset.type === 'plant') &&
+                    ' Trees and plants in poor condition also drag down the park’s tree-health sub-index, and through it the Ecosystem Health Index.'}
+                  {asset.demo && ' (The condition is a demonstration value.)'}
                 </p>
               </div>
             )}

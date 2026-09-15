@@ -4,6 +4,7 @@
  * Module 11 — AI Environmental Assistant.
  */
 
+const crypto = require('crypto');
 const { ChatMessage } = require('../models');
 const asyncHandler = require('../middleware/asyncHandler');
 const { ok, created } = require('../utils/response');
@@ -21,7 +22,17 @@ const ask = asyncHandler(async (req, res) => {
   if (!question) throw ApiError.badRequest('`question` is required');
   if (question.length > 1000) throw ApiError.badRequest('Question is too long (1000 character limit)');
 
-  const sessionId = req.body.sessionId || `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // An unguessable id: the id is the only thing protecting an anonymous
+  // visitor's conversation.
+  let sessionId = req.body.sessionId || `session-${crypto.randomUUID()}`;
+
+  // A signed-in user's conversation cannot be continued by anyone else.
+  if (req.body.sessionId) {
+    const owner = await ChatMessage.findOne({ sessionId }).select('user').lean();
+    if (owner?.user && String(owner.user) !== String(req.user?._id)) {
+      sessionId = `session-${crypto.randomUUID()}`;
+    }
+  }
 
   const result = await assistant.ask(question);
 
@@ -52,12 +63,21 @@ const ask = asyncHandler(async (req, res) => {
   });
 });
 
-/** GET /api/assistant/history/:sessionId */
+/**
+ * GET /api/assistant/history/:sessionId
+ * A conversation started while signed in is readable only by that account
+ * (or an administrator); an anonymous one only by whoever holds its id.
+ */
 const getHistory = asyncHandler(async (req, res) => {
   const messages = await ChatMessage.find({ sessionId: req.params.sessionId })
     .sort({ createdAt: 1 })
     .limit(200)
     .lean();
+
+  const owner = messages.find((m) => m.user)?.user;
+  if (owner && String(owner) !== String(req.user?._id) && req.user?.role !== 'admin') {
+    throw ApiError.notFound('Conversation');
+  }
 
   return ok(res, messages.map(normaliseId), { sessionId: req.params.sessionId, count: messages.length });
 });

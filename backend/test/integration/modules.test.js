@@ -939,6 +939,22 @@ test('a scheduled work order past its date is reported overdue', async () => {
   assert.equal(listed.find((w) => w.id === created.body.data.id)?.status, 'overdue');
 });
 
+test('reopening a resolved incident clears its resolution time', async () => {
+  const incident = await post('/incidents', {
+    type: 'vandalism', title: 'Reopen test incident', park: ids.park, severity: 2,
+    location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+  }, tokens.officer);
+  const id = incident.body.data.id;
+
+  const resolved = await post(`/incidents/${id}/resolve`, { resolutionNotes: 'done' }, tokens.officer);
+  assert.ok(resolved.body.data.resolvedAt, 'resolution was not stamped');
+
+  const reopened = await patch(`/incidents/${id}`, { status: 'in-progress', statusNote: 'Hazard returned' }, tokens.officer);
+  assert.equal(reopened.status, 200);
+  assert.equal(reopened.body.data.resolvedAt, null);
+  assert.equal(reopened.body.data.resolutionMinutes, null);
+});
+
 test('one incident cannot have two open work orders', async () => {
   const incident = await post('/incidents', {
     type: 'tree-fall', title: 'Duplicate work order test', park: ids.park, severity: 3,
@@ -992,6 +1008,20 @@ test('the suggested air-quality question is answered about air quality', async (
   const res = await post('/assistant/ask', { question: 'How is the air quality at Cubbon Park?' }, tokens.citizen);
   assert.equal(res.status, 201);
   assert.equal(res.body.data.intent, 'airQuality');
+});
+
+test('a signed-in user\'s assistant conversation is private to them', async () => {
+  const asked = await post('/assistant/ask', { question: 'How is the air quality at Cubbon Park?' }, tokens.citizen);
+  const { sessionId } = asked.body.data;
+  assert.match(sessionId, /^session-[0-9a-f-]{36}$/, 'session ids must be unguessable');
+
+  assert.equal((await get(`/assistant/history/${sessionId}`, tokens.citizen)).status, 200);
+  assert.equal((await get(`/assistant/history/${sessionId}`)).status, 404, 'anonymous caller read a private conversation');
+  assert.equal((await get(`/assistant/history/${sessionId}`, tokens.officer)).status, 404, 'another account read a private conversation');
+
+  // Continuing someone else's session starts a new one instead.
+  const hijack = await post('/assistant/ask', { question: 'Show open incidents', sessionId }, tokens.officer);
+  assert.notEqual(hijack.body.data.sessionId, sessionId);
 });
 
 test('a location of [0, 0] is rejected as unset', async () => {

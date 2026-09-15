@@ -38,9 +38,9 @@ export const navItems: NavItem[] = [
   // --- Public ---
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, group: 'Overview', description: 'Ecosystem health scores, alerts and live conditions' },
   { label: 'Biodiversity Map', href: '/map', icon: Map, group: 'Overview', description: 'Interactive GIS map of parks, wildlife and pollution hotspots' },
-  { label: 'Biodiversity', href: '/biodiversity', icon: Bird, group: 'Records', description: 'Species catalogue, observations and diversity indices' },
-  { label: 'Park Assets', href: '/assets', icon: TreePine, group: 'Records', description: 'Trees, benches, lakes, paths and their condition' },
-  { label: 'Sensors', href: '/sensors', icon: Gauge, group: 'Records', description: 'Live environmental readings and anomaly detection' },
+  { label: 'Biodiversity', href: '/biodiversity', icon: Bird, group: 'Records', description: 'Species catalogue, GBIF records and diversity indices' },
+  { label: 'Park Assets', href: '/assets', icon: TreePine, group: 'Records', description: 'Trees, benches, lakes and paths mapped from OpenStreetMap' },
+  { label: 'Sensors', href: '/sensors', icon: Gauge, group: 'Records', description: 'Open-Meteo observations, simulated probes and anomaly detection' },
   { label: 'Citizen Portal', href: '/citizen', icon: Megaphone, group: 'Records', description: 'Report an issue or log a wildlife sighting' },
 
   // --- Operations ---
@@ -48,7 +48,7 @@ export const navItems: NavItem[] = [
   { label: 'Maintenance', href: '/maintenance', icon: Wrench, group: 'Operations', minRole: 'officer', description: 'Work orders, scheduling and progress tracking' },
 
   // --- Intelligence ---
-  { label: 'AI Monitoring', href: '/ai', icon: ScanEye, group: 'Intelligence', description: 'Vision analysis for disease, species, waste and fire' },
+  { label: 'AI Monitoring', href: '/ai', icon: ScanEye, group: 'Intelligence', description: 'MobileNetV2 image analysis with human review' },
   { label: 'Eco Assistant', href: '/assistant', icon: Bot, group: 'Intelligence', description: 'Ask questions about the park data in plain language' },
   { label: 'Analytics', href: '/analytics', icon: BarChart3, group: 'Intelligence', description: 'Trends, comparisons and exportable reports' },
 

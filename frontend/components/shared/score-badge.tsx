@@ -44,11 +44,22 @@ const GRADE_CHIP: Record<Grade, string> = {
   critical: 'bg-destructive/15 text-destructive border-destructive/30',
 };
 
-export const scoreText = (score: number) => GRADE_TEXT[gradeFor(score)];
-export const scoreBg = (score: number) => GRADE_BG[gradeFor(score)];
+export const scoreText = (score: number | null | undefined) => (score == null ? 'text-muted-foreground' : GRADE_TEXT[gradeFor(score)]);
+export const scoreBg = (score: number | null | undefined) => (score == null ? 'bg-muted-foreground/30' : GRADE_BG[gradeFor(score)]);
+
+/** Shown wherever a score or reading has no data. Never render a missing value as 0. */
+export const NO_DATA = 'No data';
+
+/** Format a possibly-missing number: `fmt(null)` → 'No data', `fmt(72.345, 1)` → "72.3". */
+export function fmt(value: number | null | undefined, decimals = 0, fallback = NO_DATA) {
+  if (value == null || !Number.isFinite(value)) return fallback;
+  const factor = 10 ** decimals;
+  return String(Math.round(value * factor) / factor);
+}
 
 /** `72 / 100` with the grade colour applied. */
-export function ScoreValue({ score, className }: { score: number; className?: string }) {
+export function ScoreValue({ score, className }: { score: number | null | undefined; className?: string }) {
+  if (score == null) return <span className={cn('text-sm text-muted-foreground', className)}>{NO_DATA}</span>;
   return (
     <span className={cn('font-semibold tabular-nums', scoreText(score), className)}>
       {Math.round(score * 10) / 10}
@@ -57,8 +68,15 @@ export function ScoreValue({ score, className }: { score: number; className?: st
 }
 
 /** Coloured chip naming the band — "good", "critical". */
-export function GradeBadge({ score, grade }: { score?: number; grade?: Grade }) {
-  const band = grade ?? gradeFor(score ?? 0);
+export function GradeBadge({ score, grade }: { score?: number | null; grade?: Grade | null }) {
+  if (!grade && score == null) {
+    return (
+      <Badge variant="outline" className='text-muted-foreground'>
+        {NO_DATA}
+      </Badge>
+    );
+  }
+  const band = grade ?? gradeFor(score as number);
   return (
     <Badge variant="outline" className={cn('capitalize', GRADE_CHIP[band])}>
       {band}
@@ -75,10 +93,13 @@ export function ScoreBar({
   showValue = true,
   className,
 }: {
-  score: number;
+  score: number | null | undefined;
   showValue?: boolean;
   className?: string;
 }) {
+  if (score == null) {
+    return <span className={cn('text-xs text-muted-foreground', className)}>{NO_DATA}</span>;
+  }
   const clamped = Math.max(0, Math.min(100, score));
   return (
     <div className={cn('flex items-center gap-2', className)}>

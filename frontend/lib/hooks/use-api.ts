@@ -19,11 +19,11 @@ import { ApiError } from '@/lib/api/client';
 import {
   adminApi, aiApi, alertApi, analyticsApi, assetApi, assistantApi,
   biodiversityApi, citizenApi, dashboardApi, gisApi, incidentApi,
-  integrationApi, maintenanceApi, parkApi, sensorApi,
+  integrationApi, maintenanceApi, parkApi, sensorApi, settingsApi, userApi,
   type ExportDataset,
 } from '@/lib/api/endpoints';
 import type {
-  AiTask, Asset, CitizenReport, EcoReport, Incident, Observation,
+  AiTask, Asset, CitizenReport, EcoReport, EcoReportType, Incident, Observation,
   Park, Sensor, Species, SystemSettings, User, WorkOrder,
 } from '@/lib/types';
 
@@ -39,7 +39,7 @@ export const qk = {
     all: ['dashboard'] as const,
     overview: (park?: string) => ['dashboard', 'overview', park ?? 'city'] as const,
     trend: (days: number, park?: string) => ['dashboard', 'trend', days, park ?? 'city'] as const,
-    activity: (limit: number) => ['dashboard', 'activity', limit] as const,
+    activity: (limit: number, park?: string) => ['dashboard', 'activity', limit, park ?? 'city'] as const,
   },
   gis: {
     all: ['gis'] as const,
@@ -89,6 +89,7 @@ export const qk = {
     list: (filters?: Filters) => ['citizen', 'list', filters ?? {}] as const,
     detail: (id: string) => ['citizen', 'detail', id] as const,
     mine: ['citizen', 'mine'] as const,
+    myUpvotes: ['citizen', 'my-upvotes'] as const,
     stats: ['citizen', 'stats'] as const,
   },
   incidents: {
@@ -132,6 +133,13 @@ export const qk = {
     conditions: (park?: string) => ['integrations', 'conditions', park ?? 'city'] as const,
     gbif: (speciesId: string) => ['integrations', 'gbif', speciesId] as const,
   },
+  users: {
+    all: ['users'] as const,
+    staff: ['users', 'staff'] as const,
+  },
+  settings: {
+    public: ['settings', 'public'] as const,
+  },
   admin: {
     all: ['admin'] as const,
     users: (filters?: Filters) => ['admin', 'users', filters ?? {}] as const,
@@ -154,8 +162,8 @@ export const useDashboard = (park?: string) =>
 export const useHealthTrend = (days = 30, park?: string) =>
   useQuery({ queryKey: qk.dashboard.trend(days, park), queryFn: () => dashboardApi.trend({ days, park }) });
 
-export const useActivityFeed = (limit = 15) =>
-  useQuery({ queryKey: qk.dashboard.activity(limit), queryFn: () => dashboardApi.activity(limit) });
+export const useActivityFeed = (limit = 15, park?: string) =>
+  useQuery({ queryKey: qk.dashboard.activity(limit, park), queryFn: () => dashboardApi.activity(limit, park) });
 
 // ---------------------------------------------------------------------------
 // Module 2 — GIS
@@ -256,8 +264,8 @@ export const useLiveSensors = (park?: string) =>
   useQuery({
     queryKey: qk.sensors.live(park),
     queryFn: () => sensorApi.live(park),
-    // The simulator emits a reading a minute, so polling faster than that
-    // would only re-fetch identical data.
+    // Sensors refresh once a minute on the server (Open-Meteo publishes a new
+    // observation every 15 minutes), so polling faster re-reads identical data.
     refetchInterval: 60_000,
   });
 
@@ -279,6 +287,10 @@ export const useCitizenReport = (id: string) =>
 
 export const useMyReports = (enabled = true) =>
   useQuery({ queryKey: qk.citizen.mine, queryFn: () => citizenApi.myReports(), enabled });
+
+/** Ids of reports the signed-in account has upvoted, for the toggle state. */
+export const useMyUpvotes = (enabled = true) =>
+  useQuery({ queryKey: qk.citizen.myUpvotes, queryFn: () => citizenApi.myUpvotes(), enabled });
 
 export const useCitizenStats = () =>
   useQuery({ queryKey: qk.citizen.stats, queryFn: () => citizenApi.stats() });
@@ -350,6 +362,15 @@ export const useEcoReports = (filters?: Filters) =>
 export const useAssistantSuggestions = () =>
   useQuery({ queryKey: qk.assistant.suggestions, queryFn: () => assistantApi.suggestions(), staleTime: Infinity });
 
+/** A stored conversation, so a reload does not lose it. */
+export const useAssistantHistory = (sessionId?: string | null) =>
+  useQuery({
+    queryKey: qk.assistant.history(sessionId ?? ''),
+    queryFn: () => assistantApi.history(sessionId as string),
+    enabled: Boolean(sessionId),
+    staleTime: Infinity,
+  });
+
 // ---------------------------------------------------------------------------
 // External integrations
 // ---------------------------------------------------------------------------
@@ -399,8 +420,17 @@ export const useGbifVerification = (speciesId: string, enabled = false) =>
 // Module 12 — Administration
 // ---------------------------------------------------------------------------
 
-export const useUsers = (filters?: Filters) =>
-  useQuery({ queryKey: qk.admin.users(filters), queryFn: () => adminApi.listUsers(filters) });
+/** Administrators only — for everyone else's assignee pickers use `useStaff`. */
+export const useUsers = (filters?: Filters, enabled = true) =>
+  useQuery({ queryKey: qk.admin.users(filters), queryFn: () => adminApi.listUsers(filters), enabled });
+
+/** Assignable staff (officer+). Pass `enabled` false for roles that cannot assign. */
+export const useStaff = (enabled = true) =>
+  useQuery({ queryKey: qk.users.staff, queryFn: () => userApi.staff(), enabled, staleTime: 5 * 60 * 1000 });
+
+/** Organisation name, contact and feature switches every visitor's interface needs. */
+export const usePublicSettings = () =>
+  useQuery({ queryKey: qk.settings.public, queryFn: () => settingsApi.public(), staleTime: 5 * 60 * 1000 });
 
 export const useSettings = (enabled = true) =>
   useQuery({ queryKey: qk.admin.settings, queryFn: () => adminApi.settings(), enabled });
@@ -451,6 +481,8 @@ function useApiMutation<TVars, TData>(
       options.onSuccess?.(data, vars);
     },
     onError: (error) => {
+      // An expired session is announced once by AuthProvider, not per mutation.
+      if (error instanceof ApiError && error.isAuthError) return;
       // Field-level detail is far more useful than "Validation failed".
       const detail = error.details ? Object.values(error.details).join('. ') : '';
       toast.error(error.message, detail ? { description: detail } : undefined);
@@ -541,10 +573,23 @@ export const useReviewDetection = () =>
   );
 
 // --- Sensors ---
-export const useSimulateSensors = () =>
-  useApiMutation((_: void) => sensorApi.simulate(), {
-    successMessage: (r) => `${r.count} readings ingested, ${r.anomalies} flagged as anomalous`,
-    invalidate: [qk.sensors.all, qk.dashboard.all, qk.alerts.all],
+export const useRefreshSensors = () =>
+  useApiMutation((_: void) => sensorApi.refresh(), {
+    successMessage: (r) => {
+      const parts = [
+        `${r.live} new Open-Meteo observation${r.live === 1 ? '' : 's'}`,
+        r.simulationEnabled ? `${r.simulated} simulated reading${r.simulated === 1 ? '' : 's'}` : 'simulation is switched off',
+      ];
+      if (r.anomalies) parts.push(`${r.anomalies} flagged as anomalous`);
+      return parts.join(' · ');
+    },
+    onSuccess: (r) => {
+      // A partial upstream failure is not an error, but it must not be silent.
+      if (r.errors.length) {
+        toast.warning('Some live data could not be fetched', { description: r.errors.slice(0, 3).join(' · ') });
+      }
+    },
+    invalidate: [qk.sensors.all, qk.dashboard.all, qk.alerts.all, qk.parks.all],
   });
 
 export const useCreateSensor = () =>
@@ -572,8 +617,13 @@ export const useCreateReport = () =>
     invalidate: [qk.citizen.all, qk.gis.all, qk.dashboard.all],
   });
 
+/** Toggle the signed-in account's upvote on a report. */
 export const useUpvoteReport = () =>
-  useApiMutation((id: string) => citizenApi.upvote(id), { invalidate: [qk.citizen.all] });
+  useApiMutation(
+    ({ id, upvoted }: { id: string; upvoted: boolean }) => (upvoted ? citizenApi.removeUpvote(id) : citizenApi.upvote(id)),
+    // Upvotes feed the priority of a linked incident.
+    { invalidate: [qk.citizen.all, qk.incidents.all] }
+  );
 
 export const useReviewReport = () =>
   useApiMutation(
@@ -681,6 +731,12 @@ export const useDeleteWorkOrder = () =>
   });
 
 // --- Reports ---
+export const useGenerateReport = () =>
+  useApiMutation(
+    (body: { type: EcoReportType; park?: string | null; days?: number }) => analyticsApi.generateReport(body),
+    { successMessage: (r) => `Draft created: ${r.title}`, invalidate: [qk.analytics.all] }
+  );
+
 export const useCreateEcoReport = () =>
   useApiMutation((body: Partial<EcoReport>) => analyticsApi.createReport(body), {
     successMessage: 'Report created',
@@ -756,9 +812,15 @@ export const useReindexAssistant = () =>
     successMessage: (r) => `Assistant reindexed: ${r.documents} documents, ${r.vocabulary} terms`,
   });
 
+export const useClearIntegrationCache = () =>
+  useApiMutation((_: void) => integrationApi.clearCache(), {
+    successMessage: (r) => `Cleared ${r.cleared} cached upstream responses`,
+    invalidate: [qk.integrations.all],
+  });
+
 export const useReseed = () =>
   useApiMutation((_: void) => adminApi.reseed(), {
-    successMessage: 'Demonstration dataset regenerated',
+    successMessage: 'Database reseeded from the reference snapshot',
     invalidate: [['dashboard'], ['parks'], ['assets'], ['biodiversity'], ['sensors'], ['citizen'], ['incidents'], ['maintenance'], ['analytics'], ['ai'], ['alerts'], ['gis'], ['admin']],
   });
 

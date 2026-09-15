@@ -373,7 +373,8 @@ const admin = {
   updateSettings: z.object({
     organisationName: z.string().max(200).optional(),
     city: z.string().max(120).optional(),
-    contactEmail: z.string().email().optional(),
+    // Blank clears the address; otherwise it must be a valid email.
+    contactEmail: z.union([z.string().trim().email(), z.literal('')]).optional(),
     healthIndexWeights: z
       .object({
         air: z.number().min(0).max(1),

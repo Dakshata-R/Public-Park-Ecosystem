@@ -31,20 +31,21 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         <div className="relative max-w-md space-y-5">
           <h1 className="font-display text-3xl font-bold leading-tight">
-            Urban parks, measured rather than guessed at.
+            Bengaluru&apos;s parks, read from open data.
           </h1>
           <p className="text-sm leading-relaxed text-primary-foreground/80">
-            Live environmental sensing, computed ecosystem health and biodiversity
-            indices, AI image analysis, and citizen reporting — in one platform for
-            the people who look after public green space.
+            Cubbon Park, Lalbagh Botanical Gardens and other Bengaluru parks, mapped from
+            OpenStreetMap, with species records from GBIF, air quality and weather from
+            Open-Meteo, and photograph analysis by a MobileNetV2 image model — alongside an
+            incident, maintenance and citizen-reporting workflow shown with demonstration records.
           </p>
 
           <div className="grid grid-cols-2 gap-3 pt-2">
             {[
-              ['Shannon–Wiener', 'Biodiversity indices computed from field records'],
-              ['CPCB AQI', 'Live pollutant concentrations, scored properly'],
-              ['Triage scoring', 'Incidents ranked by hazard, exposure and age'],
-              ['Vision AI', 'Disease, species, waste and fire from a photograph'],
+              ['GBIF species records', 'Shannon and Simpson indices from occurrence records since 2023'],
+              ['CPCB AQI', 'Computed from Open-Meteo (CAMS) pollutant concentrations'],
+              ['OpenStreetMap', 'Park boundaries, facilities and asset positions'],
+              ['MobileNetV2', 'ImageNet classifier run on the server, with staff review of its findings'],
             ].map(([title, detail]) => (
               <div key={title} className="rounded-xl bg-white/10 p-3 backdrop-blur">
                 <p className="text-sm font-semibold">{title}</p>
@@ -55,7 +56,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         </div>
 
         <p className="relative text-xs text-primary-foreground/60">
-          Smart City Parks &amp; Environment Department · Prototype
+          Academic prototype · Incidents, work orders and citizen reports are labelled demo records;
+          water, soil and noise sensors are simulated.
         </p>
       </div>
 

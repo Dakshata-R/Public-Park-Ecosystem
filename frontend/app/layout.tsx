@@ -1,4 +1,6 @@
 import './globals.css';
+// Bundled rather than loaded from a CDN, so the map is styled offline too.
+import 'leaflet/dist/leaflet.css';
 import type { Metadata } from 'next';
 import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 import { ThemeProvider } from '@/components/providers/theme-provider';
@@ -16,7 +18,7 @@ const display = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: 'GreenPulse — Park Ecosystem Health & Biodiversity Portal',
   description:
-    'Smart City platform for monitoring urban park ecosystem health, mapping biodiversity, managing assets, and engaging citizens in environmental stewardship.',
+    'Monitoring the ecological health of Bengaluru parks: live air quality and weather, biodiversity from GBIF records, OpenStreetMap asset mapping, image analysis and citizen reporting.',
 };
 
 export default function RootLayout({
@@ -26,19 +28,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {/*
-          Leaflet's stylesheet is loaded from a CDN rather than bundled because
-          it ships with relative url() references to its marker sprites; the
-          integrity hash pins the exact file.
-        */}
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-          crossOrigin=""
-        />
-      </head>
       <body className={cn(inter.variable, display.variable, 'font-sans')}>
         <ThemeProvider
           attribute="class"

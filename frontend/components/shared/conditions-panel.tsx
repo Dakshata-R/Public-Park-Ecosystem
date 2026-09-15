@@ -3,26 +3,21 @@
 /**
  * Live conditions — real weather and real air quality from public APIs.
  *
- * Two things distinguish this from a decorative weather widget:
- *
- *   1. The AQI shown is computed by *this project* from the raw pollutant
- *      concentrations the upstream returns, using the CPCB breakpoint tables
- *      in `server/src/services/aqi.service.js`. The pollutant breakdown is
- *      shown so that is visible rather than merely claimed.
- *
- *   2. When a park has its own AQI sensor, the panel shows the divergence
- *      between the ground sensor and the satellite-model estimate. That gap is
- *      operationally meaningful: a persistent one means the sensor needs
- *      recalibration or the model does not resolve a local source.
+ * What distinguishes this from a decorative weather widget: the AQI shown is
+ * computed by *this project* from the pollutant concentrations Open-Meteo
+ * returns (CAMS model), using the CPCB breakpoint tables in
+ * `backend/src/services/aqi.service.js`. The pollutant breakdown and the
+ * averaging method are shown so that is visible rather than merely claimed.
  *
  * Upstream failure is a normal condition, not an exception — the panel says
- * so plainly and the rest of the page carries on.
+ * so plainly (including when only one of the two sources failed) and the rest
+ * of the page carries on.
  */
 
 import {
   Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudMoon, CloudRain,
   CloudRainWind, CloudSnow, CloudSun, Droplets, Eye, Gauge, Moon, Sun,
-  Sunrise, Sunset, Thermometer, Wind, WifiOff, Info,
+  Sunrise, Sunset, Thermometer, Wind, WifiOff, Info, TriangleAlert,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useParkConditions } from '@/lib/hooks/use-api';
 import { cn } from '@/lib/utils';
+import type { LiveAirQuality } from '@/lib/types';
 
 /** Icon keys come from the server so the mapping lives in one place per side. */
 const ICONS: Record<string, typeof Cloud> = {
@@ -54,21 +50,45 @@ const POLLUTANT_LABELS: Record<string, string> = {
   pm25: 'PM₂.₅', pm10: 'PM₁₀', no2: 'NO₂', so2: 'SO₂', o3: 'O₃', co: 'CO',
 };
 
+/** The parks are in Bengaluru; every time on the panel is shown in park-local time. */
+const PARK_TIME_ZONE = 'Asia/Kolkata';
+
+/**
+ * The air-quality response carries more than `LiveAirQuality` declares: the
+ * averaging method and when the upstream was fetched.
+ */
+type AirQualityDetail = LiveAirQuality & { method?: string; fetchedAt?: string };
+
 const compass = (deg: number) =>
   ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
 
-const time = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+/** An ISO instant (UTC) as HH:MM in park-local time. */
+const clock = (iso: string | null | undefined) => {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: PARK_TIME_ZONE });
+};
+
+/**
+ * Open-Meteo's sunrise/sunset are park-local wall-clock strings with no offset
+ * ("2026-09-15T06:08"). Passing them to `new Date()` would reinterpret them in
+ * the viewer's time zone, so the time portion is shown as-is.
+ */
+const wallClock = (local: string | null | undefined) => {
+  const match = local ? /T(\d{2}:\d{2})/.exec(local) : null;
+  return match ? `${match[1]} IST` : '—';
+};
 
 export function ConditionsPanel({ park, className }: { park?: string; className?: string }) {
-  const { data, isPending, isError } = useParkConditions(park);
+  const { data, isPending, isError, error } = useParkConditions(park);
 
   if (isPending) {
     return (
       <Card className={className}>
         <CardHeader>
           <CardTitle className="text-lg">Live Conditions</CardTitle>
-          <CardDescription>Fetching real-time weather and air quality…</CardDescription>
+          <CardDescription>Fetching weather and air quality…</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Skeleton className="h-20 w-full rounded-xl" />
@@ -83,6 +103,11 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
   // A failed upstream is reported, not hidden — the reader needs to know the
   // difference between "the air is clean" and "we could not find out".
   if (isError || !data || (!data.weather.ok && !data.airQuality.ok)) {
+    const reasons = data
+      ? [data.weather.reason && `Weather: ${data.weather.reason}`, data.airQuality.reason && `Air quality: ${data.airQuality.reason}`]
+          .filter(Boolean)
+          .join(' · ')
+      : error?.message;
     return (
       <Card className={className}>
         <CardHeader>
@@ -92,16 +117,25 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
           <WifiOff className="h-6 w-6" />
           <p className="text-sm font-medium">Live data unavailable</p>
           <p className="max-w-xs text-xs">
-            {data?.weather.reason || 'The weather and air-quality services could not be reached. Sensor readings below are unaffected.'}
+            {reasons || 'The weather and air-quality services could not be reached.'} The rest of the page is unaffected.
           </p>
         </CardContent>
       </Card>
     );
   }
 
-  const weather = data.weather.current;
-  const air = data.airQuality;
+  const weather = data.weather.ok ? data.weather.current : undefined;
+  const air = data.airQuality as AirQualityDetail;
   const Icon = weather ? ICONS[weather.icon] ?? Cloud : Cloud;
+
+  // Freshness: the most recent upstream observation, not the time of the request.
+  const observedTimes = [weather?.observedAt, air.ok ? air.observedAt : undefined]
+    .filter((t): t is string => Boolean(t))
+    .map((t) => new Date(t).getTime())
+    .filter((t) => Number.isFinite(t));
+  const latestObserved = observedTimes.length ? new Date(Math.max(...observedTimes)).toISOString() : null;
+  const cached = Boolean((data.weather.ok && data.weather.cached) || (air.ok && air.cached));
+  const partial = !data.weather.ok || !air.ok;
 
   return (
     <Card className={cn('overflow-hidden', className)}>
@@ -111,14 +145,37 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
             <CardTitle className="text-lg">Live Conditions</CardTitle>
             <CardDescription>{data.location.park || data.location.label}</CardDescription>
           </div>
-          <Badge variant="outline" className="shrink-0 gap-1.5 text-[10px]">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
-            LIVE
-          </Badge>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            {latestObserved && (
+              <Badge variant="outline" className="gap-1 text-[10px] font-normal" title="Time of the most recent upstream observation">
+                Updated {clock(latestObserved)} IST
+              </Badge>
+            )}
+            {cached && (
+              <span
+                className="text-[10px] text-muted-foreground"
+                title="Served from the server's short-lived cache of the upstream response"
+              >
+                cached response
+              </span>
+            )}
+          </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* Partial data: one source answered, the other did not. */}
+        {partial && (
+          <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-2.5 text-xs text-warning">
+            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <p>
+              {!data.weather.ok
+                ? `Weather unavailable${data.weather.reason ? `: ${data.weather.reason}` : ''}. Air quality below is current.`
+                : `Air quality unavailable${air.reason ? `: ${air.reason}` : ''}. Weather below is current.`}
+            </p>
+          </div>
+        )}
+
         {weather && (
           <>
             <div className="flex items-center gap-4">
@@ -139,8 +196,8 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
                 { icon: Wind, label: 'Wind', value: `${Math.round(weather.windSpeed)} km/h ${compass(weather.windDirection)}` },
                 { icon: Gauge, label: 'Pressure', value: `${Math.round(weather.pressure)} hPa` },
                 { icon: Sun, label: 'UV max', value: weather.uvIndexMax != null ? String(weather.uvIndexMax) : '—' },
-                { icon: Sunrise, label: 'Sunrise', value: time(weather.sunrise) },
-                { icon: Sunset, label: 'Sunset', value: time(weather.sunset) },
+                { icon: Sunrise, label: 'Sunrise', value: wallClock(weather.sunrise) },
+                { icon: Sunset, label: 'Sunset', value: wallClock(weather.sunset) },
               ].map((row) => (
                 <div key={row.label} className="flex items-center gap-2 rounded-lg bg-muted/50 p-2.5">
                   <row.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -167,7 +224,7 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
                     </TooltipTrigger>
                     <TooltipContent className="max-w-xs">
                       <p className="text-xs">
-                        Computed by GreenPulse from live CAMS pollutant concentrations using CPCB
+                        Computed by GreenPulse from Open-Meteo CAMS pollutant concentrations using CPCB
                         breakpoint tables. The overall AQI is the maximum of the sub-indices, not
                         their average — air is only as clean as its worst pollutant.
                       </p>
@@ -175,15 +232,19 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <Badge variant="outline" className={AQI_TONE[air.label ?? ''] ?? ''}>
-                {air.label}
-              </Badge>
+              {air.label && (
+                <Badge variant="outline" className={AQI_TONE[air.label] ?? ''}>
+                  {air.label}
+                </Badge>
+              )}
             </div>
 
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold tabular-nums">{air.aqi}</span>
+              <span className="text-3xl font-bold tabular-nums">{air.aqi ?? '—'}</span>
               <span className="text-xs text-muted-foreground">
-                AQI · driven by {POLLUTANT_LABELS[air.dominantPollutant ?? ''] ?? air.dominantPollutant}
+                AQI
+                {air.dominantPollutant && ` · driven by ${POLLUTANT_LABELS[air.dominantPollutant] ?? air.dominantPollutant}`}
+                {clock(air.observedAt) && ` · ${clock(air.observedAt)} IST`}
               </span>
             </div>
 
@@ -214,21 +275,34 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
               </div>
             )}
 
-            <p className="mt-2.5 text-xs text-muted-foreground">{air.advice}</p>
+            {air.method && <p className="mt-2.5 text-[11px] text-muted-foreground">{air.method}</p>}
+            {air.advice && <p className="mt-1.5 text-xs text-muted-foreground">{air.advice}</p>}
           </div>
         )}
 
         {/* Advisory combining both sources. */}
-        <div className="flex items-start gap-2 rounded-lg bg-primary/5 p-3">
-          <Thermometer className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <p className="text-xs leading-relaxed">{data.advisory}</p>
-        </div>
+        {data.advisory && (
+          <div className="flex items-start gap-2 rounded-lg bg-primary/5 p-3">
+            <Thermometer className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <p className="text-xs leading-relaxed">{data.advisory}</p>
+          </div>
+        )}
 
         {/* Provenance. Live data must always say where it came from. */}
-        <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <Eye className="h-3 w-3" />
-          {data.weather.attribution || data.airQuality.attribution || 'Live public data'}
-        </p>
+        <div className="space-y-0.5 text-[10px] text-muted-foreground">
+          {data.weather.ok && (
+            <p className="flex items-center gap-1.5">
+              <Eye className="h-3 w-3 shrink-0" />
+              {data.weather.attribution || 'Weather data by Open-Meteo.com'}
+            </p>
+          )}
+          {air.ok && (
+            <p className="flex items-center gap-1.5">
+              <Eye className="h-3 w-3 shrink-0" />
+              {air.attribution || 'Air quality data by Open-Meteo.com (CAMS)'}
+            </p>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -260,7 +334,8 @@ export function ForecastStrip({ park, className }: { park?: string; className?: 
             return (
               <div key={day.date} className="flex flex-col items-center gap-1 rounded-lg bg-muted/40 p-2.5">
                 <p className="text-[11px] font-medium text-muted-foreground">
-                  {new Date(day.date).toLocaleDateString([], { weekday: 'short' })}
+                  {/* A bare "YYYY-MM-DD" parses as UTC midnight; pin the zone so the weekday cannot shift. */}
+                  {new Date(`${day.date}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })}
                 </p>
                 <Icon className="h-5 w-5 text-accent" />
                 <p className="text-sm font-semibold tabular-nums">{Math.round(day.tempMax)}°</p>

@@ -252,6 +252,9 @@ function RoleCard({ role }: { role: string }) {
 
 function PasswordCard() {
   const [saving, setSaving] = useState(false);
+  // Failures that are not about the current password (network, rate limit,
+  // server) belong to the form as a whole, not to one field.
+  const [formError, setFormError] = useState<string | null>(null);
 
   const form = useForm<PasswordValues>({
     resolver: zodResolver(passwordSchema),
@@ -260,6 +263,7 @@ function PasswordCard() {
 
   const submit = form.handleSubmit(async (values) => {
     setSaving(true);
+    setFormError(null);
     try {
       await authApi.changePassword({
         currentPassword: values.currentPassword,
@@ -269,8 +273,19 @@ function PasswordCard() {
       toast.success('Password changed');
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not change your password';
-      form.setError('currentPassword', { message });
-      toast.error(message);
+      if (error instanceof ApiError && error.status === 400 && /current password is incorrect/i.test(error.message)) {
+        form.setError('currentPassword', { message });
+      } else if (error instanceof ApiError && error.status === 422 && error.details) {
+        // Server-side validation maps back onto the matching inputs.
+        for (const [field, detail] of Object.entries(error.details)) {
+          if (field === 'currentPassword' || field === 'newPassword') form.setError(field, { message: detail });
+          else setFormError(detail);
+        }
+      } else {
+        setFormError(message);
+      }
+      // An expired session is announced once by AuthProvider.
+      if (!(error instanceof ApiError && error.isAuthError)) toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -309,6 +324,12 @@ function PasswordCard() {
               <p className="text-xs text-destructive">{form.formState.errors.confirmPassword.message}</p>
             )}
           </div>
+
+          {formError && (
+            <Alert className="border-destructive/30 bg-destructive/5">
+              <AlertDescription className="text-xs text-destructive">{formError}</AlertDescription>
+            </Alert>
+          )}
 
           <Button type="submit" variant="outline" className="w-full" disabled={saving}>
             {saving ? 'Changing…' : 'Change password'}
@@ -392,13 +413,18 @@ function ConnectionCard() {
           <code className="text-xs">{API_BASE_URL}</code>
         </div>
 
-        <Alert className="border-dashed">
-          <AlertDescription className="text-[11px] leading-relaxed">
-            Set <code className="rounded bg-muted px-1">NEXT_PUBLIC_API_URL</code> in
-            <code className="mx-1 rounded bg-muted px-1">frontend/.env.local</code> to point at a
-            different backend. The default assumes the API is running locally on port 5000.
-          </AlertDescription>
-        </Alert>
+        {/* Setup guidance is for developers running the two halves locally;
+            a deployed build has its API URL baked in and must not mention localhost. */}
+        {process.env.NODE_ENV !== 'production' && (
+          <Alert className="border-dashed">
+            <AlertDescription className="text-[11px] leading-relaxed">
+              Set <code className="rounded bg-muted px-1">NEXT_PUBLIC_API_URL</code> in
+              <code className="mx-1 rounded bg-muted px-1">frontend/.env.local</code> to point at a
+              different backend. Without it, development builds assume the API is running locally on
+              port 5000.
+            </AlertDescription>
+          </Alert>
+        )}
       </CardContent>
     </Card>
   );

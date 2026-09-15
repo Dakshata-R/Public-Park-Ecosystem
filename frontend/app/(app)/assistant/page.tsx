@@ -5,38 +5,74 @@
  *
  * Retrieval-augmented question answering over the live database. The retrieval
  * half is genuinely implemented — TF-IDF weighting with cosine similarity over
- * a corpus rebuilt from MongoDB — while the generation half composes answers
- * from templates rather than an LLM.
+ * a corpus rebuilt from the database — while the generation half composes
+ * answers from templates rather than an LLM.
  *
  * That is the honest scope for a prototype, and it buys something a language
  * model would not: every figure in an answer is traceable to the record it
  * came from, and the citations panel shows exactly which documents the
  * retrieval step surfaced and how strongly they matched.
+ *
+ * The conversation id is kept in localStorage so a reload restores the thread
+ * from `/assistant/history`.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  Bot, Send, User, Sparkles, Loader2, Database, Clock, Search, RotateCcw,
+  ArrowUpRight, Bot, Send, User, Sparkles, Loader2, Database, Clock, Search, RotateCcw, RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/shared/page-header';
-import { useAssistantSuggestions, useAskAssistant } from '@/lib/hooks/use-api';
+import { useAuth } from '@/components/providers/auth-provider';
+import { useAssistantHistory, useAssistantSuggestions, useAskAssistant } from '@/lib/hooks/use-api';
 import { cn } from '@/lib/utils';
-import type { Citation } from '@/lib/types';
+import type { ChatMessage, Citation } from '@/lib/types';
 
-/** Where a cited entity lives, so a citation can be followed. */
-const ENTITY_ROUTES: Record<string, string> = {
-  Park: '/map',
-  Species: '/biodiversity',
-  Asset: '/assets',
-  Sensor: '/sensors',
-  Incident: '/incidents',
-  CitizenReport: '/citizen',
-  WorkOrder: '/maintenance',
+/**
+ * The module that holds each cited entity. Citations link to the module page;
+ * those pages do not take a record id, so the link cannot open the record itself.
+ */
+const ENTITY_MODULES: Record<string, { href: string; name: string }> = {
+  Park: { href: '/map', name: 'Map' },
+  Species: { href: '/biodiversity', name: 'Biodiversity' },
+  Asset: { href: '/assets', name: 'Assets' },
+  Sensor: { href: '/sensors', name: 'Sensors' },
+  Incident: { href: '/incidents', name: 'Incidents' },
+  CitizenReport: { href: '/citizen', name: 'Citizen portal' },
+  WorkOrder: { href: '/maintenance', name: 'Maintenance' },
+};
+
+const FALLBACK_MODULE = { href: '/dashboard', name: 'Dashboard' };
+
+const SESSION_STORAGE_PREFIX = 'greenpulse.assistant.session';
+
+const storage = {
+  get(key: string): string | null {
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return null; // private browsing, storage disabled
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch {
+      /* ignore */
+    }
+  },
+  remove(key: string) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  },
 };
 
 interface Turn {
@@ -47,7 +83,8 @@ interface Turn {
   intentConfidence?: number;
   citations?: Citation[];
   latencyMs?: number;
-  at: Date;
+  /** When the message was sent or answered. The static welcome has none. */
+  at?: Date;
 }
 
 const WELCOME: Turn = {
@@ -58,8 +95,23 @@ const WELCOME: Turn = {
     "biodiversity indices, open incidents, maintenance, assets and sensors.\n\n" +
     "Every answer is computed from current records, and I show which documents I drew on. " +
     "Name a park to narrow the scope.",
-  at: new Date(),
 };
+
+/** A stored message as a thread turn. */
+const toTurn = (message: ChatMessage): Turn => ({
+  id: message.id,
+  role: message.role,
+  content: message.content,
+  intent: message.intent || undefined,
+  citations: message.citations,
+  latencyMs: message.role === 'assistant' ? message.latencyMs : undefined,
+  at: new Date(message.createdAt),
+});
+
+const clock = (date: Date | undefined) =>
+  date && !Number.isNaN(date.getTime())
+    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null;
 
 /**
  * Minimal markdown rendering: `**bold**`, bullet lines, and paragraph breaks.
@@ -99,13 +151,47 @@ function AnswerText({ content }: { content: string }) {
 }
 
 export default function AssistantPage() {
+  const { user, loading: authLoading } = useAuth();
+  const storageKey = `${SESSION_STORAGE_PREFIX}.${user?.id ?? 'guest'}`;
+
   const [turns, setTurns] = useState<Turn[]>([WELCOME]);
   const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState<string | undefined>();
+  /** A stored session whose history has not been loaded into the thread yet. */
+  const [restoreId, setRestoreId] = useState<string | null>(null);
 
   const suggestions = useAssistantSuggestions();
+  const history = useAssistantHistory(restoreId);
   const ask = useAskAssistant();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Pick up this account's stored conversation once the session is known —
+  // and again only if a different account signs in.
+  const loadedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (authLoading || loadedKey.current === storageKey) return;
+    loadedKey.current = storageKey;
+    const stored = storage.get(storageKey);
+    setTurns([WELCOME]);
+    setSessionId(stored ?? undefined);
+    setRestoreId(stored);
+  }, [authLoading, storageKey]);
+
+  // Replay the stored conversation into the thread.
+  useEffect(() => {
+    if (!restoreId || !history.data) return;
+    if (!history.data.length) {
+      // The server no longer knows this session (e.g. the database was reseeded).
+      storage.remove(storageKey);
+      setSessionId(undefined);
+    } else {
+      setTurns([WELCOME, ...history.data.map(toTurn)]);
+    }
+    setRestoreId(null);
+  }, [history.data, restoreId, storageKey]);
+
+  const restoring = Boolean(restoreId) && history.isPending;
+  const restoreFailed = Boolean(restoreId) && history.isError;
 
   // Keep the newest turn in view as the conversation grows.
   useEffect(() => {
@@ -114,8 +200,10 @@ export default function AssistantPage() {
 
   const send = async (question: string) => {
     const trimmed = question.trim();
-    if (!trimmed || ask.isPending) return;
+    if (!trimmed || ask.isPending || restoring) return;
 
+    // Asking carries on in the stored session even if its earlier turns could not be shown.
+    setRestoreId(null);
     setTurns((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, role: 'user', content: trimmed, at: new Date() },
@@ -125,6 +213,7 @@ export default function AssistantPage() {
     try {
       const response = await ask.mutateAsync({ question: trimmed, sessionId });
       setSessionId(response.sessionId);
+      storage.set(storageKey, response.sessionId);
       setTurns((prev) => [
         ...prev,
         {
@@ -135,7 +224,7 @@ export default function AssistantPage() {
           intentConfidence: response.intentConfidence,
           citations: response.citations,
           latencyMs: response.latencyMs,
-          at: new Date(),
+          at: new Date(response.message.createdAt),
         },
       ]);
     } catch (error) {
@@ -157,8 +246,10 @@ export default function AssistantPage() {
   };
 
   const reset = () => {
+    storage.remove(storageKey);
     setTurns([WELCOME]);
     setSessionId(undefined);
+    setRestoreId(null);
   };
 
   const lastAnswer = [...turns].reverse().find((t) => t.role === 'assistant' && t.citations?.length);
@@ -170,8 +261,8 @@ export default function AssistantPage() {
         description="Ask about parks, species, air quality, incidents or maintenance in plain language. Answers are computed from live records and cite their sources."
         icon="Bot"
         action={
-          turns.length > 1 && (
-            <Button variant="outline" onClick={reset}>
+          (turns.length > 1 || sessionId) && (
+            <Button variant="outline" onClick={reset} disabled={ask.isPending}>
               <RotateCcw className="mr-2 h-4 w-4" />
               New conversation
             </Button>
@@ -194,7 +285,7 @@ export default function AssistantPage() {
                   {turn.role === 'assistant' ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
                 </div>
 
-                <div className={cn('min-w-0 max-w-[85%] space-y-1.5', turn.role === 'user' && 'items-end')}>
+                <div className={cn('flex min-w-0 max-w-[85%] flex-col space-y-1.5', turn.role === 'user' && 'items-end')}>
                   <div
                     className={cn(
                       'rounded-2xl px-4 py-2.5',
@@ -208,12 +299,17 @@ export default function AssistantPage() {
                     )}
                   </div>
 
-                  {/* Provenance for the answer. */}
-                  {turn.role === 'assistant' && turn.intent && (
+                  {/* Time and, for answers, provenance. */}
+                  {(clock(turn.at) || (turn.role === 'assistant' && turn.intent)) && (
                     <div className="flex flex-wrap items-center gap-1.5 px-1">
-                      <Badge variant="outline" className="text-[10px] capitalize">
-                        {turn.intent.replace(/([A-Z])/g, ' $1').trim()}
-                      </Badge>
+                      {clock(turn.at) && (
+                        <span className="text-[10px] tabular-nums text-muted-foreground">{clock(turn.at)}</span>
+                      )}
+                      {turn.role === 'assistant' && turn.intent && (
+                        <Badge variant="outline" className="text-[10px] capitalize">
+                          {turn.intent.replace(/([A-Z])/g, ' $1').trim()}
+                        </Badge>
+                      )}
                       {turn.intentConfidence !== undefined && (
                         <span className="text-[10px] text-muted-foreground">
                           intent confidence {(turn.intentConfidence * 100).toFixed(0)}%
@@ -230,6 +326,23 @@ export default function AssistantPage() {
                 </div>
               </div>
             ))}
+
+            {restoring && (
+              <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Restoring your previous conversation…
+              </div>
+            )}
+
+            {restoreFailed && (
+              <div className="flex flex-wrap items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                <span>Your previous conversation could not be loaded{history.error?.message ? `: ${history.error.message}` : '.'}</span>
+                <Button variant="ghost" size="sm" className="h-7" onClick={() => void history.refetch()}>
+                  <RefreshCw className="mr-1.5 h-3 w-3" />
+                  Try again
+                </Button>
+              </div>
+            )}
 
             {ask.isPending && (
               <div className="flex gap-3">
@@ -254,10 +367,10 @@ export default function AssistantPage() {
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="How diverse are the species at Banyan Forest Park?"
-                disabled={ask.isPending}
+                placeholder="How diverse are the species recorded at Lalbagh?"
+                disabled={ask.isPending || restoring}
               />
-              <Button type="submit" size="icon" disabled={ask.isPending || !input.trim()}>
+              <Button type="submit" size="icon" disabled={ask.isPending || restoring || !input.trim()}>
                 <Send className="h-4 w-4" />
               </Button>
             </form>
@@ -274,16 +387,30 @@ export default function AssistantPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-1.5">
-              {(suggestions.data?.suggestions ?? []).map((question) => (
-                <button
-                  key={question}
-                  onClick={() => void send(question)}
-                  disabled={ask.isPending}
-                  className="w-full rounded-lg border px-3 py-2 text-left text-xs transition-colors hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"
-                >
-                  {question}
-                </button>
-              ))}
+              {suggestions.isPending ? (
+                Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8 w-full rounded-lg" />)
+              ) : suggestions.isError ? (
+                <div className="space-y-2 py-2 text-center text-xs text-muted-foreground">
+                  <p>Suggestions could not be loaded{suggestions.error?.message ? `: ${suggestions.error.message}` : '.'}</p>
+                  <Button variant="outline" size="sm" onClick={() => void suggestions.refetch()}>
+                    <RefreshCw className="mr-1.5 h-3 w-3" />
+                    Try again
+                  </Button>
+                </div>
+              ) : !suggestions.data.suggestions.length ? (
+                <p className="py-2 text-center text-xs text-muted-foreground">No suggestions available.</p>
+              ) : (
+                suggestions.data.suggestions.map((question) => (
+                  <button
+                    key={question}
+                    onClick={() => void send(question)}
+                    disabled={ask.isPending || restoring}
+                    className="w-full rounded-lg border px-3 py-2 text-left text-xs transition-colors hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"
+                  >
+                    {question}
+                  </button>
+                ))
+              )}
             </CardContent>
           </Card>
 
@@ -295,7 +422,8 @@ export default function AssistantPage() {
                 Sources
               </CardTitle>
               <CardDescription className="text-xs">
-                Documents the retrieval step surfaced, ranked by TF-IDF cosine similarity
+                Documents the retrieval step surfaced, ranked by TF-IDF cosine similarity. Each link opens
+                the module that holds the record — find the record there by name.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -305,19 +433,29 @@ export default function AssistantPage() {
                 </p>
               ) : (
                 <div className="space-y-1.5">
-                  {lastAnswer.citations.map((citation) => (
-                    <Link
-                      key={`${citation.entity}-${citation.entityId}`}
-                      href={ENTITY_ROUTES[citation.entity] ?? '/dashboard'}
-                      className="flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs transition-colors hover:bg-muted"
-                    >
-                      <Badge variant="outline" className="shrink-0 text-[9px]">{citation.entity}</Badge>
-                      <span className="min-w-0 flex-1 truncate">{citation.label}</span>
-                      <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
-                        {citation.score.toFixed(3)}
-                      </span>
-                    </Link>
-                  ))}
+                  {lastAnswer.citations.map((citation) => {
+                    const target = ENTITY_MODULES[citation.entity] ?? FALLBACK_MODULE;
+                    return (
+                      <Link
+                        key={`${citation.entity}-${citation.entityId}`}
+                        href={target.href}
+                        title={`Open the ${target.name} module`}
+                        className="group flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs transition-colors hover:bg-muted"
+                      >
+                        <Badge variant="outline" className="shrink-0 text-[9px]">{citation.entity}</Badge>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{citation.label || 'Unnamed record'}</span>
+                          <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                            Opens {target.name}
+                            <ArrowUpRight className="h-2.5 w-2.5" />
+                          </span>
+                        </span>
+                        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+                          {citation.score.toFixed(3)}
+                        </span>
+                      </Link>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -346,7 +484,9 @@ export default function AssistantPage() {
               <p>
                 The answer is then composed from the retrieved records. Figures are read from the
                 database, never invented — which is the advantage of this approach over a language
-                model at prototype stage.
+                model at prototype stage. The database mixes real records (parks, species, air
+                quality, weather) with demonstration ones (incidents, work orders, citizen reports),
+                so answers about the latter describe demonstration data.
               </p>
             </CardContent>
           </Card>

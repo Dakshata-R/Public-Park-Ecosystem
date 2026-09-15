@@ -204,9 +204,17 @@ export type SpeciesClass =
   | 'bird' | 'mammal' | 'butterfly' | 'reptile'
   | 'amphibian' | 'tree' | 'plant' | 'insect';
 
+/**
+ * IUCN Red List categories. "Not Evaluated" and "Data Deficient" are not risk
+ * levels — most insects and plants have never been assessed — so they must
+ * not be presented as "Least Concern".
+ */
 export type ConservationStatus =
-  | 'Least Concern' | 'Near Threatened' | 'Vulnerable'
-  | 'Endangered' | 'Critically Endangered';
+  | 'Not Evaluated' | 'Data Deficient' | 'Least Concern' | 'Near Threatened'
+  | 'Vulnerable' | 'Endangered' | 'Critically Endangered' | 'Extinct in the Wild';
+
+/** Near Threatened or worse. */
+export const THREATENED_STATUSES: ConservationStatus[] = ['Near Threatened', 'Vulnerable', 'Endangered', 'Critically Endangered'];
 
 export interface Species extends Timestamped {
   commonName: string;
@@ -879,6 +887,8 @@ export interface WeatherResponse extends IntegrationResult {
   location: ResolvedLocation;
   current?: CurrentWeather;
   forecast?: ForecastDay[];
+  /** ISO time the upstream response was fetched (the server caches ~10 min). */
+  fetchedAt?: string;
 }
 
 /** Live pollutant concentrations, scored through the project's CPCB implementation. */
@@ -901,6 +911,12 @@ export interface LiveAirQuality extends IntegrationResult {
   score?: number;
   label?: string;
   advice?: string;
+  /** How the AQI was computed (CPCB averaging periods). */
+  method?: string;
+  /** The averaged concentrations the AQI was computed from. */
+  averages?: Record<string, number>;
+  /** ISO time the upstream response was fetched (the server caches ~15 min). */
+  fetchedAt?: string;
   pm25Series?: { time: string; pm25: number; pm10: number }[];
 }
 

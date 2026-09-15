@@ -10,14 +10,14 @@
  * and watch the formulas respond.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  Bird, CheckCircle2, Sparkles, TriangleAlert, Globe2, Calculator, Info, ShieldQuestion,
+  Bird, CheckCircle2, Sparkles, TriangleAlert, Globe2, Calculator, Info, ShieldQuestion, ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,8 +31,9 @@ import { FilterBar } from '@/components/shared/filter-bar';
 import { Pagination } from '@/components/shared/pagination';
 import { ConservationBadge } from '@/components/shared/status-badges';
 import { MetricTile, ScoreBar } from '@/components/shared/score-badge';
+import { DataNotice, SourceBadge } from '@/components/shared/data-source';
 import { ParkFilter, ALL_PARKS, parkParam } from '@/components/shared/park-filter';
-import { QueryState, SkeletonCards, LoadingState, EmptyState } from '@/components/shared/query-state';
+import { QueryState, SkeletonCards, LoadingState, EmptyState, ErrorState } from '@/components/shared/query-state';
 import { useAuth } from '@/components/providers/auth-provider';
 import {
   useBiodiversityIndices, useBiodiversityComparison, useSeasonality,
@@ -40,16 +41,80 @@ import {
   useObservations,
 } from '@/lib/hooks/use-api';
 import { biodiversityApi } from '@/lib/api/endpoints';
+import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
-import type { Species, SpeciesClass } from '@/lib/types';
+import { THREATENED_STATUSES } from '@/lib/types';
+import type { ConservationStatus, Observation, Species, SpeciesClass } from '@/lib/types';
 
 const SPECIES_CLASSES: SpeciesClass[] = [
   'bird', 'mammal', 'butterfly', 'reptile', 'amphibian', 'tree', 'plant', 'insect',
 ];
 
-const CONSERVATION_STATUSES = [
-  'Least Concern', 'Near Threatened', 'Vulnerable', 'Endangered', 'Critically Endangered',
+const CONSERVATION_STATUSES: ConservationStatus[] = [
+  'Not Evaluated', 'Data Deficient', 'Least Concern', 'Near Threatened', 'Vulnerable',
+  'Endangered', 'Critically Endangered', 'Extinct in the Wild',
 ];
+
+/**
+ * IUCN status chip. "Not Evaluated" and "Data Deficient" say nothing about
+ * risk (most insects and plants have never been assessed), so the shared badge
+ * styles them neutrally; threatened statuses also get a warning icon.
+ */
+function IucnBadge({ status }: { status: ConservationStatus }) {
+  return (
+    <span className="inline-flex items-center gap-1" title={`IUCN Red List: ${status}`}>
+      {THREATENED_STATUSES.includes(status) && <TriangleAlert className="h-3 w-3 text-warning" />}
+      <ConservationBadge status={status} />
+    </span>
+  );
+}
+
+/** Invasive / introduced status from the GRIIS India checklist. */
+function IntroductionBadges({ species, className }: { species: Species; className?: string }) {
+  return (
+    <>
+      {species.isInvasive && (
+        <Badge className={cn('border-destructive/30 bg-destructive/90 text-[10px] text-destructive-foreground', className)}>
+          Invasive in India (GRIIS)
+        </Badge>
+      )}
+      {!species.isInvasive && species.isIntroduced && (
+        <Badge variant="outline" className={cn('border-warning/30 bg-warning/15 text-[10px] text-warning', className)}>
+          Introduced
+        </Badge>
+      )}
+    </>
+  );
+}
+
+/** Many GBIF taxa have no English common name. */
+const displayName = (species: Pick<Species, 'commonName' | 'scientificName'>) =>
+  species.commonName?.trim() || species.scientificName;
+
+const gbifSpeciesUrl = (key: number) => `https://www.gbif.org/species/${key}`;
+
+/** A GBIF row's `count` is occurrence records; other sources count individuals. */
+function countLabel(observation: Pick<Observation, 'count' | 'source'>) {
+  const noun = observation.source === 'gbif' ? 'GBIF record' : 'individual';
+  return `${observation.count.toLocaleString()} ${noun}${observation.count === 1 ? '' : 's'}`;
+}
+
+/** GBIF rows aggregate a whole month, so a day-level date would be invented precision. */
+function observedLabel(observation: Pick<Observation, 'observedAt' | 'source'>) {
+  const date = new Date(observation.observedAt);
+  return observation.source === 'gbif'
+    ? date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
+    : date.toLocaleDateString();
+}
+
+/** Server validation detail is more useful than a generic failure. */
+function errorMessage(err: unknown) {
+  if (err instanceof ApiError) {
+    const detail = err.details ? Object.values(err.details).join('. ') : '';
+    return detail ? `${err.message}: ${detail}` : err.message;
+  }
+  return err instanceof Error ? err.message : 'The calculation failed.';
+}
 
 const CLASS_COLOURS: Record<string, string> = {
   bird: 'hsl(var(--chart-1))',
@@ -79,10 +144,17 @@ export default function BiodiversityPage() {
     <div className="space-y-6">
       <PageHeader
         title="Biodiversity Management"
-        description="Species catalogue, field observations, and the ecological diversity indices computed from them. Only verified observations count towards the indices."
+        description="Species catalogue, observation records, and the ecological diversity indices computed from them. Only verified observations count towards the indices."
         icon="Bird"
         action={<ParkFilter value={park} onChange={setPark} allLabel="All parks (citywide)" />}
       />
+
+      <DataNotice>
+        Species and counts come from GBIF occurrence records (eBird, iNaturalist and other datasets)
+        located inside each park&apos;s OpenStreetMap boundary since January 2023. Abundance here is the
+        number of records, not a count of individuals. GBIF publication lags by months, so the most
+        recent months are incomplete. Data: GBIF.org · boundaries © OpenStreetMap contributors.
+      </DataNotice>
 
       <Tabs defaultValue="indices" className="space-y-4">
         <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-4">
@@ -131,7 +203,7 @@ function IndicesTab({
     <QueryState query={query} skeleton={<SkeletonCards count={4} />}>
       {(data) => {
         const abundanceChart = data.abundance.slice(0, 12).map((row) => ({
-          name: row.commonName,
+          name: displayName(row),
           count: row.count,
           isInvasive: row.isInvasive,
         }));
@@ -175,7 +247,8 @@ function IndicesTab({
                   <CardTitle className="text-lg">How the score is derived</CardTitle>
                   <CardDescription>
                     Every figure below is computed from {data.indices.totalIndividuals.toLocaleString()} verified
-                    individual records across {data.indices.richness} species
+                    occurrence records across {data.indices.richness} species. Each record counts as one
+                    unit of abundance nᵢ, so &ldquo;individual&rdquo; below means &ldquo;record&rdquo;.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -251,7 +324,7 @@ function IndicesTab({
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-lg">Composition</CardTitle>
-                    <CardDescription>Individuals by taxonomic class</CardDescription>
+                    <CardDescription>Records by taxonomic class</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={200}>
@@ -271,14 +344,18 @@ function IndicesTab({
                   <MetricTile
                     label="Threatened"
                     value={data.threatenedSpecies}
-                    hint="Species above Least Concern"
+                    hint="Species Near Threatened or worse (IUCN)"
                     tone={data.threatenedSpecies > 0 ? 'warning' : undefined}
                   />
                   <MetricTile
-                    label="Invasive"
+                    label="Invasive records"
                     value={data.invasiveIndividuals.toLocaleString()}
-                    hint={`${((100 * data.invasiveIndividuals) / Math.max(1, data.indices.totalIndividuals)).toFixed(1)}% of records`}
-                    tone="destructive"
+                    hint={
+                      data.indices.totalIndividuals > 0
+                        ? `${((100 * data.invasiveIndividuals) / data.indices.totalIndividuals).toFixed(1)}% of records · GRIIS India`
+                        : 'No records'
+                    }
+                    tone={data.invasiveIndividuals > 0 ? 'destructive' : undefined}
                   />
                 </div>
               </div>
@@ -360,23 +437,28 @@ function IndicesTab({
               <CardHeader>
                 <CardTitle className="text-lg">Abundance Distribution</CardTitle>
                 <CardDescription>
-                  The vector n₁…n_S the indices are computed from. Invasive species are shown in red.
+                  Top {abundanceChart.length} of {data.indices.richness} species from the abundance vector
+                  n₁…n_S the indices are computed from. Invasive species are shown in red.
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {abundanceChart.length === 0 ? (
+                  <EmptyState title="No verified records" description="There are no verified records in this scope." icon="Bird" />
+                ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={abundanceChart} margin={{ bottom: 60 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="name" angle={-40} textAnchor="end" height={90} stroke="hsl(var(--muted-foreground))" fontSize={10} interval={0} />
                     <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} />
                     <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    <Bar dataKey="count" name="Individuals" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="count" name="Records" radius={[4, 4, 0, 0]}>
                       {abundanceChart.map((entry, i) => (
                         <Cell key={i} fill={entry.isInvasive ? 'hsl(var(--destructive))' : 'hsl(var(--chart-1))'} />
                       ))}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
@@ -385,23 +467,28 @@ function IndicesTab({
               <CardHeader>
                 <CardTitle className="text-lg">Seasonality</CardTitle>
                 <CardDescription>
-                  Monthly observation counts — migration and flowering both show up here, which is
-                  why a single annual figure would mislead
+                  Verified records per calendar month, pooled across years since January 2023 —
+                  migration and flowering both show up here, which is why a single annual figure would
+                  mislead. Recent months are under-counted while GBIF publication catches up.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {seasonality.isPending ? (
                   <LoadingState label="Loading seasonality…" />
+                ) : seasonality.isError ? (
+                  <ErrorState error={seasonality.error} onRetry={() => seasonality.refetch()} />
+                ) : seasonality.data.every((row) => row.sightings === 0) ? (
+                  <EmptyState title="No verified records" description="Nothing has been recorded in this scope yet." icon="Bird" />
                 ) : (
                   <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={seasonality.data ?? []}>
+                    <LineChart data={seasonality.data}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                       <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={11} />
                       <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" fontSize={11} />
                       <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" fontSize={11} />
                       <Tooltip contentStyle={TOOLTIP_STYLE} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Line yAxisId="left" type="monotone" dataKey="individuals" name="Individuals" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} />
+                      <Line yAxisId="left" type="monotone" dataKey="individuals" name="Records" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} />
                       <Line yAxisId="right" type="monotone" dataKey="richness" name="Species present" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
@@ -445,8 +532,8 @@ function IndexCalculator() {
     setError(null);
     try {
       setResult(await biodiversityApi.previewIndices(abundances));
-    } catch {
-      setError('The calculation service could not be reached.');
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -473,7 +560,9 @@ function IndexCalculator() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="50, 40, 30, 20, 10"
             className="font-mono"
-            onKeyDown={(e) => e.key === 'Enter' && compute()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !busy) void compute();
+            }}
           />
           <Button onClick={compute} disabled={busy}>{busy ? 'Computing…' : 'Compute'}</Button>
         </div>
@@ -507,12 +596,21 @@ function CatalogueTab({ park, onSelect }: { park?: string; onSelect: (s: Species
   const [speciesClass, setSpeciesClass] = useState('all');
   const [conservation, setConservation] = useState('all');
 
+  // A different park is a different result set — start again from page one.
+  const [lastPark, setLastPark] = useState(park);
+  if (lastPark !== park) {
+    setLastPark(park);
+    setPage(1);
+  }
+
   const query = useSpeciesList({
     page,
     limit: 12,
     q: search || undefined,
     class: speciesClass === 'all' ? undefined : speciesClass,
     conservationStatus: conservation === 'all' ? undefined : conservation,
+    // Species recorded in that park.
+    parks: park,
   });
 
   const applyFilter = (setter: (v: string) => void) => (value: string) => {
@@ -564,18 +662,14 @@ function CatalogueTab({ park, onSelect }: { park?: string; onSelect: (s: Species
                   <div className="relative h-36 bg-muted">
                     {species.images[0] ? (
                       // eslint-disable-next-line @next/next/no-img-element -- remote gallery URLs, not local assets
-                      <img src={species.images[0]} alt={species.commonName} className="h-full w-full object-cover" />
+                      <img src={species.images[0]} alt={displayName(species)} className="h-full w-full object-cover" loading="lazy" />
                     ) : (
                       <div className="flex h-full items-center justify-center">
                         <Bird className="h-8 w-8 text-muted-foreground" />
                       </div>
                     )}
                     <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
-                      {species.isInvasive && (
-                        <Badge className="border-destructive/30 bg-destructive/90 text-[10px] text-destructive-foreground">
-                          Invasive
-                        </Badge>
-                      )}
+                      <IntroductionBadges species={species} />
                       {species.isIndicator && (
                         <Badge variant="outline" className="border-info/30 bg-info/90 text-[10px] text-white">
                           Indicator
@@ -586,14 +680,21 @@ function CatalogueTab({ park, onSelect }: { park?: string; onSelect: (s: Species
 
                   <CardContent className="space-y-2 p-4">
                     <div>
-                      <p className="font-medium leading-tight">{species.commonName}</p>
-                      <p className="text-xs italic text-muted-foreground">{species.scientificName}</p>
+                      <p className="font-medium leading-tight">{displayName(species)}</p>
+                      {species.commonName?.trim() && (
+                        <p className="text-xs italic text-muted-foreground">{species.scientificName}</p>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Badge variant="outline" className="text-[10px] capitalize">{species.class}</Badge>
-                      <ConservationBadge status={species.conservationStatus} />
+                      <IucnBadge status={species.conservationStatus} />
                     </div>
-                    <p className="line-clamp-2 text-xs text-muted-foreground">{species.habitat}</p>
+                    {species.habitat && <p className="line-clamp-2 text-xs text-muted-foreground">{species.habitat}</p>}
+                    {species.images[0] && species.imageCredit && (
+                      <p className="line-clamp-1 text-[10px] text-muted-foreground" title={species.imageCredit}>
+                        Photo: {species.imageCredit}
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -615,6 +716,12 @@ function ObservationsTab({ park }: { park?: string }) {
   const [page, setPage] = useState(1);
   const [verified, setVerified] = useState('all');
   const [source, setSource] = useState('all');
+
+  const [lastPark, setLastPark] = useState(park);
+  if (lastPark !== park) {
+    setLastPark(park);
+    setPage(1);
+  }
 
   const query = useObservations({
     page,
@@ -647,6 +754,7 @@ function ObservationsTab({ park }: { park?: string }) {
               onChange: (v) => { setSource(v); setPage(1); },
               options: [
                 { label: 'All sources', value: 'all' },
+                { label: 'GBIF records', value: 'gbif' },
                 { label: 'Officer survey', value: 'officer-survey' },
                 { label: 'Citizen report', value: 'citizen-report' },
                 { label: 'Camera trap', value: 'camera-trap' },
@@ -661,7 +769,9 @@ function ObservationsTab({ park }: { park?: string }) {
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-info" />
         <p className="text-xs">
           Only <strong>verified</strong> observations feed the diversity indices. That gate is what
-          stops one enthusiastic — or mistaken — reporter from moving a park&apos;s score.
+          stops one enthusiastic — or mistaken — reporter from moving a park&apos;s score. A GBIF row
+          is one species in one park in one month, imported as verified; its count is the number of
+          occurrence records, not individuals.
         </p>
       </div>
 
@@ -682,10 +792,11 @@ function ObservationsTab({ park }: { park?: string }) {
                     <CardContent className="flex flex-wrap items-center gap-4 p-4">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium">{species?.commonName ?? 'Unknown species'}</p>
-                          {species && (
+                          <p className="font-medium">{species ? displayName(species) : 'Unknown species'}</p>
+                          {species?.commonName?.trim() && (
                             <span className="text-xs italic text-muted-foreground">{species.scientificName}</span>
                           )}
+                          {observation.source === 'gbif' && <SourceBadge source="gbif" className="text-[10px]" />}
                           {observation.verified ? (
                             <Badge variant="outline" className="gap-1 border-success/30 bg-success/10 text-[10px] text-success">
                               <CheckCircle2 className="h-3 w-3" /> Verified
@@ -697,10 +808,12 @@ function ObservationsTab({ park }: { park?: string }) {
                           )}
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {observation.count} individual{observation.count === 1 ? '' : 's'} ·{' '}
-                          {typeof observation.park === 'object' ? observation.park.name : ''} ·{' '}
-                          {new Date(observation.observedAt).toLocaleDateString()} ·{' '}
-                          {observation.observerName} ({observation.source.replace('-', ' ')})
+                          {countLabel(observation)} ·{' '}
+                          {typeof observation.park === 'object' ? observation.park.name : '—'} ·{' '}
+                          {observedLabel(observation)} ·{' '}
+                          {observation.source === 'gbif'
+                            ? observation.observerName
+                            : `${observation.observerName} (${observation.source.replace('-', ' ')})`}
                         </p>
                       </div>
 
@@ -744,7 +857,8 @@ function CompareTab() {
             <CardHeader>
               <CardTitle className="text-lg">Biodiversity by Park</CardTitle>
               <CardDescription>
-                The lowest-scoring site is where conservation effort earns the most
+                The lowest-scoring site is where conservation effort earns the most. S = species,
+                N = verified records, threatened = Near Threatened or worse.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -845,50 +959,71 @@ function SpeciesSheet({ species, onClose }: { species: Species | null; onClose: 
         {species && (
           <>
             <SheetHeader>
-              <SheetTitle>{species.commonName}</SheetTitle>
-              <SheetDescription className="italic">{species.scientificName}</SheetDescription>
+              <SheetTitle>{displayName(species)}</SheetTitle>
+              <SheetDescription className="italic">
+                {species.scientificName}
+                {!species.commonName?.trim() && <span className="not-italic"> · no English common name</span>}
+              </SheetDescription>
             </SheetHeader>
 
             <div className="mt-6 space-y-6">
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline" className="capitalize">{species.class}</Badge>
+                {species.order && <Badge variant="outline">{species.order}</Badge>}
                 {species.family && <Badge variant="outline">{species.family}</Badge>}
-                <ConservationBadge status={species.conservationStatus} />
-                {species.isInvasive && <Badge className="bg-destructive text-destructive-foreground">Invasive</Badge>}
+                <IucnBadge status={species.conservationStatus} />
+                <IntroductionBadges species={species} />
                 {species.isIndicator && (
                   <Badge variant="outline" className="border-info/30 bg-info/10 text-info">Indicator species</Badge>
                 )}
               </div>
 
-              {species.images.length > 0 && (
-                <div className="grid grid-cols-2 gap-2">
-                  {species.images.slice(0, 4).map((image, i) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={i} src={image} alt={species.commonName} className="h-32 w-full rounded-lg object-cover" />
-                  ))}
+              {species.images[0] && (
+                <figure className="space-y-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- remote GBIF photograph */}
+                  <img src={species.images[0]} alt={displayName(species)} className="max-h-72 w-full rounded-lg object-cover" />
+                  {species.imageCredit && (
+                    <figcaption className="text-[11px] text-muted-foreground">Photo: {species.imageCredit}</figcaption>
+                  )}
+                </figure>
+              )}
+
+              {species.gbifKey != null && (
+                <a
+                  href={gbifSpeciesUrl(species.gbifKey)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  View on GBIF.org
+                </a>
+              )}
+
+              {species.description && (
+                <div>
+                  <p className="mb-1.5 text-sm font-medium">About</p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{species.description}</p>
                 </div>
               )}
 
-              <div>
-                <p className="mb-1.5 text-sm font-medium">About</p>
-                <p className="text-sm leading-relaxed text-muted-foreground">{species.description}</p>
-              </div>
-
-              <div>
-                <p className="mb-1.5 text-sm font-medium">Habitat</p>
-                <p className="text-sm text-muted-foreground">{species.habitat}</p>
-              </div>
+              {species.habitat && (
+                <div>
+                  <p className="mb-1.5 text-sm font-medium">Habitat</p>
+                  <p className="text-sm text-muted-foreground">{species.habitat}</p>
+                </div>
+              )}
 
               {species.seasonality.length > 0 && species.seasonality.length < 12 && (
                 <div>
-                  <p className="mb-2 text-sm font-medium">Present in</p>
+                  <p className="mb-2 text-sm font-medium">Months with records</p>
                   <div className="flex gap-1">
                     {MONTHS.map((label, index) => {
                       const present = species.seasonality.includes(index + 1);
                       return (
                         <div
                           key={index}
-                          title={present ? 'Present' : 'Absent'}
+                          title={present ? 'Recorded in this month' : 'No records in this month'}
                           className={cn(
                             'flex h-8 flex-1 items-center justify-center rounded text-[11px] font-medium',
                             present ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground/40'
@@ -923,8 +1058,8 @@ function SpeciesSheet({ species, onClose }: { species: Species | null; onClose: 
                   <div className="mt-3">
                     {gbif.isPending ? (
                       <LoadingState label="Querying GBIF…" className="py-6" />
-                    ) : gbif.isError || !gbif.data ? (
-                      <p className="text-xs text-muted-foreground">GBIF could not be reached.</p>
+                    ) : gbif.isError ? (
+                      <p className="text-xs text-destructive">{gbif.error.message}</p>
                     ) : (
                       <div className="space-y-2.5">
                         <div
@@ -974,31 +1109,35 @@ function SpeciesSheet({ species, onClose }: { species: Species | null; onClose: 
                 </p>
                 {observations.isPending ? (
                   <LoadingState label="Loading observations…" className="py-6" />
-                ) : !observations.data?.observations.length ? (
+                ) : observations.isError ? (
+                  <ErrorState error={observations.error} onRetry={() => observations.refetch()} />
+                ) : !observations.data.observations.length ? (
                   <EmptyState
                     title="No observations yet"
-                    description="This species is catalogued but has not been recorded in the field."
+                    description="This species is catalogued but has no observation records in the monitored parks."
                     icon="Bird"
                     className="py-8"
                   />
                 ) : (
                   <>
                     <p className="mb-2 text-xs text-muted-foreground">
-                      {observations.data.verifiedIndividuals.toLocaleString()} verified individuals across{' '}
-                      {observations.data.observations.length} records
+                      Verified total: {observations.data.verifiedIndividuals.toLocaleString()} (GBIF rows count
+                      occurrence records) · showing the latest {observations.data.observations.length} row
+                      {observations.data.observations.length === 1 ? '' : 's'}
+                      {observations.data.observations.length >= 50 && ' (the list is limited to 50)'}
                     </p>
                     <div className="max-h-64 space-y-2 overflow-y-auto scrollbar-thin">
                       {observations.data.observations.map((record) => (
                         <div key={record.id} className="rounded-lg border p-2.5">
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-xs font-medium">
-                              {typeof record.park === 'object' ? record.park.name : ''}
-                              {record.locationName && ` · ${record.locationName}`}
+                              {typeof record.park === 'object' ? record.park.name : '—'}
+                              {record.locationName && record.source !== 'gbif' && ` · ${record.locationName}`}
                             </p>
-                            <span className="shrink-0 text-xs tabular-nums">×{record.count}</span>
+                            <span className="shrink-0 text-xs tabular-nums">{countLabel(record)}</span>
                           </div>
                           <p className="mt-0.5 text-[11px] text-muted-foreground">
-                            {new Date(record.observedAt).toLocaleDateString()} · {record.observerName}
+                            {observedLabel(record)} · {record.observerName}
                             {!record.verified && ' · unverified'}
                           </p>
                         </div>

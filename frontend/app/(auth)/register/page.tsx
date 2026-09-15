@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useAuth } from '@/components/providers/auth-provider';
+import { useAuth, safeRedirectPath } from '@/components/providers/auth-provider';
 import { ApiError } from '@/lib/api/client';
 
 /**
@@ -34,10 +34,31 @@ const registerSchema = z
 
 type RegisterValues = z.infer<typeof registerSchema>;
 
+/** `useSearchParams()` needs a Suspense boundary to keep the page prerenderable. */
 export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <RegisterForm />
+    </Suspense>
+  );
+}
+
+function RegisterForm() {
   const { register: signUp } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [submitting, setSubmitting] = useState(false);
+
+  // A new citizen lands in the portal unless they were heading somewhere on
+  // this site; an absolute URL in `?next=` is ignored.
+  const next = searchParams.get('next');
+  const redirectTo = safeRedirectPath(next, '/citizen');
 
   const form = useForm<RegisterValues>({
     resolver: zodResolver(registerSchema),
@@ -51,7 +72,7 @@ export default function RegisterPage() {
       toast.success(`Welcome, ${user.name.split(' ')[0]}`, {
         description: 'You can now report issues and log wildlife sightings.',
       });
-      router.push('/citizen');
+      router.push(redirectTo);
     } catch (error) {
       if (error instanceof ApiError) {
         // A duplicate address is a field problem, not a general failure.
@@ -160,7 +181,10 @@ export default function RegisterPage() {
 
       <p className="text-center text-sm text-muted-foreground">
         Already registered?{' '}
-        <Link href="/login" className="font-medium text-primary hover:underline">
+        <Link
+          href={next ? `/login?next=${encodeURIComponent(redirectTo)}` : '/login'}
+          className="font-medium text-primary hover:underline"
+        >
           Sign in
         </Link>
       </p>

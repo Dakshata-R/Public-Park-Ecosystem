@@ -103,9 +103,16 @@ incidentSchema.index({ title: 'text', description: 'text' });
 
 /** Record the time-to-resolve the moment an incident is closed out. */
 incidentSchema.pre('save', function stampResolution(next) {
-  if (this.isModified('status') && ['resolved', 'closed'].includes(this.status) && !this.resolvedAt) {
+  if (!this.isModified('status')) return next();
+
+  if (['resolved', 'closed'].includes(this.status) && !this.resolvedAt) {
     this.resolvedAt = new Date();
     this.resolutionMinutes = Math.round((this.resolvedAt - this.reportedAt) / 60000);
+  } else if (!['resolved', 'closed'].includes(this.status) && this.resolvedAt) {
+    // Reopened: the earlier resolution no longer stands, and must not keep
+    // counting towards mean resolution time.
+    this.resolvedAt = null;
+    this.resolutionMinutes = null;
   }
   next();
 });

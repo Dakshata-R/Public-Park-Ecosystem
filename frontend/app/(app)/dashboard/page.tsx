@@ -7,6 +7,9 @@
  * `/dashboard/trend`, `/dashboard/activity`) plus the live-conditions panel.
  * The overview call deliberately returns everything the page needs in one
  * round trip rather than making the browser stitch a dozen requests together.
+ *
+ * Any index can be null when its inputs are missing. Null is rendered as
+ * "No data" and drawn as a gap — never as 0, which would read as "terrible".
  */
 
 import { useState } from 'react';
@@ -15,7 +18,7 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { ArrowRight, Download, Info, Siren, Wrench, Megaphone, Gauge as GaugeIcon } from 'lucide-react';
+import { ArrowRight, BarChart3, Info, Siren, Wrench, Megaphone, Gauge as GaugeIcon } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,11 +30,12 @@ import { HealthGauge } from '@/components/shared/health-gauge';
 import { DynamicIcon } from '@/components/shared/dynamic-icon';
 import { ConditionsPanel } from '@/components/shared/conditions-panel';
 import { ParkFilter, ALL_PARKS, parkParam } from '@/components/shared/park-filter';
-import { QueryState, SkeletonCards, ErrorState } from '@/components/shared/query-state';
-import { GradeBadge, ScoreBar, scoreText } from '@/components/shared/score-badge';
+import { QueryState, SkeletonCards, ErrorState, LoadingState } from '@/components/shared/query-state';
+import { GradeBadge, NO_DATA, ScoreBar, fmt, scoreText } from '@/components/shared/score-badge';
+import { DataNotice, SourceBadge } from '@/components/shared/data-source';
 import { useDashboard, useHealthTrend, useActivityFeed } from '@/lib/hooks/use-api';
 import { cn } from '@/lib/utils';
-import type { Grade } from '@/lib/types';
+import type { DashboardOverview, HealthSubIndices, TrendPoint } from '@/lib/types';
 
 /** Recharts tooltip styling, applied identically to every chart on the page. */
 const TOOLTIP_STYLE = {
@@ -54,6 +58,28 @@ const CLASS_COLOURS: Record<string, string> = {
   insect: 'hsl(var(--chart-5))',
 };
 
+/**
+ * Trend series. The legend names say which are simulated, so the chart cannot
+ * be screenshotted without its provenance.
+ */
+const TREND_SERIES: { key: Exclude<keyof TrendPoint, 'date'>; name: string; colour: string }[] = [
+  { key: 'air', name: 'Air (AQI score)', colour: 'var(--chart-2)' },
+  { key: 'temperature', name: 'Temperature', colour: 'var(--chart-4)' },
+  { key: 'humidity', name: 'Humidity', colour: 'var(--chart-5)' },
+  { key: 'water', name: 'Water (simulated)', colour: 'var(--chart-1)' },
+  { key: 'soil', name: 'Soil (simulated)', colour: 'var(--chart-6)' },
+  { key: 'noise', name: 'Noise (simulated)', colour: 'var(--chart-3)' },
+];
+
+/** Sub-index key → the short name the contribution breakdown uses. */
+const SUB_INDEX_NAMES: Record<keyof HealthSubIndices, string> = {
+  airQuality: 'air',
+  waterQuality: 'water',
+  soilHealth: 'soil',
+  treeHealth: 'tree',
+  biodiversity: 'biodiversity',
+};
+
 const relativeTime = (iso: string) => {
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (seconds < 60) return 'just now';
@@ -70,35 +96,81 @@ function toneFor(score: number | null): 'success' | 'warning' | 'destructive' | 
   return 'destructive';
 }
 
+/** Bar fill for the ranking chart; grey when a park has no score. */
+const rankingFill = (score: number | null) =>
+  score == null ? 'hsl(var(--muted-foreground))'
+  : score >= 70 ? 'hsl(var(--success))'
+  : score >= 55 ? 'hsl(var(--warning))'
+  : 'hsl(var(--destructive))';
+
+type RankingRow = DashboardOverview['parkRanking'][number];
+
+/** Ranking tooltip — says "No data" for a missing score instead of leaving a blank. */
+function RankingTooltip({ active, payload }: { active?: boolean; payload?: { payload: RankingRow }[] }) {
+  const row = active ? payload?.[0]?.payload : undefined;
+  if (!row) return null;
+  return (
+    <div style={TOOLTIP_STYLE} className="space-y-0.5 px-3 py-2">
+      <p className="font-medium">{row.name}</p>
+      <p>
+        Ecosystem health: {fmt(row.score, 1)}
+        {row.grade ? <span className="capitalize"> · {row.grade}</span> : null}
+      </p>
+      <p>Biodiversity: {fmt(row.biodiversity, 1)}</p>
+      <p className="text-muted-foreground">{fmt(row.areaAcres, 1, '—')} acres</p>
+      {row.weeklyVisitors != null && (
+        <p className="text-muted-foreground">{row.weeklyVisitors.toLocaleString()} visitors / week</p>
+      )}
+    </div>
+  );
+}
+
+const capitalise = (text: string) => `${text[0].toUpperCase()}${text.slice(1)}`;
+
 export default function DashboardPage() {
   const [park, setPark] = useState(ALL_PARKS);
   const [trendDays, setTrendDays] = useState(30);
 
   const overview = useDashboard(parkParam(park));
   const trend = useHealthTrend(trendDays, parkParam(park));
-  const activity = useActivityFeed(12);
+  const activity = useActivityFeed(12, parkParam(park));
+
+  const trendIsEmpty =
+    !trend.data?.length || trend.data.every((point) => TREND_SERIES.every((s) => point[s.key] == null));
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Ecosystem Monitoring Dashboard"
-        description="Real-time overview of urban park ecosystem health, biodiversity and environmental quality across the monitored network."
+        description="Overview of urban park ecosystem health, biodiversity and environmental quality across the monitored parks."
         icon="LayoutDashboard"
         action={
           <div className="flex flex-wrap items-center gap-2">
             <ParkFilter value={park} onChange={setPark} allLabel="All parks (citywide)" />
             <Button asChild variant="outline">
               <Link href="/analytics">
-                <Download className="mr-2 h-4 w-4" />
-                Reports
+                <BarChart3 className="mr-2 h-4 w-4" />
+                Analytics &amp; reports
               </Link>
             </Button>
           </div>
         }
       />
 
+      <DataNotice>
+        Parks, species records, air quality and weather are real (OpenStreetMap, GBIF, Open-Meteo).
+        Incidents, work orders, citizen reports and asset conditions are demonstration records.
+        Noise, soil and water sensors are simulated.
+      </DataNotice>
+
       <QueryState query={overview} skeleton={<SkeletonCards count={8} />}>
-        {(data) => (
+        {(data) => {
+          const missingSubIndices = (Object.keys(SUB_INDEX_NAMES) as (keyof HealthSubIndices)[])
+            .filter((key) => data.health.subIndices[key] == null)
+            .map((key) => SUB_INDEX_NAMES[key]);
+          const unscoredParks = data.parkRanking.filter((row) => row.score == null).map((row) => row.name);
+
+          return (
           <div className="space-y-6">
             {/* --- KPI row --- */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -110,6 +182,7 @@ export default function DashboardPage() {
                   unit={kpi.unit}
                   icon={kpi.icon}
                   tone={toneFor(kpi.score)}
+                  source={kpi.source}
                   index={index}
                 />
               ))}
@@ -126,13 +199,17 @@ export default function DashboardPage() {
                         {data.scope === 'park' ? 'This park' : 'Weighted mean across all parks'}
                       </CardDescription>
                     </div>
-                    <GradeBadge grade={data.health.grade as Grade} />
+                    <GradeBadge score={data.health.score} grade={data.health.grade} />
                   </div>
                 </CardHeader>
                 <CardContent className="flex flex-col items-center gap-4 pb-6">
                   <HealthGauge
                     value={data.health.score}
-                    label={`${data.health.grade[0].toUpperCase()}${data.health.grade.slice(1)}`}
+                    label={
+                      data.health.score == null || !data.health.grade
+                        ? 'Not enough data to compute the index'
+                        : capitalise(data.health.grade)
+                    }
                   />
 
                   {/*
@@ -150,7 +227,7 @@ export default function DashboardPage() {
                           <TooltipTrigger><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger>
                           <TooltipContent className="max-w-xs">
                             <p className="text-xs">
-                              EHI = Σ wₖ·Sₖ ⁄ Σ wₖ over the five sub-indices. Each bar is that
+                              EHI = Σ wₖ·Sₖ ⁄ Σ wₖ over the sub-indices that have data. Each bar is that
                               indicator&apos;s share of the final score. Weights are configurable in
                               Administration.
                             </p>
@@ -158,15 +235,26 @@ export default function DashboardPage() {
                         </UiTooltip>
                       </TooltipProvider>
                     </div>
-                    {data.health.contributions.map((c) => (
-                      <div key={c.key} className="flex items-center gap-2 text-xs">
-                        <span className="w-20 shrink-0 capitalize text-muted-foreground">{c.key}</span>
-                        <ScoreBar score={c.score} showValue={false} className="flex-1" />
-                        <span className="w-16 shrink-0 text-right tabular-nums text-muted-foreground">
-                          {c.contribution} <span className="opacity-60">×{c.weight}</span>
-                        </span>
-                      </div>
-                    ))}
+                    {!data.health.contributions.length ? (
+                      <p className="py-2 text-center text-xs text-muted-foreground">
+                        No indicator has data yet.
+                      </p>
+                    ) : (
+                      data.health.contributions.map((c) => (
+                        <div key={c.key} className="flex items-center gap-2 text-xs">
+                          <span className="w-20 shrink-0 capitalize text-muted-foreground">{c.key}</span>
+                          <ScoreBar score={c.score} showValue={false} className="flex-1" />
+                          <span className="w-16 shrink-0 text-right tabular-nums text-muted-foreground">
+                            {fmt(c.contribution, 1)} <span className="opacity-60">×{c.weight}</span>
+                          </span>
+                        </div>
+                      ))
+                    )}
+                    {missingSubIndices.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {NO_DATA} for: {missingSubIndices.join(', ')} — left out of the index rather than counted as 0.
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -176,47 +264,56 @@ export default function DashboardPage() {
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-lg">Biodiversity</CardTitle>
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="text-lg">Biodiversity</CardTitle>
+                    <SourceBadge source="gbif" className="text-[10px]" />
+                  </div>
                   <CardDescription>
-                    {data.biodiversity.richness} species recorded from verified observations
+                    {data.biodiversity.richness} species in GBIF occurrence records since 2023
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <ResponsiveContainer width="100%" height={180}>
-                    <PieChart>
-                      <Pie
-                        data={Object.entries(data.biodiversity.byClass).map(([name, value]) => ({ name, value }))}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={72}
-                        innerRadius={44}
-                        paddingAngle={2}
-                      >
-                        {Object.keys(data.biodiversity.byClass).map((name) => (
-                          <Cell key={name} fill={CLASS_COLOURS[name] ?? 'hsl(var(--chart-1))'} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number, n: string) => [v, n]} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {!Object.keys(data.biodiversity.byClass).length ? (
+                    <p className="py-12 text-center text-sm text-muted-foreground">No species records.</p>
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height={180}>
+                        <PieChart>
+                          <Pie
+                            data={Object.entries(data.biodiversity.byClass).map(([name, value]) => ({ name, value }))}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={72}
+                            innerRadius={44}
+                            paddingAngle={2}
+                          >
+                            {Object.keys(data.biodiversity.byClass).map((name) => (
+                              <Cell key={name} fill={CLASS_COLOURS[name] ?? 'hsl(var(--chart-1))'} />
+                            ))}
+                          </Pie>
+                          <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number, n: string) => [v, n]} />
+                        </PieChart>
+                      </ResponsiveContainer>
 
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {Object.keys(data.biodiversity.byClass).map((name) => (
-                      <div key={name} className="flex items-center gap-1.5 text-[11px]">
-                        <span className="h-2 w-2 rounded-full" style={{ background: CLASS_COLOURS[name] }} />
-                        <span className="capitalize text-muted-foreground">{name}</span>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {Object.keys(data.biodiversity.byClass).map((name) => (
+                          <div key={name} className="flex items-center gap-1.5 text-[11px]">
+                            <span className="h-2 w-2 rounded-full" style={{ background: CLASS_COLOURS[name] }} />
+                            <span className="capitalize text-muted-foreground">{name}</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </>
+                  )}
 
                   {/* The indices themselves, not just a pie of counts. */}
                   <div className="grid grid-cols-3 gap-2 border-t pt-3 text-center">
                     {[
-                      { label: "Shannon H′", value: data.biodiversity.shannon.toFixed(2) },
-                      { label: "Evenness J′", value: data.biodiversity.evenness.toFixed(2) },
-                      { label: '1 − D', value: data.biodiversity.simpsonDiversity.toFixed(2) },
+                      { label: "Shannon H′", value: fmt(data.biodiversity.shannon, 2) },
+                      { label: "Evenness J′", value: fmt(data.biodiversity.evenness, 2) },
+                      { label: '1 − D', value: fmt(data.biodiversity.simpsonDiversity, 2) },
                     ].map((metric) => (
                       <div key={metric.label}>
                         <p className="text-lg font-bold tabular-nums">{metric.value}</p>
@@ -240,7 +337,7 @@ export default function DashboardPage() {
                 <div>
                   <CardTitle className="text-lg">Environmental Trends</CardTitle>
                   <CardDescription>
-                    Indicators normalised to 0–100 so they share one axis — higher is always better
+                    Daily mean scores normalised to 0–100 so they share one axis — higher is always better
                   </CardDescription>
                 </div>
                 <Tabs value={String(trendDays)} onValueChange={(v) => setTrendDays(Number(v))}>
@@ -252,22 +349,20 @@ export default function DashboardPage() {
                 </Tabs>
               </CardHeader>
               <CardContent>
-                {trend.isError ? (
-                  <ErrorState error={trend.error} onRetry={trend.refetch} />
-                ) : !trend.data?.length ? (
+                {trend.isPending ? (
+                  <LoadingState label="Loading sensor history…" className="h-[300px] py-0" />
+                ) : trend.isError ? (
+                  <ErrorState error={trend.error} onRetry={() => void trend.refetch()} />
+                ) : trendIsEmpty ? (
                   <p className="py-12 text-center text-sm text-muted-foreground">
-                    No sensor history in this window yet. Readings accumulate as the simulator runs.
+                    No sensor history in this window yet.
                   </p>
                 ) : (
+                  // No `connectNulls`: a day without readings is drawn as a gap, not interpolated or zeroed.
                   <ResponsiveContainer width="100%" height={300}>
                     <AreaChart data={trend.data}>
                       <defs>
-                        {[
-                          ['air', 'var(--chart-2)'],
-                          ['water', 'var(--chart-1)'],
-                          ['soil', 'var(--chart-6)'],
-                          ['noise', 'var(--chart-3)'],
-                        ].map(([key, colour]) => (
+                        {TREND_SERIES.map(({ key, colour }) => (
                           <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor={`hsl(${colour})`} stopOpacity={0.3} />
                             <stop offset="95%" stopColor={`hsl(${colour})`} stopOpacity={0} />
@@ -279,17 +374,32 @@ export default function DashboardPage() {
                       <YAxis domain={[0, 100]} stroke="hsl(var(--muted-foreground))" fontSize={11} />
                       <Tooltip contentStyle={TOOLTIP_STYLE} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area type="monotone" dataKey="air" name="Air" stroke="hsl(var(--chart-2))" fill="url(#grad-air)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="water" name="Water" stroke="hsl(var(--chart-1))" fill="url(#grad-water)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="soil" name="Soil" stroke="hsl(var(--chart-6))" fill="url(#grad-soil)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="noise" name="Noise" stroke="hsl(var(--chart-3))" fill="url(#grad-noise)" strokeWidth={2} />
+                      {TREND_SERIES.map(({ key, name, colour }) => (
+                        <Area
+                          key={key}
+                          type="monotone"
+                          dataKey={key}
+                          name={name}
+                          stroke={`hsl(${colour})`}
+                          fill={`url(#grad-${key})`}
+                          strokeWidth={2}
+                        />
+                      ))}
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
+                <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>
+                    &ldquo;Air&rdquo; is the score derived from the CPCB AQI. Air, temperature and humidity are
+                    Open-Meteo observations; water, soil and noise are simulated readings.
+                  </span>
+                  <SourceBadge source="open-meteo" className="text-[10px]" />
+                  <SourceBadge source="simulated" className="text-[10px]" />
+                </div>
               </CardContent>
             </Card>
 
-            {/* --- Operational queues --- */}
+            {/* --- Operational queues (demonstration records) --- */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               {[
                 { icon: Siren, label: 'Open incidents', value: data.counts.openIncidents, href: '/incidents', tone: 'text-destructive' },
@@ -344,9 +454,12 @@ export default function DashboardPage() {
                             {alert.occurrences > 1 && ` · ×${alert.occurrences}`}
                           </p>
                         </div>
-                        <Badge variant="outline" className="shrink-0 text-[10px] capitalize">
-                          {alert.severity}
-                        </Badge>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {alert.demo && <SourceBadge source="demo" compact />}
+                          <Badge variant="outline" className="text-[10px] capitalize">
+                            {alert.severity}
+                          </Badge>
+                        </div>
                       </div>
                     ))
                   )}
@@ -371,10 +484,13 @@ export default function DashboardPage() {
                               {incident.priorityScore}
                             </span>
                           </div>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {incident.referenceCode} ·{' '}
-                            {typeof incident.park === 'object' ? incident.park.name : ''} · {incident.status}
-                          </p>
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                              {incident.referenceCode}
+                              {typeof incident.park === 'object' && incident.park ? ` · ${incident.park.name}` : ''} · {incident.status}
+                            </p>
+                            {incident.demo && <SourceBadge source="demo" compact />}
+                          </div>
                         </div>
                       </Link>
                     ))
@@ -385,12 +501,16 @@ export default function DashboardPage() {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg">Recent Activity</CardTitle>
-                  <CardDescription>Across every module</CardDescription>
+                  <CardDescription>
+                    {data.scope === 'park' ? 'In this park, across every module' : 'Across every module'}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="max-h-[320px] space-y-3 overflow-y-auto scrollbar-thin">
                   {activity.isPending ? (
                     <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
-                  ) : !activity.data?.length ? (
+                  ) : activity.isError ? (
+                    <ErrorState error={activity.error} onRetry={() => void activity.refetch()} className="border-0 shadow-none" />
+                  ) : !activity.data.length ? (
                     <p className="py-8 text-center text-sm text-muted-foreground">No recent activity.</p>
                   ) : (
                     activity.data.map((event) => (
@@ -424,34 +544,36 @@ export default function DashboardPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={data.parkRanking} layout="vertical" margin={{ left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                    <XAxis type="number" domain={[0, 100]} stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={150}
-                      stroke="hsl(var(--muted-foreground))"
-                      fontSize={11}
-                    />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="score" name="Ecosystem health" radius={[0, 4, 4, 0]}>
-                      {data.parkRanking.map((entry) => (
-                        <Cell
-                          key={entry.id}
-                          fill={
-                            entry.score >= 70 ? 'hsl(var(--success))'
-                            : entry.score >= 55 ? 'hsl(var(--warning))'
-                            : 'hsl(var(--destructive))'
-                          }
-                        />
-                      ))}
-                    </Bar>
-                    <Bar dataKey="biodiversity" name="Biodiversity" fill="hsl(var(--chart-3))" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {!data.parkRanking.length ? (
+                  <p className="py-12 text-center text-sm text-muted-foreground">No parks to rank.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={data.parkRanking} layout="vertical" margin={{ left: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                      <XAxis type="number" domain={[0, 100]} stroke="hsl(var(--muted-foreground))" fontSize={11} />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={150}
+                        stroke="hsl(var(--muted-foreground))"
+                        fontSize={11}
+                      />
+                      <Tooltip content={<RankingTooltip />} cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey="score" name="Ecosystem health" radius={[0, 4, 4, 0]}>
+                        {data.parkRanking.map((entry) => (
+                          <Cell key={entry.id} fill={rankingFill(entry.score)} />
+                        ))}
+                      </Bar>
+                      <Bar dataKey="biodiversity" name="Biodiversity" fill="hsl(var(--chart-3))" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                {unscoredParks.length > 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {NO_DATA} for ecosystem health: {unscoredParks.join(', ')}.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -478,7 +600,8 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </div>
-        )}
+          );
+        }}
       </QueryState>
     </div>
   );

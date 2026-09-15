@@ -7,13 +7,14 @@
  * a dozen pages.
  */
 
-import { api, buildQuery, downloadUrl, type Paginated, type QueryValue } from './client';
+import { api, buildQuery, downloadFile, type Paginated, type QueryValue } from './client';
 import type {
   Alert, AnalyzeResponse, AskResponse, Asset, AssetStats, AuditEntry, AuthResponse,
   BiodiversityAnalysis, ChatMessage, CitizenReport, DashboardOverview, ActivityEvent,
-  AiDetection, AiTask, EcoReport, HeatPoint, Incident, LiveSensorsResponse, MapLayers,
+  AiDetection, AiTask, AiTaskInfo, EcoReport, EcoReportType, HeatPoint, Incident, LiveSensorsResponse, MapLayers,
   Observation, Park, RawIndices, SensorSeries, Sensor, Species, SystemSettings, SystemStats,
-  TrendPoint, TriagedIncident, User, WorkOrder, ModelCard,
+  TrendPoint, TriagedIncident, User, WorkOrder, SensorRefreshResult, StaffMember, PublicSettings,
+  HealthSubIndices, HealthContribution, Grade, GeoPoint,
   WeatherResponse, AirQualityResponse, ParkConditions, GbifVerification,
   GbifOccurrences, EbirdResponse, GeocodeResponse, IntegrationStatus,
 } from '@/lib/types';
@@ -48,7 +49,7 @@ export const dashboardApi = {
   overview: (park?: string) => api.get<DashboardOverview>(`/dashboard/overview${buildQuery({ park })}`),
   trend: (params?: { days?: number; park?: string }) =>
     api.get<TrendPoint[]>(`/dashboard/trend${buildQuery(params as Query)}`),
-  activity: (limit = 15) => api.get<ActivityEvent[]>(`/dashboard/activity${buildQuery({ limit })}`),
+  activity: (limit = 15, park?: string) => api.get<ActivityEvent[]>(`/dashboard/activity${buildQuery({ limit, park })}`),
 };
 
 // ---------------------------------------------------------------------------
@@ -66,7 +67,7 @@ export const gisApi = {
     api.get<{
       centre: [number, number];
       radiusMetres: number;
-      parks: { id: string; name: string; health: number }[];
+      parks: { id: string; name: string; health: number | null }[];
       assets: { id: string; name: string; type: string; condition: number }[];
       wildlife: { id: string; species: string; count: number }[];
       incidents: { id: string; title: string; type: string; priority: string }[];
@@ -83,11 +84,12 @@ export const parkApi = {
   health: (id: string) =>
     api.get<{
       park: { id: string; name: string };
-      ecosystemHealth: number;
-      grade: string;
-      subIndices: Record<string, number>;
+      /** null when no indicator has data. */
+      ecosystemHealth: number | null;
+      grade: Grade | null;
+      subIndices: HealthSubIndices;
       weights: Record<string, number>;
-      contributions: { key: string; score: number; weight: number; contribution: number }[];
+      contributions: HealthContribution[];
       biodiversityDetail: Record<string, number>;
     }>(`/parks/${id}/health`),
   summary: (id: string) =>
@@ -173,10 +175,11 @@ export const biodiversityApi = {
 // ---------------------------------------------------------------------------
 
 export const aiApi = {
-  tasks: () => api.get<{ task: AiTask; model: ModelCard; classes: { label: string; severity: string }[] }[]>('/ai/tasks'),
+  tasks: () => api.get<AiTaskInfo[]>('/ai/tasks'),
 
-  analyze: (body: { task: AiTask; imageUrl: string; imageName?: string; park?: string }) =>
-    api.post<AnalyzeResponse>('/ai/analyze', body),
+  /** `imageUrl` is an http(s) URL or an uploaded image as a data URL. Requires sign-in. */
+  analyze: (body: { task: AiTask; imageUrl: string; imageName?: string; park?: string; location?: GeoPoint }) =>
+    api.post<AnalyzeResponse>('/ai/analyze', body, { timeoutMs: 60_000 }),
 
   list: (params?: Query) => api.list<AiDetection>(`/ai/detections${buildQuery(params)}`),
   get: (id: string) => api.get<AiDetection>(`/ai/detections/${id}`),
@@ -208,7 +211,8 @@ export const sensorApi = {
       `/sensors/${id}/anomalies${buildQuery({ limit })}`
     ),
   ingest: (id: string, value: number) => api.post<unknown>(`/sensors/${id}/readings`, { value }),
-  simulate: () => api.post<{ count: number; anomalies: number }>('/sensors/simulate'),
+  /** Pull newer Open-Meteo observations and, if enabled, one simulated reading per simulated sensor. */
+  refresh: () => api.post<SensorRefreshResult>('/sensors/refresh', undefined, { timeoutMs: 90_000 }),
   create: (body: Partial<Sensor>) => api.post<Sensor>('/sensors', body),
   update: (id: string, body: Partial<Sensor>) => api.patch<Sensor>(`/sensors/${id}`, body),
   remove: (id: string) => api.delete<void>(`/sensors/${id}`),
@@ -224,7 +228,12 @@ export const citizenApi = {
   create: (body: Partial<CitizenReport>) => api.post<CitizenReport>('/citizen/reports', body),
   update: (id: string, body: Partial<CitizenReport>) => api.patch<CitizenReport>(`/citizen/reports/${id}`, body),
   remove: (id: string) => api.delete<void>(`/citizen/reports/${id}`),
-  upvote: (id: string) => api.post<{ id: string; upvotes: number }>(`/citizen/reports/${id}/upvote`),
+  /** One upvote per account; repeating it is harmless. */
+  upvote: (id: string) => api.post<{ id: string; upvotes: number; upvoted: boolean }>(`/citizen/reports/${id}/upvote`),
+  removeUpvote: (id: string) =>
+    api.delete<{ id: string; upvotes: number; upvoted: boolean }>(`/citizen/reports/${id}/upvote`),
+  /** Ids of the reports the signed-in account has upvoted. */
+  myUpvotes: () => api.get<string[]>('/citizen/my-upvotes'),
 
   review: (
     id: string,
@@ -341,9 +350,10 @@ export const analyticsApi = {
   summary: (params?: { park?: string; days?: number }) =>
     api.get<{
       window: { from: string; to: string };
-      ecosystemHealth: number;
-      healthGrade: string;
-      subIndices: Record<string, number>;
+      /** Current values — not limited to the selected window. */
+      ecosystemHealth: number | null;
+      healthGrade: Grade | null;
+      subIndices: HealthSubIndices;
       biodiversity: { score: number; richness: number; shannon: number; evenness: number; threatenedSpecies: number };
       incidents: {
         total: number; resolved: number; resolutionRate: number;
@@ -371,19 +381,23 @@ export const analyticsApi = {
   engagement: (params?: { park?: string; days?: number }) =>
     api.get<Record<string, number | string>[]>(`/analytics/engagement${buildQuery(params as Query)}`),
 
-  parkComparison: () => api.get<Record<string, number | string>[]>('/analytics/park-comparison'),
+  /** Sub-index columns are null for parks where they are not measured. */
+  parkComparison: () => api.get<Record<string, number | string | null>[]>('/analytics/park-comparison'),
 
   /** JSON export, for building a PDF in the browser. */
   exportJson: (dataset: ExportDataset, park?: string) =>
     api.get<Record<string, unknown>[]>(`/analytics/export${buildQuery({ dataset, format: 'json', park })}`),
 
-  /** Direct CSV download URL — the browser follows this, not fetch. */
-  exportCsvUrl: (dataset: ExportDataset, park?: string) =>
-    downloadUrl('/analytics/export', { dataset, format: 'csv', park }),
+  /** CSV download. The export needs an officer's token, so it is fetched, not linked. */
+  exportCsv: (dataset: ExportDataset, park?: string) =>
+    downloadFile('/analytics/export', { dataset, format: 'csv', park }, `greenpulse-${dataset}.csv`),
 
   listReports: (params?: Query) => api.list<EcoReport>(`/analytics/reports${buildQuery(params)}`),
   getReport: (id: string) => api.get<EcoReport>(`/analytics/reports/${id}`),
   createReport: (body: Partial<EcoReport>) => api.post<EcoReport>('/analytics/reports', body),
+  /** A draft whose metrics, findings and recommendations are computed from the data. */
+  generateReport: (body: { type: EcoReportType; park?: string | null; days?: number }) =>
+    api.post<EcoReport>('/analytics/reports/generate', body, { timeoutMs: 60_000 }),
   updateReport: (id: string, body: Partial<EcoReport>) => api.patch<EcoReport>(`/analytics/reports/${id}`, body),
   removeReport: (id: string) => api.delete<void>(`/analytics/reports/${id}`),
 };
@@ -455,6 +469,19 @@ export const adminApi = {
     api.post<{ parks: number; results: { park: string; ecosystemHealth: number }[] }>('/admin/recompute-scores'),
   reindexAssistant: () => api.post<{ documents: number; vocabulary: number }>('/admin/reindex-assistant'),
   reseed: () => api.post<Record<string, unknown>>('/admin/reseed'),
+};
+
+// ---------------------------------------------------------------------------
+// Staff directory and public settings
+// ---------------------------------------------------------------------------
+
+export const userApi = {
+  /** Active officers, ecologists and administrators — for assignee pickers (officer+). */
+  staff: () => api.get<StaffMember[]>('/users/staff'),
+};
+
+export const settingsApi = {
+  public: () => api.get<PublicSettings>('/settings/public'),
 };
 
 export type { Paginated };

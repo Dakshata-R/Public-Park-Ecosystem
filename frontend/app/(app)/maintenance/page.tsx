@@ -14,7 +14,7 @@ import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { Plus, ChevronLeft, ChevronRight, Users, CircleCheck } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Users, CircleCheck, Timer, RefreshCw, CalendarClock, Ban } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,18 +30,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PageHeader } from '@/components/shared/page-header';
 import { FilterBar } from '@/components/shared/filter-bar';
 import { Pagination } from '@/components/shared/pagination';
 import { StatusBadge, PriorityBadge } from '@/components/shared/status-badges';
-import { MetricTile } from '@/components/shared/score-badge';
+import { MetricTile, NO_DATA } from '@/components/shared/score-badge';
+import { SourceBadge } from '@/components/shared/data-source';
 import { ParkFilter, ALL_PARKS, parkParam } from '@/components/shared/park-filter';
 import { QueryState, SkeletonCards, LoadingState, EmptyState } from '@/components/shared/query-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { useAuth } from '@/components/providers/auth-provider';
 import {
-  useWorkOrders, useMaintenanceCalendar, useMaintenanceStats, useParks, useAssets, useUsers,
-  useCreateWorkOrder, useUpdateProgress, useDeleteWorkOrder,
+  useWorkOrders, useWorkOrder, useMaintenanceCalendar, useMaintenanceStats, useParks, useAssets, useStaff,
+  useCreateWorkOrder, useUpdateProgress, useUpdateWorkOrder, useDeleteWorkOrder,
 } from '@/lib/hooks/use-api';
 import { cn } from '@/lib/utils';
 import type { WorkOrder, WorkOrderType } from '@/lib/types';
@@ -75,12 +77,29 @@ const workOrderSchema = z.object({
 
 type WorkOrderValues = z.infer<typeof workOrderSchema>;
 
+const DAY_MS = 86_400_000;
+
 const typeLabel = (type: string) => type.replace(/-/g, ' ');
 const parkName = (park: WorkOrder['park']) => (typeof park === 'object' && park ? park.name : '');
 const assigneeName = (order: WorkOrder) =>
   (typeof order.assignedTo === 'object' && order.assignedTo ? order.assignedTo.name : null) ||
   order.assignedTeam ||
   'Unassigned';
+
+/** Whole days since the scheduled date — for saying how late an overdue order is. */
+const daysLate = (order: WorkOrder) =>
+  Math.max(0, Math.floor((Date.now() - new Date(order.scheduledDate).getTime()) / DAY_MS));
+
+const lateLabel = (order: WorkOrder) => {
+  const days = daysLate(order);
+  return days === 0 ? 'due earlier today' : `${days} day${days === 1 ? '' : 's'} late`;
+};
+
+/** `YYYY-MM-DD` in local time, for a date input. */
+const toDateInput = (iso: string) => {
+  const date = new Date(iso);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
 
 export default function MaintenancePage() {
   const { can } = useAuth();
@@ -119,8 +138,8 @@ export default function MaintenancePage() {
         <TabsContent value="workload"><WorkloadTab park={parkParam(park)} /></TabsContent>
       </Tabs>
 
-      <WorkOrderFormDialog open={creating} onClose={() => setCreating(false)} />
-      <WorkOrderSheet order={detail} onClose={() => setDetail(null)} />
+      {can('officer') && <WorkOrderFormDialog open={creating} onClose={() => setCreating(false)} />}
+      {detail && <WorkOrderSheet key={detail.id} initial={detail} onClose={() => setDetail(null)} />}
     </div>
   );
 }
@@ -164,14 +183,14 @@ function BoardTab({ park, onSelect }: { park?: string; onSelect: (o: WorkOrder) 
             <MetricTile
               label="Overdue"
               value={data.totals.overdue}
-              hint="Past the scheduled date"
+              hint="Past the scheduled date, not started"
               tone={data.totals.overdue > 0 ? 'destructive' : 'success'}
             />
             <MetricTile
               label="Completion rate"
-              value={`${data.totals.completionRate}%`}
-              hint={`₹${data.totals.actualCost.toLocaleString()} actual spend`}
-              tone={data.totals.completionRate >= 70 ? 'success' : 'warning'}
+              value={data.totals.total ? `${data.totals.completionRate}%` : NO_DATA}
+              hint={`₹${data.totals.actualCost.toLocaleString()} actual spend recorded`}
+              tone={!data.totals.total ? undefined : data.totals.completionRate >= 70 ? 'success' : 'warning'}
             />
           </div>
         )}
@@ -213,43 +232,53 @@ function BoardTab({ park, onSelect }: { park?: string; onSelect: (o: WorkOrder) 
         {(data) => (
           <>
             <div className="space-y-2">
-              {data.items.map((order) => (
-                <Card
-                  key={order.id}
-                  onClick={() => onSelect(order)}
-                  className={cn(
-                    'cursor-pointer transition-colors hover:bg-muted/40',
-                    order.status === 'overdue' && 'border-l-4 border-l-destructive'
-                  )}
-                >
-                  <CardContent className="flex flex-wrap items-center gap-4 p-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium">{order.title}</p>
-                        <PriorityBadge priority={order.priority} />
-                        <StatusBadge status={order.status} />
+              {data.items.map((order) => {
+                const overdue = order.status === 'overdue';
+                return (
+                  <Card
+                    key={order.id}
+                    onClick={() => onSelect(order)}
+                    className={cn(
+                      'cursor-pointer transition-colors hover:bg-muted/40',
+                      overdue && 'border-destructive/40 border-l-4 border-l-destructive bg-destructive/5',
+                      order.status === 'cancelled' && 'opacity-60'
+                    )}
+                  >
+                    <CardContent className="flex flex-wrap items-center gap-4 p-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className={cn('font-medium', order.status === 'cancelled' && 'line-through')}>{order.title}</p>
+                          <PriorityBadge priority={order.priority} />
+                          <StatusBadge status={order.status} />
+                          {order.demo && <SourceBadge source="demo" compact />}
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          <span className="font-mono">{order.orderCode}</span> ·{' '}
+                          <span className="capitalize">{typeLabel(order.type)}</span> ·{' '}
+                          {parkName(order.park)} · {new Date(order.scheduledDate).toLocaleDateString()}
+                          {overdue && (
+                            <span className="font-medium text-destructive">
+                              {' '}<Timer className="mb-0.5 inline h-3 w-3" /> {lateLabel(order)}
+                            </span>
+                          )}
+                          {order.assetName && ` · ${order.assetName}`}
+                        </p>
                       </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        <span className="font-mono">{order.orderCode}</span> ·{' '}
-                        <span className="capitalize">{typeLabel(order.type)}</span> ·{' '}
-                        {parkName(order.park)} · {new Date(order.scheduledDate).toLocaleDateString()}
-                        {order.assetName && ` · ${order.assetName}`}
-                      </p>
-                    </div>
 
-                    <div className="w-full sm:w-40">
-                      <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
-                        <span className="truncate">{assigneeName(order)}</span>
-                        <span>{order.progress}%</span>
+                      <div className="w-full sm:w-40">
+                        <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+                          <span className="truncate">{assigneeName(order)}</span>
+                          <span>{order.progress}%</span>
+                        </div>
+                        <Progress
+                          value={order.progress}
+                          className={cn('h-2', overdue && '[&>div]:bg-destructive')}
+                        />
                       </div>
-                      <Progress
-                        value={order.progress}
-                        className={cn('h-2', order.status === 'overdue' && '[&>div]:bg-destructive')}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
             <Pagination meta={data.meta} onPageChange={setPage} />
           </>
@@ -268,7 +297,7 @@ const STATUS_DOT: Record<string, string> = {
   'in-progress': 'bg-warning',
   completed: 'bg-success',
   overdue: 'bg-destructive',
-  cancelled: 'bg-muted',
+  cancelled: 'bg-muted-foreground/30',
 };
 
 function CalendarTab({ park, onSelect }: { park?: string; onSelect: (o: WorkOrder) => void }) {
@@ -336,6 +365,7 @@ function CalendarTab({ park, onSelect }: { park?: string; onSelect: (o: WorkOrde
                   const key = `${monthKey}-${String(day).padStart(2, '0')}`;
                   const orders = data.days[key] ?? [];
                   const isToday = key === todayKey;
+                  const hasOverdue = orders.some((order) => order.status === 'overdue');
 
                   return (
                     <div
@@ -343,7 +373,8 @@ function CalendarTab({ park, onSelect }: { park?: string; onSelect: (o: WorkOrde
                       className={cn(
                         'min-h-[92px] rounded-lg border p-1.5 transition-colors',
                         isToday && 'border-primary bg-primary/5',
-                        orders.length > 0 && !isToday && 'bg-muted/30'
+                        orders.length > 0 && !isToday && 'bg-muted/30',
+                        hasOverdue && !isToday && 'border-destructive/40'
                       )}
                     >
                       <p className={cn('mb-1 text-[11px]', isToday ? 'font-bold text-primary' : 'text-muted-foreground')}>
@@ -354,7 +385,12 @@ function CalendarTab({ park, onSelect }: { park?: string; onSelect: (o: WorkOrde
                           <button
                             key={order.id}
                             onClick={() => onSelect(order)}
-                            className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] transition-colors hover:bg-muted"
+                            title={order.status === 'overdue' ? `${order.title} — overdue, ${lateLabel(order)}` : order.title}
+                            className={cn(
+                              'flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] transition-colors hover:bg-muted',
+                              order.status === 'overdue' && 'bg-destructive/10 font-medium text-destructive',
+                              order.status === 'cancelled' && 'text-muted-foreground line-through'
+                            )}
                           >
                             <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', STATUS_DOT[order.status])} />
                             <span className="truncate">{order.title}</span>
@@ -401,7 +437,7 @@ function WorkloadTab({ park }: { park?: string }) {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
               <MetricTile label="Completed" value={data.totals.completed} tone="success" />
-              <MetricTile label="Estimated cost" value={`₹${data.totals.estimatedCost.toLocaleString()}`} />
+              <MetricTile label="Estimated cost" value={`₹${data.totals.estimatedCost.toLocaleString()}`} hint="All orders" />
               <MetricTile
                 label="Actual cost"
                 value={`₹${data.totals.actualCost.toLocaleString()}`}
@@ -418,31 +454,37 @@ function WorkloadTab({ park }: { park?: string }) {
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Cost by Work Type</CardTitle>
-                  <CardDescription>Where the maintenance budget actually goes</CardDescription>
+                  <CardTitle className="text-lg">Estimated Cost by Work Type</CardTitle>
+                  <CardDescription>
+                    Orders of each type and the sum of their estimated costs — planned budget, not actual spend
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={data.byType} margin={{ bottom: 40 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis
-                        dataKey="type"
-                        angle={-30}
-                        textAnchor="end"
-                        height={70}
-                        interval={0}
-                        stroke="hsl(var(--muted-foreground))"
-                        fontSize={10}
-                        tickFormatter={typeLabel}
-                      />
-                      <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                      <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
-                      <Bar yAxisId="left" dataKey="count" name="Orders" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
-                      <Bar yAxisId="right" dataKey="cost" name="Cost (₹)" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {!data.byType.length ? (
+                    <EmptyState title="No work orders yet" icon="Wrench" className="py-8" />
+                  ) : (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart data={data.byType} margin={{ bottom: 40 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis
+                          dataKey="type"
+                          angle={-30}
+                          textAnchor="end"
+                          height={70}
+                          interval={0}
+                          stroke="hsl(var(--muted-foreground))"
+                          fontSize={10}
+                          tickFormatter={typeLabel}
+                        />
+                        <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" fontSize={11} allowDecimals={false} />
+                        <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" fontSize={11} />
+                        <Tooltip contentStyle={TOOLTIP_STYLE} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        <Bar yAxisId="left" dataKey="count" name="Orders" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="right" dataKey="cost" name="Estimated cost (₹)" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
 
@@ -451,32 +493,41 @@ function WorkloadTab({ park }: { park?: string }) {
                   <CardTitle className="text-lg">Orders by Status</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie data={data.byStatus} dataKey="count" nameKey="status" cx="50%" cy="50%" outerRadius={90} innerRadius={55} paddingAngle={2}>
+                  {!data.byStatus.length ? (
+                    <EmptyState title="No work orders yet" icon="Wrench" className="py-8" />
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <PieChart>
+                          <Pie data={data.byStatus} dataKey="count" nameKey="status" cx="50%" cy="50%" outerRadius={90} innerRadius={55} paddingAngle={2}>
+                            {data.byStatus.map((row) => (
+                              <Cell
+                                key={row.status}
+                                fill={
+                                  row.status === 'completed' ? 'hsl(var(--success))'
+                                  : row.status === 'overdue' ? 'hsl(var(--destructive))'
+                                  : row.status === 'in-progress' ? 'hsl(var(--warning))'
+                                  : row.status === 'cancelled' ? 'hsl(var(--muted))'
+                                  : 'hsl(var(--muted-foreground))'
+                                }
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip contentStyle={TOOLTIP_STYLE} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="mt-2 flex flex-wrap justify-center gap-3">
                         {data.byStatus.map((row) => (
-                          <Cell
-                            key={row.status}
-                            fill={
-                              row.status === 'completed' ? 'hsl(var(--success))'
-                              : row.status === 'overdue' ? 'hsl(var(--destructive))'
-                              : row.status === 'in-progress' ? 'hsl(var(--warning))'
-                              : 'hsl(var(--muted-foreground))'
-                            }
-                          />
+                          <div key={row.status} className="flex items-center gap-1.5 text-[11px]">
+                            <span className={cn('capitalize text-muted-foreground', row.status === 'overdue' && 'font-medium text-destructive')}>
+                              {typeLabel(row.status)}
+                            </span>
+                            <span className="font-medium">{row.count}</span>
+                          </div>
                         ))}
-                      </Pie>
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="mt-2 flex flex-wrap justify-center gap-3">
-                    {data.byStatus.map((row) => (
-                      <div key={row.status} className="flex items-center gap-1.5 text-[11px]">
-                        <span className="capitalize text-muted-foreground">{typeLabel(row.status)}</span>
-                        <span className="font-medium">{row.count}</span>
                       </div>
-                    ))}
-                  </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -533,7 +584,7 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
     defaultValues: {
       type: 'inspection', title: '', description: '', park: '', asset: '',
       assignedTo: '', assignedTeam: '', priority: 'medium',
-      scheduledDate: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+      scheduledDate: new Date(Date.now() + DAY_MS).toISOString().slice(0, 10),
       estimatedCost: 0, estimatedHours: 2,
     },
   });
@@ -542,25 +593,30 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   // Only assets in the chosen park can be the target of the order.
   const { data: assets } = useAssets(selectedPark ? { park: selectedPark, limit: 100 } : { limit: 1 });
-  const { data: staff } = useUsers({ role: 'officer', limit: 50 });
+  // Officers, ecologists and administrators — `useUsers` is admin-only.
+  const staff = useStaff();
 
   const submit = form.handleSubmit(async (values) => {
-    await createWorkOrder.mutateAsync({
-      type: values.type,
-      title: values.title,
-      description: values.description,
-      park: values.park,
-      asset: values.asset || null,
-      assetName: assets?.items.find((a) => a.id === values.asset)?.name ?? '',
-      assignedTo: values.assignedTo || null,
-      assignedTeam: values.assignedTeam,
-      scheduledDate: values.scheduledDate,
-      priority: values.priority,
-      estimatedCost: values.estimatedCost,
-      estimatedHours: values.estimatedHours,
-    });
-    form.reset();
-    onClose();
+    try {
+      await createWorkOrder.mutateAsync({
+        type: values.type,
+        title: values.title,
+        description: values.description,
+        park: values.park,
+        asset: values.asset || null,
+        assetName: assets?.items.find((a) => a.id === values.asset)?.name ?? '',
+        assignedTo: values.assignedTo || null,
+        assignedTeam: values.assignedTeam,
+        scheduledDate: values.scheduledDate,
+        priority: values.priority,
+        estimatedCost: values.estimatedCost,
+        estimatedHours: values.estimatedHours,
+      });
+      form.reset();
+      onClose();
+    } catch {
+      /* toast already shown */
+    }
   });
 
   return (
@@ -643,7 +699,7 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
                 <SelectContent>
                   {assets?.items.map((asset) => (
                     <SelectItem key={asset.id} value={asset.id}>
-                      {asset.name} ({asset.condition}/100)
+                      {asset.name} ({asset.condition}/100{asset.demo ? ', demo condition' : ''})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -654,11 +710,21 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Assign to</Label>
-              <Select value={form.watch('assignedTo')} onValueChange={(v) => form.setValue('assignedTo', v)}>
-                <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+              <Select
+                value={form.watch('assignedTo')}
+                onValueChange={(v) => form.setValue('assignedTo', v)}
+                disabled={!staff.data?.length}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={staff.isPending ? 'Loading staff…' : staff.isError ? 'Staff list unavailable' : 'Optional'}
+                  />
+                </SelectTrigger>
                 <SelectContent>
-                  {staff?.items.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                  {staff.data?.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>
+                      {member.name} <span className="capitalize text-muted-foreground">({member.role})</span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -679,7 +745,7 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
               <Input id="estimatedHours" type="number" min={0} step="0.5" {...form.register('estimatedHours')} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="estimatedCost">Cost (₹)</Label>
+              <Label htmlFor="estimatedCost">Est. cost (₹)</Label>
               <Input id="estimatedCost" type="number" min={0} {...form.register('estimatedCost')} />
             </div>
           </div>
@@ -700,37 +766,107 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
 // Detail
 // ---------------------------------------------------------------------------
 
-function WorkOrderSheet({ order, onClose }: { order: WorkOrder | null; onClose: () => void }) {
+/**
+ * The sheet reads the order through its own query, so saving progress,
+ * rescheduling or cancelling shows the stored result as soon as the cache
+ * refreshes. The clicked row is shown only until the first response arrives.
+ */
+function WorkOrderSheet({ initial, onClose }: { initial: WorkOrder; onClose: () => void }) {
   const { can } = useAuth();
+  const query = useWorkOrder(initial.id);
   const updateProgress = useUpdateProgress();
+  const updateOrder = useUpdateWorkOrder();
   const deleteOrder = useDeleteWorkOrder();
 
-  const [progress, setProgress] = useState(0);
-  const [notes, setNotes] = useState('');
-  const [actualCost, setActualCost] = useState('');
+  const order = query.data ?? initial;
+
+  // Unsaved edits; null means "show the stored value".
+  const [progressDraft, setProgressDraft] = useState<number | null>(null);
+  const [notesDraft, setNotesDraft] = useState<string | null>(null);
+  const [costDraft, setCostDraft] = useState<string | null>(null);
+  const [dateDraft, setDateDraft] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
-  // Re-sync the local editing state whenever a different order is opened.
+  // Whenever the stored order changes, start the forms again from it — after
+  // a save this shows the saved progress (and hides the form once completed).
   useEffect(() => {
-    setProgress(order?.progress ?? 0);
-    setNotes(order?.completionNotes ?? '');
-    setActualCost(order?.actualCost ? String(order.actualCost) : '');
-  }, [order?.id, order?.progress, order?.completionNotes, order?.actualCost]);
-
-  if (!order) return null;
+    setProgressDraft(null);
+    setNotesDraft(null);
+    setCostDraft(null);
+    setDateDraft(null);
+  }, [order.updatedAt]);
 
   const done = order.status === 'completed';
+  const cancelled = order.status === 'cancelled';
+  const overdue = order.status === 'overdue';
+  const editable = can('officer') && !done && !cancelled;
+
+  const progress = progressDraft ?? order.progress;
+  const notes = notesDraft ?? order.completionNotes ?? '';
+  const actualCost = costDraft ?? (order.actualCost ? String(order.actualCost) : '');
+  const scheduled = dateDraft ?? toDateInput(order.scheduledDate);
+
+  const costInvalid = actualCost.trim() !== '' && (!Number.isFinite(Number(actualCost)) || Number(actualCost) < 0);
+  const progressDirty = progressDraft !== null || notesDraft !== null || costDraft !== null;
+  // Between a successful save and the refetch the form still shows the drafts;
+  // keep it locked so the same update cannot be sent twice.
+  const refreshing = query.isFetching && (updateProgress.isSuccess || updateOrder.isSuccess);
+
+  const rescheduleDirty = scheduled !== toDateInput(order.scheduledDate);
+  const rescheduleInPast = scheduled !== '' && new Date(`${scheduled}T23:59:59`).getTime() < Date.now();
+
+  const saveProgress = async () => {
+    try {
+      await updateProgress.mutateAsync({
+        id: order.id,
+        body: {
+          progress,
+          completionNotes: notes || undefined,
+          actualCost: actualCost.trim() ? Number(actualCost) : undefined,
+        },
+      });
+    } catch {
+      /* toast already shown */
+    }
+  };
+
+  const reschedule = async () => {
+    if (!scheduled || !rescheduleDirty) return;
+    try {
+      await updateOrder.mutateAsync({
+        id: order.id,
+        // An overdue order moved to a new date is scheduled again; the server
+        // marks it overdue once more if that date has also passed.
+        body: { scheduledDate: scheduled, ...(overdue ? { status: 'scheduled' as const } : {}) },
+      });
+    } catch {
+      /* toast already shown */
+    }
+  };
 
   return (
     <>
       <Sheet open onOpenChange={(o) => !o && onClose()}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
           <SheetHeader>
-            <SheetTitle>{order.title}</SheetTitle>
+            <SheetTitle className={cn(cancelled && 'line-through')}>{order.title}</SheetTitle>
             <SheetDescription className="font-mono text-xs">{order.orderCode}</SheetDescription>
           </SheetHeader>
 
           <div className="mt-6 space-y-6">
+            {query.isError && (
+              <Alert variant="destructive">
+                <AlertDescription className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span>Could not load the latest version of this work order — showing the copy from the list.</span>
+                  <Button size="sm" variant="outline" className="h-7" onClick={() => void query.refetch()}>
+                    <RefreshCw className="mr-1.5 h-3 w-3" />
+                    Retry
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="flex flex-wrap gap-2">
               <PriorityBadge priority={order.priority} />
               <StatusBadge status={order.status} />
@@ -738,17 +874,41 @@ function WorkOrderSheet({ order, onClose }: { order: WorkOrder | null; onClose: 
               {order.recurrence !== 'none' && (
                 <Badge variant="outline" className="capitalize">Repeats {order.recurrence}</Badge>
               )}
+              {order.demo && <SourceBadge source="demo" />}
             </div>
+
+            {overdue && (
+              <Alert className="border-destructive/40 bg-destructive/5">
+                <Timer className="h-4 w-4 text-destructive" />
+                <AlertDescription className="text-xs text-destructive">
+                  <strong>Overdue</strong> — scheduled for {new Date(order.scheduledDate).toLocaleDateString()},{' '}
+                  {lateLabel(order)}, and not started. Record progress or reschedule it.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {cancelled && (
+              <p className="flex items-center gap-2 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                <Ban className="h-4 w-4" />
+                This work order was cancelled.
+              </p>
+            )}
 
             {order.description && <p className="text-sm leading-relaxed">{order.description}</p>}
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <MetricTile label="Progress" value={`${order.progress}%`} />
-              <MetricTile label="Scheduled" value={new Date(order.scheduledDate).toLocaleDateString()} />
+              <MetricTile
+                label="Scheduled"
+                value={new Date(order.scheduledDate).toLocaleDateString()}
+                tone={overdue ? 'destructive' : undefined}
+                hint={overdue ? lateLabel(order) : undefined}
+              />
               <MetricTile label="Estimated" value={`₹${order.estimatedCost.toLocaleString()}`} hint={`${order.estimatedHours} h`} />
               <MetricTile
                 label="Actual"
                 value={order.actualCost ? `₹${order.actualCost.toLocaleString()}` : '—'}
+                hint={order.actualCost ? undefined : 'Not recorded'}
                 tone={order.actualCost > order.estimatedCost ? 'warning' : undefined}
               />
             </div>
@@ -778,7 +938,7 @@ function WorkOrderSheet({ order, onClose }: { order: WorkOrder | null; onClose: 
               </div>
             )}
 
-            {can('officer') && !done && (
+            {editable && (
               <div className="space-y-4 border-t pt-4">
                 <p className="text-sm font-medium">Update progress</p>
 
@@ -787,7 +947,7 @@ function WorkOrderSheet({ order, onClose }: { order: WorkOrder | null; onClose: 
                     <Label className="text-xs">Completion</Label>
                     <span className="text-sm font-medium tabular-nums">{progress}%</span>
                   </div>
-                  <Slider value={[progress]} onValueChange={([v]) => setProgress(v)} min={0} max={100} step={5} />
+                  <Slider value={[progress]} onValueChange={([v]) => setProgressDraft(v)} min={0} max={100} step={5} />
                   {progress === 100 && (
                     <p className="flex items-start gap-1.5 rounded-lg bg-success/10 p-2 text-[11px] text-success">
                       <CircleCheck className="mt-0.5 h-3 w-3 shrink-0" />
@@ -799,30 +959,60 @@ function WorkOrderSheet({ order, onClose }: { order: WorkOrder | null; onClose: 
 
                 <div className="space-y-1.5">
                   <Label className="text-xs">Actual cost (₹)</Label>
-                  <Input type="number" min={0} value={actualCost} onChange={(e) => setActualCost(e.target.value)} />
+                  <Input type="number" min={0} value={actualCost} onChange={(e) => setCostDraft(e.target.value)} />
+                  {costInvalid && <p className="text-xs text-destructive">Enter a cost of 0 or more.</p>}
                 </div>
 
                 <div className="space-y-1.5">
                   <Label className="text-xs">Notes</Label>
-                  <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+                  <Textarea rows={2} value={notes} onChange={(e) => setNotesDraft(e.target.value)} />
                 </div>
 
-                <div className="flex gap-2">
+                <Button
+                  className="w-full"
+                  disabled={!progressDirty || costInvalid || updateProgress.isPending || refreshing}
+                  onClick={() => void saveProgress()}
+                >
+                  {updateProgress.isPending ? 'Saving…' : 'Save progress'}
+                </Button>
+
+                <div className="space-y-1.5 border-t pt-4">
+                  <Label htmlFor="reschedule" className="flex items-center gap-1.5 text-xs">
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    Reschedule
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="reschedule"
+                      type="date"
+                      className="flex-1"
+                      value={scheduled}
+                      onChange={(e) => setDateDraft(e.target.value)}
+                    />
+                    <Button
+                      variant="outline"
+                      disabled={!scheduled || !rescheduleDirty || updateOrder.isPending || refreshing}
+                      onClick={() => void reschedule()}
+                    >
+                      {updateOrder.isPending && !confirmCancel ? 'Saving…' : 'Reschedule'}
+                    </Button>
+                  </div>
+                  {rescheduleDirty && rescheduleInPast && (
+                    <p className="text-[11px] text-destructive">
+                      That date has already passed, so the order will still be overdue.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex gap-2 border-t pt-4">
                   <Button
+                    variant="outline"
                     className="flex-1"
-                    disabled={updateProgress.isPending}
-                    onClick={() =>
-                      updateProgress.mutate({
-                        id: order.id,
-                        body: {
-                          progress,
-                          completionNotes: notes || undefined,
-                          actualCost: actualCost ? Number(actualCost) : undefined,
-                        },
-                      })
-                    }
+                    disabled={updateOrder.isPending || refreshing}
+                    onClick={() => setConfirmCancel(true)}
                   >
-                    Save progress
+                    <Ban className="mr-2 h-4 w-4" />
+                    Cancel work order
                   </Button>
                   {can('admin') && (
                     <Button variant="outline" className="text-destructive" onClick={() => setConfirmDelete(true)}>
@@ -832,9 +1022,32 @@ function WorkOrderSheet({ order, onClose }: { order: WorkOrder | null; onClose: 
                 </div>
               </div>
             )}
+
+            {!editable && can('admin') && (
+              <div className="border-t pt-4">
+                <Button variant="outline" className="w-full text-destructive" onClick={() => setConfirmDelete(true)}>
+                  Delete
+                </Button>
+              </div>
+            )}
           </div>
         </SheetContent>
       </Sheet>
+
+      <ConfirmDialog
+        open={confirmCancel}
+        onOpenChange={setConfirmCancel}
+        title={`Cancel ${order.orderCode}?`}
+        description="The order stays on record as cancelled and drops out of the open workload. Nothing is logged against the asset."
+        confirmLabel="Cancel work order"
+        onConfirm={async () => {
+          try {
+            await updateOrder.mutateAsync({ id: order.id, body: { status: 'cancelled' } });
+          } catch {
+            /* toast already shown */
+          }
+        }}
+      />
 
       <ConfirmDialog
         open={confirmDelete}
@@ -842,8 +1055,12 @@ function WorkOrderSheet({ order, onClose }: { order: WorkOrder | null; onClose: 
         title={`Delete ${order.orderCode}?`}
         description="This removes the work order permanently. Maintenance already logged against the asset is unaffected."
         onConfirm={async () => {
-          await deleteOrder.mutateAsync(order.id);
-          onClose();
+          try {
+            await deleteOrder.mutateAsync(order.id);
+            onClose();
+          } catch {
+            /* toast already shown */
+          }
         }}
       />
     </>
