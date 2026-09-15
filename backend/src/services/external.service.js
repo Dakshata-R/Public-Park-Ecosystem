@@ -37,7 +37,7 @@
  */
 
 const logger = require('../utils/logger');
-const { computeAqi, describeAqi } = require('./aqi.service');
+const { computeAveragedAqi, describeAqi } = require('./aqi.service');
 
 /** Upstream endpoints. */
 const ENDPOINTS = {
@@ -153,6 +153,17 @@ const query = (params) =>
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join('&');
 
+/**
+ * Open-Meteo reports local wall-clock times without an offset
+ * ("2026-09-15T10:00") plus `utc_offset_seconds`. Convert to a real instant,
+ * or a reading would be stored hours away from when it was measured.
+ */
+function openMeteoInstant(localTime, utcOffsetSeconds = 0) {
+  if (!localTime) return null;
+  const asUtc = Date.parse(`${localTime.length === 16 ? `${localTime}:00` : localTime}Z`);
+  return Number.isFinite(asUtc) ? new Date(asUtc - utcOffsetSeconds * 1000).toISOString() : null;
+}
+
 // ---------------------------------------------------------------------------
 // Weather — Open-Meteo
 // ---------------------------------------------------------------------------
@@ -231,7 +242,7 @@ async function getWeather(lat, lng) {
       code: c.weather_code,
       condition: WMO_CODES[c.weather_code] || 'Unknown',
       icon: weatherIcon(c.weather_code, c.is_day === 1),
-      observedAt: c.time,
+      observedAt: openMeteoInstant(c.time, result.data.utc_offset_seconds),
       // Today's UV maximum, which the daily block carries rather than current.
       uvIndexMax: d.uv_index_max?.[0] ?? null,
       sunrise: d.sunrise?.[0] ?? null,
@@ -249,6 +260,7 @@ async function getWeather(lat, lng) {
     })),
   };
 
+  payload.fetchedAt = new Date().toISOString();
   cacheSet(key, payload, TTL.weather);
   return payload;
 }
@@ -288,13 +300,27 @@ async function getWeatherOpenWeatherMap(lat, lng) {
 // Air quality — Open-Meteo, scored with the project's own CPCB mathematics
 // ---------------------------------------------------------------------------
 
+const POLLUTANT_FIELDS = 'pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone';
+
 /**
- * Real pollutant concentrations for a coordinate, converted to a CPCB AQI by
- * this project's own `aqi.service`.
- *
- * Open-Meteo reports CO in µg/m³ while the CPCB table is in mg/m³, so the
- * conversion happens here rather than being silently wrong by a factor of a
- * thousand.
+ * Open-Meteo hourly columns → the CPCB pollutant keys, with CO converted from
+ * µg/m³ to the mg/m³ the CPCB table uses (silently wrong by a factor of a
+ * thousand otherwise).
+ */
+const toCpcbSeries = (h) => ({
+  pm25: h.pm2_5 || [],
+  pm10: h.pm10 || [],
+  no2: h.nitrogen_dioxide || [],
+  so2: h.sulphur_dioxide || [],
+  o3: h.ozone || [],
+  co: (h.carbon_monoxide || []).map((v) => (v == null ? v : v / 1000)),
+});
+
+/**
+ * Real pollutant concentrations for a coordinate, scored as a CPCB AQI by
+ * this project's own `aqi.service` — using the official averaging periods
+ * (24 h for PM2.5, PM10, NO₂, SO₂; 8 h for CO, O₃) over the past day of hourly
+ * CAMS values, not a single hour's reading.
  *
  * @param {number} lat
  * @param {number} lng
@@ -307,10 +333,11 @@ async function getAirQuality(lat, lng) {
   const url = `${ENDPOINTS.openMeteoAirQuality}?${query({
     latitude: lat,
     longitude: lng,
-    current: 'pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone,dust,uv_index',
-    hourly: 'pm2_5,pm10',
-    timezone: 'auto',
-    forecast_days: 2,
+    current: `${POLLUTANT_FIELDS},dust,uv_index`,
+    hourly: POLLUTANT_FIELDS,
+    timezone: 'GMT',
+    past_days: 1,
+    forecast_days: 1,
   })}`;
 
   const result = await fetchJson(url);
@@ -320,46 +347,112 @@ async function getAirQuality(lat, lng) {
   }
 
   const c = result.data.current || {};
+  const hourly = result.data.hourly || {};
+  const times = hourly.time || [];
 
-  const concentrations = {
-    pm25: c.pm2_5,
-    pm10: c.pm10,
-    no2: c.nitrogen_dioxide,
-    so2: c.sulphur_dioxide,
-    o3: c.ozone,
-    // µg/m³ → mg/m³, which is the unit the CPCB CO breakpoints use.
-    co: c.carbon_monoxide != null ? c.carbon_monoxide / 1000 : undefined,
-  };
+  // The newest hour that is not a forecast.
+  let latest = -1;
+  for (let i = 0; i < times.length; i += 1) {
+    if (Date.parse(`${times[i]}:00Z`) <= Date.now()) latest = i;
+  }
+  const { aqi, dominant, subIndices, averages } = latest >= 0
+    ? computeAveragedAqi(toCpcbSeries(hourly), latest)
+    : { aqi: null, dominant: null, subIndices: {}, averages: {} };
 
-  const { aqi, dominant, subIndices } = computeAqi(concentrations);
+  // An empty response must not become "AQI 0 — Good".
+  if (aqi === null) {
+    return { ok: false, reason: 'Open-Meteo returned too little pollutant data to compute a CPCB AQI', source: 'open-meteo' };
+  }
+
+  const round1 = (v) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : null);
 
   const payload = {
     ok: true,
     source: 'Open-Meteo Air Quality (CAMS)',
     attribution: 'Air quality data by Open-Meteo.com, derived from CAMS European/Global forecasts',
-    observedAt: c.time,
+    method: 'CPCB AQI: 24-hour means for PM2.5, PM10, NO₂, SO₂; 8-hour means for CO and O₃',
+    observedAt: openMeteoInstant(times[latest], 0),
+    fetchedAt: new Date().toISOString(),
+    /** The current hour's concentrations (µg/m³; CO in mg/m³). */
     concentrations: {
       pm25: c.pm2_5,
       pm10: c.pm10,
       no2: c.nitrogen_dioxide,
       so2: c.sulphur_dioxide,
       o3: c.ozone,
-      coMgM3: concentrations.co,
+      coMgM3: c.carbon_monoxide != null ? c.carbon_monoxide / 1000 : null,
       dust: c.dust,
       uvIndex: c.uv_index,
     },
+    /** The averaged concentrations the AQI was computed from. */
+    averages: Object.fromEntries(Object.entries(averages).map(([k, v]) => [k, round1(v)])),
     /** Per-pollutant CPCB sub-indices, computed by this project. */
     subIndices,
     dominantPollutant: dominant,
     ...describeAqi(aqi),
-    /** 24 hours of PM2.5 history, for the sparkline. */
-    pm25Series: (result.data.hourly?.time || [])
-      .map((time, i) => ({ time, pm25: result.data.hourly.pm2_5?.[i], pm10: result.data.hourly.pm10?.[i] }))
-      .slice(0, 24),
+    /** The past 24 hours of PM2.5 and PM10, for the sparkline. */
+    pm25Series: times
+      .slice(Math.max(0, latest - 23), latest + 1)
+      .map((time, i) => {
+        const index = Math.max(0, latest - 23) + i;
+        return { time: openMeteoInstant(time, 0), pm25: hourly.pm2_5?.[index], pm10: hourly.pm10?.[index] };
+      }),
   };
 
   cacheSet(key, payload, TTL.airQuality);
   return payload;
+}
+
+/**
+ * Hourly observations for the past `pastDays` days — temperature, humidity
+ * and, for each hour, the CPCB AQI over the averaging window ending at that
+ * hour. Used to give a virtual sensor a real history the moment it is created.
+ *
+ * One extra day is requested so the first hours have a full 24-hour window.
+ * Times are requested in GMT so they are unambiguous instants.
+ *
+ * @returns {Promise<{ok: true, hours: Array<{time:string, temperature:number|null, humidity:number|null, aqi:number|null}>} | {ok: false, reason: string}>}
+ */
+async function getHourlyHistory(lat, lng, { pastDays = 2 } = {}) {
+  const common = { latitude: lat, longitude: lng, timezone: 'GMT', forecast_days: 1 };
+
+  const [weather, air] = await Promise.all([
+    fetchJson(`${ENDPOINTS.openMeteoForecast}?${query({ ...common, past_days: pastDays, hourly: 'temperature_2m,relative_humidity_2m' })}`),
+    fetchJson(`${ENDPOINTS.openMeteoAirQuality}?${query({ ...common, past_days: pastDays + 1, hourly: POLLUTANT_FIELDS })}`),
+  ]);
+  if (!weather.ok && !air.ok) return { ok: false, reason: weather.reason };
+
+  const now = Date.now();
+  const hours = new Map();
+  const at = (time) => {
+    const iso = openMeteoInstant(time, 0);
+    if (!hours.has(iso)) hours.set(iso, { time: iso, temperature: null, humidity: null, aqi: null });
+    return hours.get(iso);
+  };
+
+  if (weather.ok) {
+    const h = weather.data.hourly || {};
+    (h.time || []).forEach((time, i) => {
+      const row = at(time);
+      row.temperature = h.temperature_2m?.[i] ?? null;
+      row.humidity = h.relative_humidity_2m?.[i] ?? null;
+    });
+  }
+  if (air.ok) {
+    const h = air.data.hourly || {};
+    const series = toCpcbSeries(h);
+    const cutoff = Date.now() - pastDays * 86_400_000;
+    (h.time || []).forEach((time, i) => {
+      if (Date.parse(`${time}:00Z`) < cutoff) return; // warm-up day, only there to fill the windows
+      at(time).aqi = computeAveragedAqi(series, i).aqi;
+    });
+  }
+
+  // Forecast hours are not observations — keep only the past.
+  return {
+    ok: true,
+    hours: [...hours.values()].filter((row) => Date.parse(row.time) <= now).sort((a, b) => a.time.localeCompare(b.time)),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -482,7 +575,7 @@ async function getEbirdNearby(lat, lng, { radiusKm = 25, days = 14 } = {}) {
   if (cached) return { ...cached, cached: true };
 
   const url = `${ENDPOINTS.ebirdRecentNearby}?${query({ lat, lng, dist: Math.min(50, radiusKm), back: Math.min(30, days) })}`;
-  const result = await fetchJson(url, { 'X-eBirdApiToken': apiKey });
+  const result = await fetchJson(url, { headers: { 'X-eBirdApiToken': apiKey } });
   if (!result.ok) return { ok: false, reason: result.reason, source: 'ebird' };
 
   const payload = {
@@ -578,6 +671,8 @@ module.exports = {
   getWeather,
   getWeatherOpenWeatherMap,
   getAirQuality,
+  getHourlyHistory,
+  openMeteoInstant,
   getGbifOccurrences,
   matchGbifSpecies,
   getEbirdNearby,

@@ -29,6 +29,32 @@ test('sub-index lands exactly on the CPCB band edges', () => {
   assert.equal(subIndex('o3', 50), 50);
 });
 
+test('a value between two published bands is truncated into the lower one, not read as 500', () => {
+  // CPCB PM2.5 bands are [0,30] then [31,60]; 30.9 is in neither until truncated.
+  assert.equal(subIndex('pm25', 30.9), 50);
+  assert.equal(subIndex('pm10', 50.1), 50);
+  // CO is published to one decimal: [0,1] then [1.1,2]. 1.08 truncates to 1.0.
+  assert.equal(subIndex('co', 1.084), 50);
+  assert.equal(subIndex('co', 1.1), 51);
+});
+
+test('averaged AQI uses 24-hour means for PM and 8-hour means for ozone', () => {
+  const { computeAveragedAqi } = require('../../src/services/aqi.service');
+  const hours = 24;
+  // PM2.5 steady at 20 (→ 33); ozone 30 for 16 h, then 160 for the last 8 h.
+  const hourly = {
+    pm25: Array(hours).fill(20),
+    o3: [...Array(16).fill(30), ...Array(8).fill(160)],
+  };
+  const last = computeAveragedAqi(hourly, hours - 1);
+  // 8-hour O3 mean = 160 → band [101,168]→[101,200] → 101 + (99/67)·59 ≈ 188.
+  assert.equal(last.subIndices.o3, Math.round(101 + (99 / 67) * 59));
+  assert.equal(last.dominant, 'o3');
+
+  // Too few hours of data gives no index rather than a guess.
+  assert.equal(computeAveragedAqi({ pm25: [20, 20, 20] }, 2).aqi, null);
+});
+
 test('sub-index clamps above the top breakpoint rather than extrapolating', () => {
   const extreme = subIndex('pm25', 10000);
   assert.ok(extreme <= 500, `expected <= 500, got ${extreme}`);

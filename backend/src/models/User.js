@@ -43,6 +43,9 @@ const userSchema = new mongoose.Schema(
     contributions: { type: Number, default: 0, min: 0 },
 
     lastLoginAt: { type: Date, default: null },
+
+    /** True for the seeded demonstration accounts. */
+    demo: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

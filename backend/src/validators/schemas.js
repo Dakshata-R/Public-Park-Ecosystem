@@ -100,7 +100,7 @@ const assets = {
 // Biodiversity
 // ---------------------------------------------------------------------------
 const SPECIES_CLASSES = ['bird', 'mammal', 'butterfly', 'reptile', 'amphibian', 'tree', 'plant', 'insect'];
-const CONSERVATION = ['Least Concern', 'Near Threatened', 'Vulnerable', 'Endangered', 'Critically Endangered'];
+const { CONSERVATION_STATUSES: CONSERVATION } = require('../models/Species');
 
 const speciesBase = {
   commonName: z.string().min(2).max(160),
@@ -155,7 +155,8 @@ const sensorBase = {
   warnAbove: z.number().nullable().optional(),
   warnBelow: z.number().nullable().optional(),
   status: z.enum(['online', 'offline', 'warning', 'maintenance']).optional(),
-  batteryLevel: z.number().min(0).max(100).optional(),
+  source: z.enum(['open-meteo', 'simulated', 'device']).optional(),
+  batteryLevel: z.number().min(0).max(100).nullable().optional(),
   firmware: z.string().optional(),
   active: z.boolean().optional(),
 };
@@ -338,6 +339,11 @@ const reportBase = {
 const reports = {
   create: z.object(reportBase),
   update: z.object(reportBase).partial(),
+  generate: z.object({
+    type: reportBase.type,
+    park: objectId.nullable().optional(),
+    days: z.number().int().min(7).max(730).optional(),
+  }),
 };
 
 // ---------------------------------------------------------------------------

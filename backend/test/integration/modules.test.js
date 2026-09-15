@@ -15,12 +15,21 @@ const {
   startTestServer, stopTestServer, get, post, patch, del, login, itemsOf,
 } = require('../helpers/harness');
 
+const fs = require('fs');
+const path = require('path');
+
 const tokens = {};
 const ids = {};
+
+const SAMPLES = path.resolve(__dirname, '../../src/seed/data/sample-images');
+/** A committed sample photograph as an upload-style data URL. */
+const sampleDataUrl = (file) => `data:image/jpeg;base64,${fs.readFileSync(path.join(SAMPLES, file)).toString('base64')}`;
 
 test.before(async () => {
   await startTestServer();
 
+  // Live Open-Meteo history is skipped under NODE_ENV=test, so the suite does
+  // not depend on the network; the vision model is real and runs locally.
   const { seedDatabase } = require('../../src/seed/seed');
   await seedDatabase({ force: true, quiet: true });
 
@@ -30,7 +39,9 @@ test.before(async () => {
   tokens.citizen = await login('citizen@greenpulse.gov');
 
   ids.park = itemsOf(await get('/parks', tokens.admin))[0].id;
-  ids.sensor = itemsOf(await get('/sensors', tokens.admin))[0].id;
+  // A simulated sensor: it has history even with the network skipped.
+  ids.sensor = itemsOf(await get('/sensors?source=simulated', tokens.admin))[0].id;
+  ids.liveSensor = itemsOf(await get('/sensors?source=open-meteo', tokens.admin))[0].id;
   ids.species = itemsOf(await get('/biodiversity/species', tokens.admin))[0].id;
   ids.asset = itemsOf(await get('/assets', tokens.admin))[0].id;
 
@@ -251,7 +262,7 @@ test('module 4 · an ecologist can add a species; a citizen cannot', async () =>
 test('module 5 · inference returns a normalised probability distribution', async () => {
   const res = await post('/ai/analyze', {
     task: 'plant-id',
-    imageUrl: 'https://example.org/leaf.jpg',
+    imageUrl: sampleDataUrl('plant-lantana-camara.jpg'),
     park: ids.park,
   }, tokens.ecologist);
 
@@ -299,14 +310,78 @@ test('module 5 · inference rejects an unknown task', async () => {
   assert.ok(res.status === 400 || res.status === 422, `got ${res.status}`);
 });
 
-test('module 5 · inference is deterministic for the same input', async () => {
-  const payload = { task: 'tree-disease', imageUrl: 'https://example.org/stable.jpg', park: ids.park };
+test('module 5 · the prediction comes from the pixels, not the request', async () => {
+  // The same photograph under two different names gives the same answer…
+  const heron = sampleDataUrl('wildlife-indian-pond-heron.jpg');
+  const first = await post('/ai/analyze', { task: 'wildlife', imageUrl: heron, imageName: 'a.jpg' }, tokens.ecologist);
+  const second = await post('/ai/analyze', { task: 'wildlife', imageUrl: heron, imageName: 'b.jpg' }, tokens.ecologist);
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  assert.equal(first.body.data.detection.prediction, 'Bird');
+  assert.equal(second.body.data.detection.prediction, first.body.data.detection.prediction);
 
-  const first = await post('/ai/analyze', payload, tokens.ecologist);
-  const second = await post('/ai/analyze', payload, tokens.ecologist);
+  // …and a different photograph gives a different one.
+  const butterfly = await post('/ai/analyze', { task: 'wildlife', imageUrl: sampleDataUrl('wildlife-plain-tiger.jpg') }, tokens.ecologist);
+  assert.equal(butterfly.body.data.detection.prediction, 'Butterfly or moth');
 
-  const label = (r) => r.body.data.detection.probabilities[0].label;
-  assert.equal(label(first), label(second), 'the surrogate model is not reproducible');
+  // The evidence behind the call is returned with it.
+  const { inference } = first.body.data;
+  assert.ok(inference.imagenet.length > 0, 'no ImageNet classes returned');
+  assert.ok(inference.evidence.animalEvidence > 0.5, 'no animal evidence recorded');
+  assert.equal(inference.model.name, 'MobileNetV2 1.0 (ImageNet-1k)');
+});
+
+test('module 5 · the analysed image is stored once and served back as a JPEG', async () => {
+  const res = await post('/ai/analyze', { task: 'fire', imageUrl: sampleDataUrl('fire-grassland-burn.jpg') }, tokens.officer);
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+
+  const { imageUrl } = res.body.data.detection;
+  assert.match(imageUrl, /^\/api\/ai\/images\/[0-9a-f]{24}$/);
+
+  const image = await fetch(`${process.env.TEST_API_ORIGIN}${imageUrl}`);
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get('content-type'), 'image/jpeg');
+  const bytes = Buffer.from(await image.arrayBuffer());
+  assert.equal(bytes[0], 0xff, 'not a JPEG');
+  assert.equal(bytes[1], 0xd8, 'not a JPEG');
+
+  // Uploading the same photograph again reuses the stored copy.
+  const again = await post('/ai/analyze', { task: 'waste', imageUrl: sampleDataUrl('fire-grassland-burn.jpg') }, tokens.officer);
+  assert.equal(again.body.data.detection.imageUrl, imageUrl);
+});
+
+test('module 5 · inference refuses bad input and internal addresses', async () => {
+  const anonymous = await post('/ai/analyze', { task: 'fire', imageUrl: sampleDataUrl('fire-smoke-plume.jpg') });
+  assert.equal(anonymous.status, 401, 'anonymous inference was accepted');
+
+  const cases = [
+    'not even a url',
+    'ftp://example.org/image.jpg',
+    'http://127.0.0.1:5000/api/health',
+    'http://169.254.169.254/latest/meta-data/',
+    'http://localhost/x.jpg',
+    'data:image/jpeg;base64,bm90IGFuIGltYWdl', // "not an image"
+  ];
+  for (const imageUrl of cases) {
+    const res = await post('/ai/analyze', { task: 'fire', imageUrl }, tokens.officer);
+    assert.equal(res.status, 400, `${imageUrl.slice(0, 40)} returned ${res.status}`);
+  }
+});
+
+test('module 5 · a reviewer must correct a rejection to a label the task defines', async () => {
+  const gallery = itemsOf(await get('/ai/gallery?task=wildlife', tokens.ecologist));
+  const detection = gallery[0];
+  assert.ok(detection, 'no seeded wildlife detection');
+
+  const bad = await post(`/ai/${detection.id}/review`, { verdict: 'rejected', correctedLabel: 'Unicorn' }, tokens.ecologist);
+  assert.equal(bad.status, 400);
+
+  const good = await post(`/ai/${detection.id}/review`, { verdict: 'rejected', correctedLabel: 'No animal detected' }, tokens.ecologist);
+  assert.equal(good.status, 200);
+  assert.equal(good.body.data.correctedLabel, 'No animal detected');
+
+  const stats = await get('/ai/stats', tokens.ecologist);
+  assert.equal(stats.body.data.confidenceDistribution.length, 5, 'confidence bands missing');
+  assert.ok(stats.body.data.review.precision !== null, 'precision was not computed after a review');
 });
 
 // ---------------------------------------------------------------------------
@@ -748,6 +823,183 @@ test('a deactivated user can no longer authenticate', async () => {
   // ...and is refused afterwards, rather than silently still working.
   const after = await post('/auth/login', { email, password: 'greenpulse123' });
   assert.ok(after.status === 401 || after.status === 403, `a disabled account signed in: ${after.status}`);
+});
+
+// ---------------------------------------------------------------------------
+// Regressions for the defects found in the submission-readiness audit
+// ---------------------------------------------------------------------------
+
+test('deleting an incident never makes the next reference code collide', async () => {
+  const make = (title) => post('/incidents', {
+    type: 'vandalism', title, park: ids.park, severity: 2,
+    location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+  }, tokens.officer);
+
+  const a = await make('Counter test A');
+  const b = await make('Counter test B');
+  assert.equal(a.status, 201);
+  assert.equal(b.status, 201);
+
+  assert.equal((await del(`/incidents/${a.body.data.id}`, tokens.admin)).status, 204);
+
+  const c = await make('Counter test C');
+  assert.equal(c.status, 201, `create after delete returned ${c.status}: ${JSON.stringify(c.body)}`);
+  const codes = [a, b, c].map((r) => r.body.data.referenceCode);
+  assert.equal(new Set(codes).size, 3, `codes repeated: ${codes.join(', ')}`);
+});
+
+test('an account can upvote a report once, and withdraw it', async () => {
+  const report = itemsOf(await get('/citizen/reports?limit=1', tokens.officer))[0];
+
+  // Clear any seeded vote by this account first, so the test is self-contained.
+  await del(`/citizen/reports/${report.id}/upvote`, tokens.ecologist);
+  const start = (await get(`/citizen/reports/${report.id}`, tokens.ecologist)).body.data.upvotes;
+
+  const first = await post(`/citizen/reports/${report.id}/upvote`, {}, tokens.ecologist);
+  const repeat = await post(`/citizen/reports/${report.id}/upvote`, {}, tokens.ecologist);
+  assert.equal(first.body.data.upvotes, start + 1);
+  assert.equal(repeat.body.data.upvotes, start + 1, 'a second upvote from the same account counted');
+
+  const mine = await get('/citizen/my-upvotes', tokens.ecologist);
+  assert.ok(mine.body.data.includes(report.id));
+
+  const withdrawn = await del(`/citizen/reports/${report.id}/upvote`, tokens.ecologist);
+  assert.equal(withdrawn.body.data.upvotes, start);
+
+  // Who voted is never exposed.
+  const listed = JSON.stringify((await get(`/citizen/reports/${report.id}`, tokens.citizen)).body);
+  assert.ok(!listed.includes('upvotedBy'), 'the voter list leaked');
+});
+
+test('switching public reporting off stops citizen reports but not staff', async () => {
+  const body = {
+    category: 'issue', title: 'Reporting toggle test', description: 'Checks the admin switch is enforced.',
+    park: ids.park, location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+  };
+
+  assert.equal((await patch('/admin/settings', { enablePublicReporting: false }, tokens.admin)).status, 200);
+  try {
+    const citizen = await post('/citizen/reports', body, tokens.citizen);
+    assert.equal(citizen.status, 403, 'a citizen could report while reporting was switched off');
+    const officer = await post('/citizen/reports', body, tokens.officer);
+    assert.equal(officer.status, 201, 'staff were blocked by the public-reporting switch');
+
+    const publicSettings = await get('/settings/public');
+    assert.equal(publicSettings.body.data.enablePublicReporting, false);
+  } finally {
+    await patch('/admin/settings', { enablePublicReporting: true }, tokens.admin);
+  }
+});
+
+test('officers can list assignable staff without admin rights', async () => {
+  const staff = await get('/users/staff', tokens.officer);
+  assert.equal(staff.status, 200);
+  assert.ok(itemsOf(staff).length > 0);
+  assert.ok(itemsOf(staff).every((u) => ['officer', 'ecologist', 'admin'].includes(u.role)));
+  assert.ok(!JSON.stringify(staff.body).includes('email'), 'the staff directory exposes email addresses');
+
+  assert.equal((await get('/users/staff', tokens.citizen)).status, 403);
+});
+
+test('row-level exports require an officer', async () => {
+  assert.equal((await get('/analytics/export?dataset=incidents&format=csv')).status, 401);
+  assert.equal((await get('/analytics/export?dataset=incidents&format=csv', tokens.citizen)).status, 403);
+  assert.equal((await get('/analytics/export?dataset=incidents&format=csv', tokens.officer)).status, 200);
+});
+
+test('park filters work inside aggregation pipelines', async () => {
+  const assets = itemsOf(await get('/assets?limit=200', tokens.admin));
+  const parkWithAssets = assets[0].park.id;
+  const expected = assets.filter((a) => a.park.id === parkWithAssets).length;
+
+  const stats = await get(`/assets/stats?park=${parkWithAssets}`, tokens.admin);
+  assert.equal(stats.status, 200);
+  assert.ok(stats.body.data.total >= expected, `park-filtered asset stats counted ${stats.body.data.total}`);
+  assert.ok(stats.body.data.total > 0);
+
+  const observations = itemsOf(await get('/biodiversity/observations?limit=1', tokens.admin));
+  const seasonality = itemsOf(await get(`/biodiversity/seasonality?park=${observations[0].park.id}`, tokens.admin));
+  assert.ok(seasonality.some((m) => m.sightings > 0), 'park-filtered seasonality is all zeros');
+
+  assert.equal((await get('/assets/stats?park=not-an-id', tokens.admin)).status, 400);
+});
+
+test('a scheduled work order past its date is reported overdue', async () => {
+  const created = await post('/maintenance', {
+    title: 'Overdue sweep test', type: 'inspection', park: ids.park,
+    scheduledDate: new Date(Date.now() + 3_600_000).toISOString(),
+  }, tokens.officer);
+  assert.equal(created.status, 201);
+
+  // Move the date into the past without saving through the document hooks.
+  const { WorkOrder } = require('../../src/models');
+  await WorkOrder.updateOne({ _id: created.body.data.id }, { $set: { scheduledDate: new Date(Date.now() - 86_400_000) } });
+
+  const listed = itemsOf(await get('/maintenance?q=Overdue sweep test', tokens.officer));
+  assert.equal(listed.find((w) => w.id === created.body.data.id)?.status, 'overdue');
+});
+
+test('one incident cannot have two open work orders', async () => {
+  const incident = await post('/incidents', {
+    type: 'tree-fall', title: 'Duplicate work order test', park: ids.park, severity: 3,
+    location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+  }, tokens.officer);
+  const first = await post(`/incidents/${incident.body.data.id}/work-order`, {}, tokens.officer);
+  const second = await post(`/incidents/${incident.body.data.id}/work-order`, {}, tokens.officer);
+  assert.equal(first.status, 201);
+  assert.equal(second.status, 409);
+});
+
+test('virtual and simulated sensors refuse posted readings', async () => {
+  const res = await post(`/sensors/${ids.liveSensor}/readings`, { value: 42 }, tokens.officer);
+  assert.equal(res.status, 409);
+});
+
+test('a sensor with no readings reports no value, not zero', async () => {
+  const live = (await get('/sensors/live', tokens.admin)).body.data.sensors;
+  const unread = live.filter((s) => !s.lastReadingAt);
+  for (const s of unread) {
+    assert.equal(s.currentValue, null, `${s.name} reports ${s.currentValue} with no reading`);
+    assert.equal(s.score, null);
+  }
+
+  const kpis = (await get('/dashboard/overview', tokens.admin)).body.data.kpis;
+  const air = kpis.find((k) => k.key === 'airQuality');
+  if (!live.some((s) => s.type === 'aqi' && s.lastReadingAt)) {
+    assert.equal(air.value, null, 'air quality shows a number with no reporting AQI sensor');
+  }
+});
+
+test('a generated report is computed from the data and published on request', async () => {
+  const generated = await post('/analytics/reports/generate', { type: 'biodiversity', days: 365 }, tokens.ecologist);
+  assert.equal(generated.status, 201, JSON.stringify(generated.body));
+  const report = generated.body.data;
+  assert.equal(report.status, 'draft');
+  assert.ok(report.findings.length > 0);
+  assert.ok(report.findings.some((f) => f.includes(String(report.metrics.biodiversity.richness))), 'findings do not quote the metrics');
+
+  // Drafts are invisible to the public…
+  assert.equal((await get(`/analytics/reports/${report.id}`)).status, 404);
+  // …until published.
+  const published = await patch(`/analytics/reports/${report.id}`, { status: 'published' }, tokens.ecologist);
+  assert.equal(published.status, 200);
+  assert.equal((await get(`/analytics/reports/${report.id}`)).status, 200);
+
+  assert.equal((await post('/analytics/reports/generate', { type: 'air' }, tokens.citizen)).status, 403);
+});
+
+test('the suggested air-quality question is answered about air quality', async () => {
+  const res = await post('/assistant/ask', { question: 'How is the air quality at Cubbon Park?' }, tokens.citizen);
+  assert.equal(res.status, 201);
+  assert.equal(res.body.data.intent, 'airQuality');
+});
+
+test('a location of [0, 0] is rejected as unset', async () => {
+  const res = await post('/assets', {
+    name: 'Null island bench', type: 'bench', park: ids.park,
+    location: { type: 'Point', coordinates: [0, 0] },
+  }, tokens.officer);
+  assert.equal(res.status, 422);
 });
 
 test('a deactivated account stays visible to administrators and can be restored', async () => {

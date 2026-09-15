@@ -56,6 +56,9 @@ const workOrderSchema = new mongoose.Schema(
     recurrence: { type: String, enum: ['none', 'weekly', 'monthly', 'quarterly', 'yearly'], default: 'none' },
 
     completionNotes: { type: String, default: '' },
+
+    /** True for demonstration records created by the seeder. */
+    demo: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );
@@ -69,7 +72,7 @@ workOrderSchema.index({ title: 'text', description: 'text' });
 workOrderSchema.pre('save', function syncStatus(next) {
   if (this.isModified('progress')) {
     if (this.progress >= 100) this.status = 'completed';
-    else if (this.progress > 0 && this.status === 'scheduled') this.status = 'in-progress';
+    else if (this.progress > 0 && ['scheduled', 'overdue'].includes(this.status)) this.status = 'in-progress';
   }
 
   if (this.isModified('status')) {

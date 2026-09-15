@@ -17,15 +17,13 @@ const ApiError = require('../utils/ApiError');
 const { scoreIncident, buildTriageQueue, TYPE_PROFILE } = require('../services/priority.service');
 const alertService = require('../services/alert.service');
 const audit = require('../services/audit.service');
+const { nextCode, year } = require('../utils/sequence');
+const { queryObjectId } = require('../utils/objectId');
+const { generateOrderCode } = require('./maintenance.controller');
 
 /** `INC-2026-0042` — year-scoped so codes stay short and readable. */
-async function generateReferenceCode() {
-  const year = new Date().getFullYear();
-  const count = await Incident.countDocuments({
-    reportedAt: { $gte: new Date(`${year}-01-01T00:00:00.000Z`) },
-  });
-  return `INC-${year}-${String(count + 1).padStart(4, '0')}`;
-}
+const generateReferenceCode = () =>
+  nextCode({ model: Incident, field: 'referenceCode', prefix: `INC-${year()}` });
 
 /** Apply the computed triage score to a document before it is saved. */
 function applyPriority(doc) {
@@ -209,9 +207,17 @@ const createWorkOrder = asyncHandler(async (req, res) => {
   const incident = await Incident.findById(req.params.id);
   if (!incident) throw ApiError.notFound('Incident');
 
-  const count = await WorkOrder.countDocuments();
+  // One live work order per incident: a double-click must not dispatch two crews.
+  const existing = await WorkOrder.findOne({
+    sourceIncident: incident._id,
+    status: { $in: ['scheduled', 'in-progress', 'overdue'] },
+  }).select('orderCode');
+  if (existing) {
+    throw ApiError.conflict(`Work order ${existing.orderCode} is already open for this incident`);
+  }
+
   const workOrder = await WorkOrder.create({
-    orderCode: `WO-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`,
+    orderCode: await generateOrderCode(),
     type: req.body.type || 'repair',
     title: req.body.title || `Resolve: ${incident.title}`,
     description: req.body.description || incident.description,
@@ -241,7 +247,8 @@ const createWorkOrder = asyncHandler(async (req, res) => {
 /** GET /api/incidents/stats */
 const getStats = asyncHandler(async (req, res) => {
   const match = {};
-  if (req.query.park) match.park = req.query.park;
+  const park = queryObjectId(req.query.park, 'park');
+  if (park) match.park = park;
 
   const [byType, byStatus, byPriority, resolution] = await Promise.all([
     Incident.aggregate([{ $match: match }, { $group: { _id: '$type', count: { $sum: 1 } } }, { $sort: { count: -1 } }]),
@@ -259,7 +266,7 @@ const getStats = asyncHandler(async (req, res) => {
     ]),
   ]);
 
-  const activeAlerts = await Alert.countDocuments({ status: 'active' });
+  const activeAlerts = await Alert.countDocuments({ status: 'active', ...match });
 
   return ok(res, {
     byType: byType.map((t) => ({ type: t._id, label: TYPE_PROFILE[t._id]?.label || t._id, count: t.count })),

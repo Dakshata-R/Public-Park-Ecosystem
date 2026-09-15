@@ -16,7 +16,7 @@ const { normaliseReading } = require('../services/ecosystem-score.service');
 const crud = createCrudController({
   model: Sensor,
   name: 'Sensor',
-  filterable: ['type', 'status', 'park', 'active'],
+  filterable: ['type', 'status', 'park', 'active', 'source'],
   searchable: ['name', 'sensorCode'],
   populate: { path: 'park', select: 'name slug' },
   defaultSort: { name: 1 },
@@ -76,6 +76,12 @@ const getReadings = asyncHandler(async (req, res) => {
 const ingestReading = asyncHandler(async (req, res) => {
   const sensor = await Sensor.findById(req.params.id);
   if (!sensor) throw ApiError.notFound('Sensor');
+  if (sensor.source !== 'device') {
+    throw ApiError.conflict(
+      `${sensor.name} is ${sensor.source === 'open-meteo' ? 'a virtual sensor fed by Open-Meteo' : 'a simulated sensor'}; ` +
+        'only physical devices accept posted readings'
+    );
+  }
 
   const value = Number(req.body.value);
   if (!Number.isFinite(value)) throw ApiError.badRequest('`value` must be a number');
@@ -98,17 +104,24 @@ const getLive = asyncHandler(async (req, res) => {
 
   const sensors = await Sensor.find(filter).populate('park', 'name slug').lean();
 
-  const live = sensors.map((s) => ({
-    ...normaliseId(s),
-    score: normaliseReading(s.type, s.currentValue),
-    breached:
-      (s.warnAbove != null && s.currentValue > s.warnAbove) ||
-      (s.warnBelow != null && s.currentValue < s.warnBelow),
-    stale: s.lastReadingAt ? Date.now() - new Date(s.lastReadingAt) > 3_600_000 : true,
-  }));
+  const live = sensors.map((s) => {
+    const hasReading = Boolean(s.lastReadingAt);
+    return {
+      ...normaliseId(s),
+      currentValue: hasReading ? s.currentValue : null,
+      score: hasReading ? normaliseReading(s.type, s.currentValue) : null,
+      breached:
+        hasReading &&
+        ((s.warnAbove != null && s.currentValue > s.warnAbove) ||
+          (s.warnBelow != null && s.currentValue < s.warnBelow)),
+      // Open-Meteo publishes a new observation every 15 minutes; a simulated
+      // or hardware sensor reports every tick.
+      stale: hasReading ? Date.now() - new Date(s.lastReadingAt) > (s.source === 'open-meteo' ? 2 : 1) * 3_600_000 : true,
+    };
+  });
 
   const byType = live.reduce((acc, s) => {
-    (acc[s.type] ||= []).push(s.score);
+    if (s.score !== null && s.status !== 'offline') (acc[s.type] ||= []).push(s.score);
     return acc;
   }, {});
 
@@ -119,6 +132,8 @@ const getLive = asyncHandler(async (req, res) => {
       online: live.filter((s) => s.status === 'online').length,
       warning: live.filter((s) => s.status === 'warning').length,
       offline: live.filter((s) => s.status === 'offline').length,
+      maintenance: live.filter((s) => s.status === 'maintenance').length,
+      bySource: live.reduce((acc, s) => ({ ...acc, [s.source]: (acc[s.source] || 0) + 1 }), {}),
       averageScoreByType: Object.fromEntries(
         Object.entries(byType).map(([type, scores]) => [
           type,
@@ -141,13 +156,13 @@ const getAnomalies = asyncHandler(async (req, res) => {
 });
 
 /**
- * POST /api/sensors/simulate
- * Force one simulation tick. Exposed so a demonstration can advance the data
- * on demand rather than waiting for the interval timer.
+ * POST /api/sensors/refresh
+ * Run one refresh now: pull any newer Open-Meteo observations for the
+ * virtual sensors and, if enabled, one simulated reading per simulated sensor.
  */
-const simulate = asyncHandler(async (_req, res) => {
-  const result = await sensorService.simulateTick();
-  return ok(res, result);
+const refresh = asyncHandler(async (_req, res) => {
+  const result = await sensorService.refreshSensors();
+  return ok(res, { ...result, errors: [...new Set(result.errors)] });
 });
 
-module.exports = { ...crud, getReadings, ingestReading, getLive, getAnomalies, simulate };
+module.exports = { ...crud, getReadings, ingestReading, getLive, getAnomalies, refresh };

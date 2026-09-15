@@ -34,6 +34,8 @@ const citizenReportSchema = new mongoose.Schema(
     status: { type: String, enum: REPORT_STATUSES, default: 'submitted', index: true },
     /** Community signal used to break ties when triaging. */
     upvotes: { type: Number, default: 0, min: 0 },
+    /** Who upvoted, so each account counts once. Never sent to clients. */
+    upvotedBy: { type: [mongoose.Schema.Types.ObjectId], ref: 'User', default: [], select: false },
 
     images: { type: [String], default: [] },
 
@@ -44,6 +46,9 @@ const citizenReportSchema = new mongoose.Schema(
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     officialResponse: { type: String, default: '' },
     resolvedAt: { type: Date, default: null },
+
+    /** True for demonstration records created by the seeder. */
+    demo: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

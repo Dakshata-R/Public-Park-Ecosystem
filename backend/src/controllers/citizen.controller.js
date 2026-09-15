@@ -14,7 +14,7 @@
  * being spread across the incident and biodiversity modules.
  */
 
-const { CitizenReport, Incident, Observation, User } = require('../models');
+const { CitizenReport, Incident, Observation, User, Setting } = require('../models');
 const { createCrudController, normaliseId } = require('./crud.factory');
 const asyncHandler = require('../middleware/asyncHandler');
 const { ok, created } = require('../utils/response');
@@ -22,14 +22,11 @@ const ApiError = require('../utils/ApiError');
 const { generateReferenceCode } = require('./incident.controller');
 const { scoreIncident } = require('../services/priority.service');
 const audit = require('../services/audit.service');
+const { nextCode, year } = require('../utils/sequence');
+const { ROLE_RANK } = require('../middleware/auth');
 
-async function generateReportCode() {
-  const year = new Date().getFullYear();
-  const count = await CitizenReport.countDocuments({
-    createdAt: { $gte: new Date(`${year}-01-01T00:00:00.000Z`) },
-  });
-  return `CR-${year}-${String(count + 1).padStart(4, '0')}`;
-}
+const generateReportCode = () =>
+  nextCode({ model: CitizenReport, field: 'referenceCode', prefix: `CR-${year()}` });
 
 const crud = createCrudController({
   model: CitizenReport,
@@ -44,13 +41,21 @@ const crud = createCrudController({
   ],
   defaultSort: { createdAt: -1 },
 
-  beforeCreate: async (body, req) => ({
-    ...body,
-    referenceCode: await generateReportCode(),
-    submittedBy: req.user?._id || null,
-    submittedByName: body.submittedByName || req.user?.name || 'Anonymous',
-    status: 'submitted',
-  }),
+  beforeCreate: async (body, req) => {
+    // The administrator's "public reporting" switch closes the portal to
+    // citizens; staff can still log reports on someone's behalf.
+    const settings = await Setting.current();
+    if (!settings.enablePublicReporting && (ROLE_RANK[req.user?.role] || 0) < ROLE_RANK.officer) {
+      throw ApiError.forbidden('Public reporting is currently switched off by the administrator');
+    }
+    return {
+      ...body,
+      referenceCode: await generateReportCode(),
+      submittedBy: req.user?._id || null,
+      submittedByName: body.submittedByName || req.user?.name || 'Anonymous',
+      status: 'submitted',
+    };
+  },
 
   afterCreate: async (doc, req) => {
     if (req.user) {
@@ -59,35 +64,72 @@ const crud = createCrudController({
   },
 });
 
-/** POST /api/citizen/reports/:id/upvote — one signal per caller per report. */
+/**
+ * The community signal feeds the priority formula, so a linked incident's
+ * mirrored upvote count and score must follow the report's.
+ */
+async function syncLinkedIncident(report) {
+  if (!report.linkedIncident) return;
+  const incident = await Incident.findById(report.linkedIncident);
+  if (!incident) return;
+
+  incident.upvotes = report.upvotes;
+  const triage = scoreIncident({
+    type: incident.type,
+    severity: incident.severity,
+    affectedPeople: incident.affectedPeople,
+    upvotes: incident.upvotes,
+    reportedAt: incident.reportedAt,
+    status: incident.status,
+  });
+  incident.priorityScore = triage.score;
+  incident.priority = triage.priority;
+  await incident.save();
+}
+
+/**
+ * POST /api/citizen/reports/:id/upvote — one signal per account per report.
+ * The conditional update is atomic, so two rapid clicks cannot both count.
+ */
 const upvote = asyncHandler(async (req, res) => {
-  const report = await CitizenReport.findByIdAndUpdate(
-    req.params.id,
-    { $inc: { upvotes: 1 } },
+  const report = await CitizenReport.findOneAndUpdate(
+    { _id: req.params.id, upvotedBy: { $ne: req.user._id } },
+    { $addToSet: { upvotedBy: req.user._id }, $inc: { upvotes: 1 } },
     { new: true }
   );
-  if (!report) throw ApiError.notFound('Citizen report');
 
-  // The community signal feeds the priority formula, so a linked incident's
-  // score must be refreshed when upvotes move.
-  if (report.linkedIncident) {
-    const incident = await Incident.findById(report.linkedIncident);
-    if (incident) {
-      const triage = scoreIncident({
-        type: incident.type,
-        severity: incident.severity,
-        affectedPeople: incident.affectedPeople,
-        upvotes: report.upvotes,
-        reportedAt: incident.reportedAt,
-        status: incident.status,
-      });
-      incident.priorityScore = triage.score;
-      incident.priority = triage.priority;
-      await incident.save();
-    }
+  if (!report) {
+    const existing = await CitizenReport.findById(req.params.id);
+    if (!existing) throw ApiError.notFound('Citizen report');
+    return ok(res, { id: existing.id, upvotes: existing.upvotes, upvoted: true });
   }
 
-  return ok(res, { id: report.id, upvotes: report.upvotes });
+  await syncLinkedIncident(report);
+  return ok(res, { id: report.id, upvotes: report.upvotes, upvoted: true });
+});
+
+/** DELETE /api/citizen/reports/:id/upvote — withdraw an upvote. */
+const removeUpvote = asyncHandler(async (req, res) => {
+  const report = await CitizenReport.findOneAndUpdate(
+    { _id: req.params.id, upvotedBy: req.user._id },
+    { $pull: { upvotedBy: req.user._id }, $inc: { upvotes: -1 } },
+    { new: true }
+  );
+
+  if (!report) {
+    const existing = await CitizenReport.findById(req.params.id);
+    if (!existing) throw ApiError.notFound('Citizen report');
+    return ok(res, { id: existing.id, upvotes: existing.upvotes, upvoted: false });
+  }
+
+  await syncLinkedIncident(report);
+  return ok(res, { id: report.id, upvotes: report.upvotes, upvoted: false });
+});
+
+/** GET /api/citizen/my-upvotes — ids of the reports the caller has upvoted. */
+const myUpvotes = asyncHandler(async (req, res) => {
+  const reports = await CitizenReport.find({ upvotedBy: req.user._id }).select('_id').lean();
+  return ok(res, reports.map((r) => String(r._id)));
 });
 
 /**
@@ -122,6 +164,7 @@ const review = asyncHandler(async (req, res) => {
         location: report.location,
         severity: severity ?? 3,
         affectedPeople: affectedPeople ?? 0,
+        upvotes: report.upvotes,
         source: 'citizen-report',
         reportedBy: report.submittedBy,
         sourceReport: report._id,
@@ -251,4 +294,4 @@ const getStats = asyncHandler(async (_req, res) => {
   });
 });
 
-module.exports = { ...crud, upvote, review, myReports, getStats };
+module.exports = { ...crud, upvote, removeUpvote, myUpvotes, review, myReports, getStats, generateReportCode };

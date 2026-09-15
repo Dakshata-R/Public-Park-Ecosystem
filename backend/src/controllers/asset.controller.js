@@ -10,28 +10,21 @@ const asyncHandler = require('../middleware/asyncHandler');
 const { ok, created } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
 const audit = require('../services/audit.service');
+const { nextCode } = require('../utils/sequence');
+const { queryObjectId } = require('../utils/objectId');
 
 /**
  * Asset codes are human-facing (they appear on QR labels in the field), so
- * they are generated as `<TYPE-PREFIX><sequence>` rather than exposing an
- * ObjectId. The sequence is derived from the current count of that type.
+ * they are generated as `<TYPE-PREFIX>-<sequence>` rather than exposing an
+ * ObjectId, from a counter that never reissues a number.
  */
 const TYPE_PREFIX = {
   tree: 'TRE', plant: 'PLT', bench: 'BNC', lake: 'LAK',
   path: 'PTH', light: 'LGT', structure: 'STR',
 };
 
-async function generateAssetCode(type) {
-  const prefix = TYPE_PREFIX[type] || 'AST';
-  const count = await Asset.countDocuments({ type });
-  let sequence = count + 1;
-  // Guard against collisions after deletions.
-  // eslint-disable-next-line no-await-in-loop
-  while (await Asset.exists({ assetCode: `${prefix}-${String(sequence).padStart(4, '0')}` })) {
-    sequence += 1;
-  }
-  return `${prefix}-${String(sequence).padStart(4, '0')}`;
-}
+const generateAssetCode = (type) =>
+  nextCode({ model: Asset, field: 'assetCode', prefix: TYPE_PREFIX[type] || 'AST' });
 
 const crud = createCrudController({
   model: Asset,
@@ -49,8 +42,10 @@ const crud = createCrudController({
 
 /** GET /api/assets/stats — inventory rollup for the module header. */
 const getStats = asyncHandler(async (req, res) => {
+  // Aggregation pipelines skip Mongoose casting — the park id must be an ObjectId.
   const match = { active: true };
-  if (req.query.park) match.park = req.query.park;
+  const park = queryObjectId(req.query.park, 'park');
+  if (park) match.park = park;
 
   const [byType, byStatus, overall] = await Promise.all([
     Asset.aggregate([

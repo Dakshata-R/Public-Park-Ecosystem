@@ -79,6 +79,17 @@ const CATEGORIES = [
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 /**
+ * Decimal places each breakpoint table is published to. The bands are
+ * discontinuous at that precision — PM2.5 [0, 30] is followed by [31, 60] —
+ * so a measured 30.9 µg/m³ belongs to no band until it is truncated to the
+ * table's precision, as the CPCB and US EPA methods both specify. Without the
+ * truncation such a value falls through every band and reads as AQI 500.
+ */
+const PRECISION = { pm25: 0, pm10: 0, no2: 0, so2: 0, o3: 0, co: 1 };
+
+const truncate = (value, decimals) => Math.floor(value * 10 ** decimals + 1e-9) / 10 ** decimals;
+
+/**
  * Sub-index for one pollutant.
  *
  * @param {keyof typeof BREAKPOINTS} pollutant
@@ -89,7 +100,7 @@ function subIndex(pollutant, concentration) {
   const table = BREAKPOINTS[pollutant];
   if (!table || !Number.isFinite(concentration)) return null;
 
-  const c = Math.max(0, concentration);
+  const c = truncate(Math.max(0, concentration), PRECISION[pollutant]);
 
   for (const [cLow, cHigh, iLow, iHigh] of table) {
     if (c >= cLow && c <= cHigh) {
@@ -125,6 +136,39 @@ function computeAqi(concentrations = {}) {
   }
 
   return { aqi, dominant, subIndices };
+}
+
+/**
+ * CPCB averaging periods. The index is defined on 24-hour means for PM2.5,
+ * PM10, NO₂ and SO₂ and on 8-hour means for CO and O₃ — applying the
+ * breakpoints to a single hourly value overstates short peaks (midday ozone
+ * most of all).
+ */
+const AVERAGING_HOURS = { pm25: 24, pm10: 24, no2: 24, so2: 24, co: 8, o3: 8 };
+
+/** Share of hours in a window that must have data for the mean to count. */
+const MIN_COVERAGE = 0.75;
+
+/**
+ * AQI at one hour of an hourly series, using the CPCB averaging periods.
+ *
+ * @param {Record<string, Array<number|null|undefined>>} hourly concentration arrays, index-aligned, oldest first
+ * @param {number} at index of the hour to evaluate (the window ends here)
+ * @returns {{aqi: number|null, dominant: string|null, subIndices: Record<string, number>, averages: Record<string, number>}}
+ */
+function computeAveragedAqi(hourly, at) {
+  const averages = {};
+  for (const [pollutant, hours] of Object.entries(AVERAGING_HOURS)) {
+    const series = hourly[pollutant];
+    if (!series) continue;
+    const window = series.slice(Math.max(0, at - hours + 1), at + 1).filter(Number.isFinite);
+    if (window.length >= Math.ceil(hours * MIN_COVERAGE)) {
+      averages[pollutant] = window.reduce((a, b) => a + b, 0) / window.length;
+    }
+  }
+
+  const result = computeAqi(averages);
+  return { ...result, aqi: Object.keys(result.subIndices).length ? result.aqi : null, averages };
 }
 
 /** CPCB category for an AQI value. */
@@ -176,4 +220,7 @@ function describeAqi(aqi) {
   };
 }
 
-module.exports = { subIndex, computeAqi, categorise, aqiToScore, describeAqi, BREAKPOINTS, CATEGORIES };
+module.exports = {
+  subIndex, computeAqi, computeAveragedAqi, categorise, aqiToScore, describeAqi,
+  BREAKPOINTS, CATEGORIES, AVERAGING_HOURS, PRECISION,
+};

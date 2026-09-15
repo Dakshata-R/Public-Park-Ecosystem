@@ -22,9 +22,11 @@ module.exports = {
   Incident: require('./Incident'),
   WorkOrder: require('./WorkOrder'),
   AiDetection: require('./AiDetection'),
+  AiImage: require('./AiImage'),
   Alert: require('./Alert'),
   EcoReport: require('./EcoReport'),
   AuditLog: require('./AuditLog'),
   Setting: require('./Setting'),
   ChatMessage: require('./ChatMessage'),
+  Counter: require('./Counter'),
 };

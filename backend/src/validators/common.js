@@ -11,7 +11,11 @@ const objectId = z
   .string()
   .regex(/^[0-9a-fA-F]{24}$/, 'Must be a valid id');
 
-/** GeoJSON Point with [longitude, latitude] ordering. */
+/**
+ * GeoJSON Point with [longitude, latitude] ordering.
+ * [0, 0] is rejected: it is in the Gulf of Guinea, and in practice only ever
+ * means a form was submitted before a location was picked.
+ */
 const geoPoint = z.object({
   type: z.literal('Point').default('Point'),
   coordinates: z
@@ -19,6 +23,7 @@ const geoPoint = z.object({
       z.number().min(-180).max(180),
       z.number().min(-90).max(90),
     ])
+    .refine(([lng, lat]) => !(lng === 0 && lat === 0), 'Pick a location — [0, 0] is not a valid position')
     .describe('[longitude, latitude]'),
 });
 

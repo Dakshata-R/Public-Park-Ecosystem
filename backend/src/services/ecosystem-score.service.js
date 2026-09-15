@@ -224,16 +224,24 @@ async function computeEcosystemHealth(parkRef = null) {
 
   const { score, contributions } = combine(subIndices, weights);
 
+  const hasData = contributions.length > 0;
+
   return {
     park: parkId ? String(parkId) : null,
-    ecosystemHealth: score,
-    grade: gradeFor(score),
+    /** null when no indicator has any data — "unknown" must not render as 0. */
+    ecosystemHealth: hasData ? score : null,
+    grade: hasData ? gradeFor(score) : null,
+    /**
+     * Each sub-index is null when its inputs are missing (no reporting
+     * sensor, no vegetation assets, no verified observations). A zero here
+     * would read as "catastrophic" rather than "not measured".
+     */
     subIndices: {
-      airQuality: subIndices.air ?? 0,
-      waterQuality: subIndices.water ?? 0,
-      soilHealth: subIndices.soil ?? 0,
-      treeHealth: subIndices.tree ?? 0,
-      biodiversity: subIndices.biodiversity ?? 0,
+      airQuality: subIndices.air,
+      waterQuality: subIndices.water,
+      soilHealth: subIndices.soil,
+      treeHealth: subIndices.tree,
+      biodiversity: subIndices.biodiversity,
     },
     /** Raw comfort/AQI readings behind the sub-indices, for tooltips. */
     sensorScores,
@@ -263,7 +271,7 @@ function gradeFor(score) {
 
 /**
  * Recompute every park's cached scores and write them back to `Park.scores`.
- * Called after seeding and by the sensor simulator on each tick.
+ * Called after seeding, after a weight change, and after each sensor refresh.
  *
  * @returns {Promise<Array<{park: string, ecosystemHealth: number}>>}
  */
@@ -333,14 +341,16 @@ async function healthTrend({ parkId = null, days = 30 } = {}) {
     byDate.set(row._id.date, bucket);
   }
 
+  // A day with no readings of a type is a gap in that series (null), which the
+  // chart draws as a break — not a plunge to zero.
   return [...byDate.values()].map((bucket) => ({
     date: bucket.date,
-    air: bucket.aqi ?? 0,
-    water: bucket.water ?? 0,
-    soil: bucket.soil ?? 0,
-    noise: bucket.noise ?? 0,
-    temperature: bucket.temperature ?? 0,
-    humidity: bucket.humidity ?? 0,
+    air: bucket.aqi ?? null,
+    water: bucket.water ?? null,
+    soil: bucket.soil ?? null,
+    noise: bucket.noise ?? null,
+    temperature: bucket.temperature ?? null,
+    humidity: bucket.humidity ?? null,
   }));
 }
 

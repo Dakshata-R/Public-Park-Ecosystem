@@ -23,6 +23,8 @@ const readingSchema = new mongoose.Schema(
     value: { type: Number, required: true },
     unit: { type: String, default: '' },
     recordedAt: { type: Date, required: true, default: Date.now, index: true },
+    /** Copied from the sensor at write time: open-meteo | simulated | device. */
+    source: { type: String, default: 'device' },
 
     /** Flagged by the z-score / IQR detector; see anomaly.service.js. */
     isAnomaly: { type: Boolean, default: false, index: true },

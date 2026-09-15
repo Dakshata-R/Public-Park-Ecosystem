@@ -12,6 +12,7 @@ const { ok, created } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
 const { analyseBiodiversity, computeIndices } = require('../services/biodiversity.service');
 const { parsePagination, buildMeta } = require('../utils/query');
+const { queryObjectId } = require('../utils/objectId');
 
 const speciesCrud = createCrudController({
   model: Species,
@@ -168,9 +169,12 @@ const verifyObservation = asyncHandler(async (req, res) => {
  * module specification.
  */
 const getSeasonality = asyncHandler(async (req, res) => {
+  // Aggregation pipelines skip Mongoose casting — ids must be ObjectIds.
   const match = { verified: true };
-  if (req.query.species) match.species = req.query.species;
-  if (req.query.park) match.park = req.query.park;
+  const species = queryObjectId(req.query.species, 'species');
+  const park = queryObjectId(req.query.park, 'park');
+  if (species) match.species = species;
+  if (park) match.park = park;
 
   const rows = await Observation.aggregate([
     { $match: match },

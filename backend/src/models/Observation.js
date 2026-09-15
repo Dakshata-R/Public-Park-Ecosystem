@@ -13,7 +13,12 @@ const mongoose = require('mongoose');
 const toJSONPlugin = require('./plugins/toJSON');
 const { pointSchema } = require('./shared/geo');
 
-const OBSERVATION_SOURCES = ['officer-survey', 'citizen-report', 'camera-trap', 'ai-detection'];
+/**
+ * `gbif` rows are imported from the Global Biodiversity Information Facility:
+ * one row per species per park per month, with `count` = the number of
+ * occurrence records (eBird checklists, iNaturalist observations, …).
+ */
+const OBSERVATION_SOURCES = ['officer-survey', 'citizen-report', 'camera-trap', 'ai-detection', 'gbif'];
 
 const observationSchema = new mongoose.Schema(
   {

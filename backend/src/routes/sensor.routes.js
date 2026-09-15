@@ -16,8 +16,9 @@ router.get('/:id/readings', validate({ params: idParam }), controller.getReading
 router.get('/:id/anomalies', validate({ params: idParam }), controller.getAnomalies);
 
 /**
- * Ingestion endpoint. In a physical deployment this is where a field gateway
- * POSTs, authenticated as a service account with the officer role.
+ * Ingestion endpoint for physical devices. A field gateway POSTs here,
+ * authenticated as a service account with the officer role. Virtual and
+ * simulated sensors refuse posted readings.
  */
 router.post(
   '/:id/readings',
@@ -27,7 +28,7 @@ router.post(
   controller.ingestReading
 );
 
-router.post('/simulate', requireAuth, requireRole('officer'), controller.simulate);
+router.post('/refresh', requireAuth, requireRole('officer'), controller.refresh);
 
 router.post('/', requireAuth, requireRole('admin'), validate({ body: sensors.create }), controller.create);
 router.patch('/:id', requireAuth, requireRole('officer'), validate({ params: idParam, body: sensors.update }), controller.update);

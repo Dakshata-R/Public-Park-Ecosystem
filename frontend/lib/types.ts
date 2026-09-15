@@ -4,7 +4,7 @@
  * These are hand-written rather than generated: the project has one backend
  * and one frontend maintained together, and a generator would add a build step
  * for little benefit at this size. They correspond one-to-one with the
- * Mongoose schemas in `server/src/models`.
+ * Mongoose schemas in `backend/src/models`.
  *
  * Coordinate convention: everything crossing the wire is GeoJSON, so
  * `[longitude, latitude]`. Leaflet wants `[latitude, longitude]` — convert at
@@ -93,6 +93,22 @@ export interface User extends Timestamped {
   active: boolean;
   contributions: number;
   lastLoginAt: string | null;
+  /** True for the seeded demonstration accounts. */
+  demo?: boolean;
+}
+
+/** An assignable member of staff, from `GET /users/staff`. */
+export interface StaffMember {
+  id: string;
+  name: string;
+  role: Exclude<UserRole, 'citizen'>;
+  park: ParkRef | null;
+}
+
+/** Where a record's position or values came from. */
+export interface DataSource {
+  provider: string;
+  id: string;
 }
 
 export interface AuthResponse {
@@ -104,13 +120,14 @@ export interface AuthResponse {
 // Module 3 — Parks & assets
 // ---------------------------------------------------------------------------
 
+/** Cached indices. `null` means "not measured" and must never be shown as 0. */
 export interface ParkScores {
-  ecosystemHealth: number;
-  biodiversity: number;
-  airQuality: number;
-  waterQuality: number;
-  soilHealth: number;
-  treeHealth: number;
+  ecosystemHealth: number | null;
+  biodiversity: number | null;
+  airQuality: number | null;
+  waterQuality: number | null;
+  soilHealth: number | null;
+  treeHealth: number | null;
   computedAt: string | null;
 }
 
@@ -120,12 +137,16 @@ export interface Park extends Timestamped {
   description: string;
   location: GeoPoint;
   boundary?: GeoPolygon;
+  /** Computed from the OpenStreetMap boundary. */
   areaAcres: number;
-  weeklyVisitors: number;
-  establishedYear?: number;
+  /** Unknown (null) unless a footfall count exists. */
+  weeklyVisitors: number | null;
+  establishedYear: number | null;
   address: string;
   city: string;
   manager: string;
+  openingHours: string;
+  source?: DataSource;
   scores: ParkScores;
   facilities: string[];
   images: string[];
@@ -160,6 +181,10 @@ export interface Asset extends Timestamped {
   notes: string;
   images: string[];
   active: boolean;
+  /** e.g. { provider: 'OpenStreetMap', id: 'node/123' } */
+  source?: DataSource;
+  /** True when `condition` and the maintenance history are demonstration values. */
+  demo?: boolean;
 }
 
 export interface AssetStats {
@@ -191,14 +216,23 @@ export interface Species extends Timestamped {
   conservationStatus: ConservationStatus;
   habitat: string;
   description: string;
+  /** Listed as invasive in India (GRIIS checklist). */
   isInvasive: boolean;
+  /** Listed as introduced in India (GRIIS checklist). */
+  isIntroduced?: boolean;
   isIndicator: boolean;
   seasonality: number[];
   parks: (ParkRef | string)[];
   images: string[];
+  /** Author and licence of images[0]. */
+  imageCredit?: string;
+  /** GBIF backbone key — link to https://www.gbif.org/species/<key>. */
+  gbifKey?: number | null;
+  order?: string;
 }
 
-export type ObservationSource = 'officer-survey' | 'citizen-report' | 'camera-trap' | 'ai-detection';
+/** `gbif` rows count GBIF occurrence records for a species in a park in one month. */
+export type ObservationSource = 'officer-survey' | 'citizen-report' | 'camera-trap' | 'ai-detection' | 'gbif';
 
 export interface Observation extends Timestamped {
   species: Species | string;
@@ -287,38 +321,86 @@ export interface ClassProbability {
 
 export interface ModelCard {
   name: string;
-  backbone: string;
   version: string;
   inputSize: number;
+  source: string;
+  /** TensorFlow.js backend that ran it: 'wasm' or 'cpu'. */
+  backend?: string;
+}
+
+/** A task's vocabulary and method, from `GET /ai/tasks`. */
+export interface AiTaskInfo {
+  task: AiTask;
+  title: string;
+  method: string;
+  model: ModelCard;
+  classes: { label: string; severity: Severity }[];
+}
+
+/** Pixel statistics measured by the vision service. */
+export interface ImageStats {
+  excessGreen: number;
+  greenLeafIndex: number;
+  healthyGreenFraction: number;
+  chloroticFraction: number;
+  necroticFraction: number;
+  flameFraction: number;
+  strictFlameFraction: number;
+  smokeFraction: number;
+  skyFraction: number;
+  meanValue: number;
+  meanSaturation: number;
+  hueEntropy: number;
+  sampledPixels: number;
 }
 
 export interface AiDetection extends Timestamped {
   task: AiTask;
+  /** Root-relative (`/api/ai/images/:id`) — resolve with `mediaUrl()`. */
   imageUrl: string;
   imageName: string;
+  /** Author and licence, for openly licensed sample photographs. */
+  imageCredit: string;
   park: ParkRef | string | null;
   prediction: string;
+  /** e.g. "Closest ImageNet class: bee eater (77.3 %)". */
+  detail: string;
   confidence: number;
   probabilities: ClassProbability[];
+  /** The network's own top ImageNet classes. */
+  imagenet: ClassProbability[];
+  /** Named signals the task score was built from. */
+  evidence: Record<string, number>;
+  /** Caveats that apply to this result. */
+  notes: string[];
   severity: Severity;
   recommendedAction: string;
   modelName: string;
   modelVersion: string;
   inferenceMs: number;
   reviewStatus: 'pending' | 'confirmed' | 'rejected';
+  reviewedAt: string | null;
   correctedLabel: string;
-  linkedIncident: { id: string; referenceCode: string; priority: string } | string | null;
+  linkedIncident: { id: string; referenceCode: string; priority: string; status?: string } | string | null;
 }
 
 export interface InferenceResult {
+  title: string;
+  method: string;
   prediction: string;
+  detail: string | null;
   confidence: number;
   probabilities: ClassProbability[];
   severity: Severity;
   recommendedAction: string;
+  evidence: Record<string, number>;
+  notes: string[];
+  imagenet: ClassProbability[];
+  stats: ImageStats;
+  image: { width: number; height: number; format: string; bytes: number };
   model: ModelCard;
+  timings: { fetchMs: number; decodeMs: number; statsMs: number; inferenceMs: number };
   inferenceMs: number;
-  simulated: boolean;
 }
 
 export interface AnalyzeResponse {
@@ -326,7 +408,8 @@ export interface AnalyzeResponse {
   inference: InferenceResult;
   escalated: { id: string; referenceCode: string; priority: string } | null;
   escalationRule: {
-    dangerous: boolean;
+    /** Only fire and smoke findings may open an incident without review. */
+    escalatable: boolean;
     confident: boolean;
     confidenceFloor: number;
     applied: boolean;
@@ -340,6 +423,13 @@ export interface AnalyzeResponse {
 
 export type SensorType = 'aqi' | 'temperature' | 'humidity' | 'noise' | 'water' | 'soil';
 export type SensorStatus = 'online' | 'offline' | 'warning' | 'maintenance';
+
+/**
+ * open-meteo — virtual sensor; every reading is a real Open-Meteo observation
+ * simulated   — generated values, always labelled as simulated in the UI
+ * device      — a physical probe posting readings
+ */
+export type SensorSource = 'open-meteo' | 'simulated' | 'device';
 
 export interface Sensor extends Timestamped {
   sensorCode: string;
@@ -355,16 +445,30 @@ export interface Sensor extends Timestamped {
   currentValue: number;
   lastReadingAt: string | null;
   status: SensorStatus;
-  batteryLevel: number;
+  source: SensorSource;
+  /** Hardware only; null for virtual sensors. */
+  batteryLevel: number | null;
   firmware: string;
   active: boolean;
 }
 
-/** A sensor enriched by `GET /sensors/live`. */
-export interface LiveSensor extends Sensor {
-  score: number;
+/** A sensor enriched by `GET /sensors/live`. Value and score are null before the first reading. */
+export interface LiveSensor extends Omit<Sensor, 'currentValue'> {
+  currentValue: number | null;
+  score: number | null;
   breached: boolean;
   stale: boolean;
+}
+
+/** `POST /sensors/refresh`. */
+export interface SensorRefreshResult {
+  live: number;
+  simulated: number;
+  anomalies: number;
+  stale: number;
+  simulationEnabled: boolean;
+  /** Upstream problems, e.g. "Cubbon Park — air quality: Timed out after 8s". */
+  errors: string[];
 }
 
 export interface SensorReadingPoint {
@@ -395,6 +499,8 @@ export interface LiveSensorsResponse {
     online: number;
     warning: number;
     offline: number;
+    maintenance: number;
+    bySource: Partial<Record<SensorSource, number>>;
     averageScoreByType: Record<string, number>;
   };
 }
@@ -422,6 +528,7 @@ export interface CitizenReport extends Timestamped {
   linkedIncident: { id: string; referenceCode: string; status: string } | string | null;
   officialResponse: string;
   resolvedAt: string | null;
+  demo?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +572,9 @@ export interface Incident extends Timestamped {
   resolutionNotes: string;
   images: string[];
   timeline: TimelineEntry[];
+  /** Upvotes on the citizen report this incident came from. */
+  upvotes: number;
+  demo?: boolean;
 }
 
 /** The factor breakdown returned by `priority.service.js`. */
@@ -499,6 +609,7 @@ export interface Alert extends Timestamped {
   occurrences: number;
   acknowledgedAt: string | null;
   resolvedAt: string | null;
+  demo?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -533,6 +644,7 @@ export interface WorkOrder extends Timestamped {
   sourceIncident: { id: string; referenceCode: string } | string | null;
   recurrence: 'none' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
   completionNotes: string;
+  demo?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -547,10 +659,12 @@ export interface EcoReport extends Timestamped {
   type: EcoReportType;
   summary: string;
   park: ParkRef | string | null;
+  author?: UserRef | string | null;
   authorName: string;
   periodStart: string | null;
   periodEnd: string | null;
-  metrics: Record<string, number | string>;
+  /** Frozen snapshot — see backend/src/services/report.service.js for the shape. */
+  metrics: Record<string, unknown>;
   findings: string[];
   recommendations: string[];
   status: 'draft' | 'published' | 'archived';
@@ -561,12 +675,13 @@ export interface EcoReport extends Timestamped {
 // Module 1 — Dashboard
 // ---------------------------------------------------------------------------
 
+/** Each is null when its inputs are missing — render "No data", never 0. */
 export interface HealthSubIndices {
-  airQuality: number;
-  waterQuality: number;
-  soilHealth: number;
-  treeHealth: number;
-  biodiversity: number;
+  airQuality: number | null;
+  waterQuality: number | null;
+  soilHealth: number | null;
+  treeHealth: number | null;
+  biodiversity: number | null;
 }
 
 export interface HealthContribution {
@@ -579,23 +694,26 @@ export interface HealthContribution {
 export interface Kpi {
   key: string;
   label: string;
-  value: number;
+  /** null = no data. */
+  value: number | null;
   unit: string;
   score: number | null;
   icon: string;
+  source?: SensorSource | null;
 }
 
 export interface DashboardOverview {
   scope: 'park' | 'citywide';
   health: {
-    score: number;
-    grade: Grade;
+    score: number | null;
+    grade: Grade | null;
     subIndices: HealthSubIndices;
     weights: Record<string, number>;
     contributions: HealthContribution[];
     computedAt: string;
   };
-  airQuality: { aqi: number; score: number; label: string; advice: string };
+  /** null when no AQI sensor has reported. */
+  airQuality: { aqi: number; score: number; label: string; advice: string } | null;
   biodiversity: {
     score: number;
     richness: number;
@@ -624,22 +742,23 @@ export interface DashboardOverview {
     id: string;
     name: string;
     slug: string;
-    score: number;
-    grade: Grade;
-    biodiversity: number;
+    score: number | null;
+    grade: Grade | null;
+    biodiversity: number | null;
     areaAcres: number;
-    weeklyVisitors: number;
+    weeklyVisitors: number | null;
   }[];
 }
 
+/** A null value is a gap in that series (no readings that day). */
 export interface TrendPoint {
   date: string;
-  air: number;
-  water: number;
-  soil: number;
-  noise: number;
-  temperature: number;
-  humidity: number;
+  air: number | null;
+  water: number | null;
+  soil: number | null;
+  noise: number | null;
+  temperature: number | null;
+  humidity: number | null;
 }
 
 export interface ActivityEvent {
@@ -891,6 +1010,16 @@ export interface IntegrationStatus {
 // ---------------------------------------------------------------------------
 // Module 12 — Administration
 // ---------------------------------------------------------------------------
+
+/** `GET /settings/public` — available to every visitor. */
+export interface PublicSettings {
+  organisationName: string;
+  city: string;
+  contactEmail: string;
+  enablePublicReporting: boolean;
+  enableSensorSimulation: boolean;
+  mapDefaultZoom: number;
+}
 
 export interface SystemSettings extends Timestamped {
   key: string;

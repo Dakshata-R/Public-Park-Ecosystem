@@ -54,6 +54,7 @@
  */
 
 const { Observation, Species } = require('../models');
+const { THREATENED_STATUSES } = require('../models/Species');
 const { toObjectId } = require('../utils/objectId');
 
 /** Reference richness: the species count treated as "excellent" for a park. */
@@ -65,6 +66,10 @@ const RICHNESS_REFERENCE = 40;
  * contribute more to the conservation component.
  */
 const CONSERVATION_WEIGHTS = {
+  // Unassessed and cultivated species carry no conservation signal either way.
+  'Not Evaluated': 1,
+  'Data Deficient': 1,
+  'Extinct in the Wild': 1,
   'Least Concern': 1,
   'Near Threatened': 2,
   Vulnerable: 3,
@@ -256,7 +261,7 @@ async function analyseBiodiversity({ parkId, since } = {}) {
     conservationComponent: Math.round(conservationComponent * 10000) / 10000,
     score: biodiversityScore(indices, conservationComponent),
     invasiveCount: grouped.filter((g) => g.isInvasive).reduce((s, g) => s + g.count, 0),
-    threatenedSpecies: grouped.filter((g) => g.conservationStatus !== 'Least Concern').length,
+    threatenedSpecies: grouped.filter((g) => THREATENED_STATUSES.includes(g.conservationStatus)).length,
     byClass,
     byClassIndices,
     byConservation,

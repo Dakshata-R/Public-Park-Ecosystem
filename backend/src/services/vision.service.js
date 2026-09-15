@@ -18,24 +18,30 @@
  *      rule-based fire detection.
  *
  * Neither is a stand-in. Change the image and both change. `ai-inference`
- * combines them into the task vocabularies.
+ * maps them onto the task vocabularies.
  *
  * ---------------------------------------------------------------------------
- * Offline operation
+ * Runtime
  * ---------------------------------------------------------------------------
+ * TensorFlow.js runs on its WebAssembly backend: ~30–80 ms per image on a
+ * laptop CPU, against ~2 s for the pure-JavaScript backend, with bit-identical
+ * output and no native compilation step. If WebAssembly cannot initialise the
+ * service falls back to the JavaScript backend and says so in the log.
+ *
  * The checkpoint (~14 MB) is fetched once from TensorFlow Hub and cached under
- * `backend/.cache/mobilenet-v2/`. Every later start loads it from disk in
- * ~100 ms with no network at all, so a demonstration never depends on the
- * venue's wifi. `warmUp()` does this in the background at boot so the first
+ * `backend/.cache/mobilenet-v2/`. Every later start loads it from disk with no
+ * network at all. `warmUp()` does this in the background at boot so the first
  * real request does not pay for it.
  */
 
 const fs = require('fs');
 const fsp = require('fs/promises');
+const dns = require('dns').promises;
+const net = require('net');
 const path = require('path');
 const tf = require('@tensorflow/tfjs');
 const { IMAGENET_CLASSES } = require('@tensorflow-models/mobilenet/dist/imagenet_classes');
-const jpegDecode = require('jpeg-js');
+const jpeg = require('jpeg-js');
 const { PNG } = require('pngjs');
 
 const logger = require('../utils/logger');
@@ -45,16 +51,51 @@ const ApiError = require('../utils/ApiError');
 const MODEL_BASE = 'https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/2';
 const CACHE_DIR = path.resolve(__dirname, '../../.cache/mobilenet-v2');
 
+/** Recorded on every detection so a result stays traceable to its weights. */
+const MODEL_CARD = {
+  name: 'MobileNetV2 1.0 (ImageNet-1k)',
+  version: 'tfhub:imagenet/mobilenet_v2_100_224/classification/2',
+  inputSize: 224,
+  source: 'Google, via TensorFlow Hub',
+};
+
 const INPUT_SIZE = 224;
-/** Largest image we will pull down, to bound memory and time. */
-const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+/** Largest image accepted, to bound memory and time. */
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 15000;
+const MAX_REDIRECTS = 3;
 /** Pixels are sampled on a stride so statistics cost is bounded on huge photos. */
 const MAX_STAT_SAMPLES = 240_000;
+/** Longest side of the copy that is stored and served back to the browser. */
+const STORED_MAX_SIDE = 640;
 
 // ---------------------------------------------------------------------------
-// Model loading and caching
+// Backend selection and model loading
 // ---------------------------------------------------------------------------
+
+let backendPromise = null;
+
+/** Prefer WebAssembly; fall back to the JavaScript CPU backend. */
+function initBackend() {
+  if (backendPromise) return backendPromise;
+
+  backendPromise = (async () => {
+    try {
+      require('@tensorflow/tfjs-backend-wasm');
+      if (await tf.setBackend('wasm')) {
+        await tf.ready();
+        return tf.getBackend();
+      }
+    } catch (err) {
+      logger.warn(`TensorFlow.js WebAssembly backend unavailable (${err.message}); using the slower CPU backend.`);
+    }
+    await tf.setBackend('cpu');
+    await tf.ready();
+    return tf.getBackend();
+  })();
+
+  return backendPromise;
+}
 
 let modelPromise = null;
 let modelStatus = { state: 'idle', loadedAt: null, source: null, error: null };
@@ -66,7 +107,6 @@ async function downloadCheckpoint() {
   const res = await fetch(`${MODEL_BASE}/model.json?tfjs-format=file`);
   if (!res.ok) throw new Error(`model.json responded ${res.status}`);
   const modelJson = await res.json();
-  await fsp.writeFile(path.join(CACHE_DIR, 'model.json'), JSON.stringify(modelJson));
 
   const shards = modelJson.weightsManifest.flatMap((group) => group.paths);
   for (const shard of shards) {
@@ -75,6 +115,8 @@ async function downloadCheckpoint() {
     await fsp.writeFile(path.join(CACHE_DIR, shard), Buffer.from(await shardRes.arrayBuffer()));
   }
 
+  // Written last, so an interrupted download is never mistaken for a cache hit.
+  await fsp.writeFile(path.join(CACHE_DIR, 'model.json'), JSON.stringify(modelJson));
   logger.info(`Vision model cached (${shards.length} shards) → ${CACHE_DIR}`);
 }
 
@@ -97,19 +139,14 @@ function diskHandler(dir) {
         }
       }
 
-      const total = buffers.reduce((n, b) => n + b.length, 0);
-      const merged = new Uint8Array(total);
+      const merged = new Uint8Array(buffers.reduce((n, b) => n + b.length, 0));
       let offset = 0;
       for (const b of buffers) {
         merged.set(new Uint8Array(b), offset);
         offset += b.length;
       }
 
-      return {
-        modelTopology: modelJson.modelTopology,
-        weightSpecs,
-        weightData: merged.buffer,
-      };
+      return { modelTopology: modelJson.modelTopology, weightSpecs, weightData: merged.buffer };
     },
   };
 }
@@ -128,7 +165,7 @@ function loadModel() {
     modelStatus = { ...modelStatus, state: 'loading', error: null };
 
     try {
-      await tf.ready();
+      await initBackend();
 
       const cached = isCached();
       if (!cached) {
@@ -166,17 +203,39 @@ function warmUp() {
   });
 }
 
-const modelState = () => ({ ...modelStatus, cached: isCached(), backend: tf.getBackend() || null });
+const modelState = () => ({ ...modelStatus, cached: isCached(), backend: tf.getBackend() || null, card: MODEL_CARD });
 
 // ---------------------------------------------------------------------------
-// Image fetching and decoding
+// Image input — uploads (data URLs) and remote URLs
 // ---------------------------------------------------------------------------
 
 /**
- * Pull an image over HTTP with a timeout and a size ceiling.
- * @returns {Promise<{buffer: Buffer, contentType: string}>}
+ * True for addresses a server-side fetch must never reach: loopback, private
+ * ranges, link-local (cloud metadata lives at 169.254.169.254), CGNAT,
+ * multicast and unspecified.
  */
-async function fetchImage(url) {
+function isPrivateAddress(address) {
+  if (net.isIPv4(address)) {
+    const [a, b] = address.split('.').map(Number);
+    return (
+      a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    );
+  }
+  const lower = address.toLowerCase();
+  if (lower.startsWith('::ffff:')) return isPrivateAddress(lower.slice(7));
+  return (
+    lower === '::' || lower === '::1' ||
+    lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80') ||
+    lower.startsWith('ff')
+  );
+}
+
+/** Reject URLs whose host resolves to an internal address. */
+async function assertPublicUrl(url) {
   let parsed;
   try {
     parsed = new URL(url);
@@ -184,46 +243,92 @@ async function fetchImage(url) {
     throw ApiError.badRequest('`imageUrl` is not a valid URL');
   }
   if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw ApiError.badRequest('`imageUrl` must be an http(s) URL');
+    throw ApiError.badRequest('`imageUrl` must be an http(s) URL or an uploaded image');
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  let res;
+  const host = parsed.hostname.replace(/^\[|\]$/g, '');
+  let addresses;
   try {
-    res = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'GreenPulse/1.0 (urban ecology monitoring; academic project)' },
-    });
-  } catch (err) {
-    throw ApiError.badRequest(
-      err.name === 'AbortError'
-        ? 'The image could not be downloaded within 15 seconds'
-        : `The image could not be downloaded: ${err.message}`
-    );
-  } finally {
-    clearTimeout(timer);
+    addresses = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true });
+  } catch {
+    throw ApiError.badRequest(`The image host '${host}' could not be resolved`);
+  }
+  if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) {
+    throw ApiError.badRequest('Images can only be fetched from public internet addresses');
+  }
+  return parsed;
+}
+
+/**
+ * Pull an image over HTTP with a timeout, a size ceiling and redirect
+ * re-validation (a public URL must not be allowed to redirect inwards).
+ * @returns {Promise<Buffer>}
+ */
+async function fetchImage(url) {
+  let current = url;
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    await assertPublicUrl(current);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(current, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: { 'User-Agent': 'GreenPulse/1.0 (urban ecology monitoring; academic project)' },
+      });
+
+      if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+        current = new URL(res.headers.get('location'), current).toString();
+        continue;
+      }
+      if (!res.ok) {
+        throw ApiError.badRequest(`The image URL responded ${res.status} ${res.statusText}`);
+      }
+      if (Number(res.headers.get('content-length') || 0) > MAX_IMAGE_BYTES) {
+        throw ApiError.badRequest(`The image is larger than the ${MAX_IMAGE_BYTES / 1024 / 1024} MB limit`);
+      }
+
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length > MAX_IMAGE_BYTES) {
+        throw ApiError.badRequest(`The image is larger than the ${MAX_IMAGE_BYTES / 1024 / 1024} MB limit`);
+      }
+      if (buffer.length === 0) throw ApiError.badRequest('The image URL returned an empty body');
+      return buffer;
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      throw ApiError.badRequest(
+        err.name === 'AbortError'
+          ? `The image could not be downloaded within ${FETCH_TIMEOUT_MS / 1000} seconds`
+          : `The image could not be downloaded: ${err.message}`
+      );
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
-  if (!res.ok) {
-    throw ApiError.badRequest(`The image URL responded ${res.status} ${res.statusText}`);
-  }
+  throw ApiError.badRequest(`The image URL redirected more than ${MAX_REDIRECTS} times`);
+}
 
-  const declared = Number(res.headers.get('content-length') || 0);
-  if (declared > MAX_IMAGE_BYTES) {
-    throw ApiError.badRequest(`The image is larger than the ${MAX_IMAGE_BYTES / 1e6} MB limit`);
-  }
-
-  const buffer = Buffer.from(await res.arrayBuffer());
+/** Decode a `data:image/…;base64,…` URL. */
+function decodeDataUrl(dataUrl) {
+  const match = /^data:image\/[a-z0-9.+-]+;base64,([a-z0-9+/=\s]+)$/i.exec(dataUrl);
+  if (!match) throw ApiError.badRequest('The uploaded image is not a valid base64 data URL');
+  const buffer = Buffer.from(match[1], 'base64');
+  if (buffer.length === 0) throw ApiError.badRequest('The uploaded image is empty');
   if (buffer.length > MAX_IMAGE_BYTES) {
-    throw ApiError.badRequest(`The image is larger than the ${MAX_IMAGE_BYTES / 1e6} MB limit`);
+    throw ApiError.badRequest(`The image is larger than the ${MAX_IMAGE_BYTES / 1024 / 1024} MB limit`);
   }
-  if (buffer.length === 0) {
-    throw ApiError.badRequest('The image URL returned an empty body');
-  }
+  return buffer;
+}
 
-  return { buffer, contentType: res.headers.get('content-type') || '' };
+/** Resolve an image reference — upload or URL — to raw bytes. */
+async function loadImageBytes(input) {
+  if (typeof input !== 'string' || !input.trim()) throw ApiError.badRequest('An image is required');
+  const trimmed = input.trim();
+  return trimmed.startsWith('data:') ? decodeDataUrl(trimmed) : fetchImage(trimmed);
 }
 
 /**
@@ -235,19 +340,18 @@ async function fetchImage(url) {
  */
 function decodeImage(buffer) {
   const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8;
-  const isPng =
-    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
 
   if (!isJpeg && !isPng) {
-    const head = buffer.slice(0, 64).toString('utf8').trim().slice(0, 40);
+    const head = buffer.slice(0, 64).toString('utf8').trim();
     throw ApiError.badRequest(
-      `That URL did not return a JPEG or PNG image${head.startsWith('<') ? ' (it returned a web page)' : ''}`
+      `Only JPEG and PNG images can be analysed${head.startsWith('<') ? ' (that URL returned a web page)' : ''}`
     );
   }
 
   try {
     if (isJpeg) {
-      const raw = jpegDecode.decode(buffer, { useTArray: true, formatAsRGBA: false });
+      const raw = jpeg.decode(buffer, { useTArray: true, formatAsRGBA: false, maxMemoryUsageInMB: 512 });
       return { data: raw.data, width: raw.width, height: raw.height, format: 'jpeg' };
     }
 
@@ -262,6 +366,57 @@ function decodeImage(buffer) {
   } catch (err) {
     throw ApiError.badRequest(`The image could not be decoded: ${err.message}`);
   }
+}
+
+/**
+ * Bilinear resample of packed RGB so the longest side is at most `maxSide`.
+ * Returns the input untouched when it is already small enough.
+ */
+function resizeRgb({ data, width, height }, maxSide) {
+  const scale = Math.min(1, maxSide / Math.max(width, height));
+  if (scale === 1) return { data, width, height };
+
+  const outW = Math.max(1, Math.round(width * scale));
+  const outH = Math.max(1, Math.round(height * scale));
+  const out = new Uint8Array(outW * outH * 3);
+  const xRatio = (width - 1) / Math.max(1, outW - 1);
+  const yRatio = (height - 1) / Math.max(1, outH - 1);
+
+  for (let y = 0; y < outH; y += 1) {
+    const sy = y * yRatio;
+    const y0 = Math.floor(sy);
+    const y1 = Math.min(height - 1, y0 + 1);
+    const fy = sy - y0;
+    for (let x = 0; x < outW; x += 1) {
+      const sx = x * xRatio;
+      const x0 = Math.floor(sx);
+      const x1 = Math.min(width - 1, x0 + 1);
+      const fx = sx - x0;
+      for (let c = 0; c < 3; c += 1) {
+        const tl = data[(y0 * width + x0) * 3 + c];
+        const tr = data[(y0 * width + x1) * 3 + c];
+        const bl = data[(y1 * width + x0) * 3 + c];
+        const br = data[(y1 * width + x1) * 3 + c];
+        const top = tl + (tr - tl) * fx;
+        const bottom = bl + (br - bl) * fx;
+        out[(y * outW + x) * 3 + c] = Math.round(top + (bottom - top) * fy);
+      }
+    }
+  }
+
+  return { data: out, width: outW, height: outH };
+}
+
+/** Encode packed RGB as a baseline JPEG. */
+function encodeJpeg({ data, width, height }, quality = 82) {
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let i = 0, j = 0; i < data.length; i += 3, j += 4) {
+    rgba[j] = data[i];
+    rgba[j + 1] = data[i + 1];
+    rgba[j + 2] = data[i + 2];
+    rgba[j + 3] = 255;
+  }
+  return jpeg.encode({ data: rgba, width, height }, quality).data;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,10 +453,15 @@ function rgbToHsv(r, g, b) {
  * Both rise with green biomass and are the standard cheap proxies for canopy
  * vigour in RGB-only plant phenotyping.
  *
+ * Foliage states are disjoint HSV bands — green (healthy), yellow (chlorotic)
+ * and brown (necrotic) — so their fractions can be compared directly.
+ *
  * Flame chromaticity follows the rule set of Chen, Wu & Chiou (2004):
  * R > G > B with R above a floor, and saturation increasing as R saturates.
- * It is deliberately permissive — the false positives it produces on sunsets
- * and orange plumage are removed later by the CNN gate in `ai-inference`.
+ * It is deliberately permissive — orange plumage and sunsets pass it. A
+ * stricter variant (bright, saturated, hue ≤ 50°) is reported alongside it,
+ * and `ai-inference` uses only that one, and only scaled by the CNN's own
+ * fire evidence.
  */
 function describePixels(data, width, height) {
   const totalPixels = width * height;
@@ -316,6 +476,7 @@ function describePixels(data, width, height) {
   let chlorotic = 0;
   let necrotic = 0;
   let flame = 0;
+  let strictFlame = 0;
   let smoke = 0;
   let sky = 0;
   const hueHistogram = new Array(36).fill(0);
@@ -338,12 +499,12 @@ function describePixels(data, width, height) {
     satSum += s;
     hueHistogram[Math.min(35, Math.floor(h / 10))] += 1;
 
-    // Foliage states. The bands are disjoint so the fractions can be compared.
     if (h >= 70 && h <= 165 && s >= 0.18 && v >= 0.12) healthyGreen += 1;
     else if (h >= 38 && h < 70 && s >= 0.3 && v >= 0.3) chlorotic += 1;
     else if (h >= 10 && h < 38 && s >= 0.2 && v < 0.55) necrotic += 1;
 
     if (r > 150 && r > g && g > b && s >= ((255 - r) * 0.2) / 255) flame += 1;
+    if (r > 190 && r >= g && g >= b && h <= 50 && s > 0.45 && v > 0.7) strictFlame += 1;
     if (s < 0.12 && v > 0.35 && v < 0.88) smoke += 1;
     if (h >= 185 && h <= 250 && s >= 0.15 && v >= 0.45) sky += 1;
   }
@@ -368,6 +529,7 @@ function describePixels(data, width, height) {
     chloroticFraction: fraction(chlorotic),
     necroticFraction: fraction(necrotic),
     flameFraction: fraction(flame),
+    strictFlameFraction: fraction(strictFlame),
     smokeFraction: fraction(smoke),
     skyFraction: fraction(sky),
     meanValue: round(valueSum / sampled),
@@ -399,53 +561,52 @@ function softmaxOf(logits) {
 
 /**
  * Run MobileNetV2 over decoded pixels.
- * @returns {Promise<Array<{label: string, probability: number}>>} top-k, descending
+ * @returns {Promise<Float64Array>} 1000 ImageNet probabilities, index-aligned with IMAGENET_CLASSES
  */
-async function classify(model, decoded, topK = 10) {
+async function classify(model, decoded) {
   const { data, width, height } = decoded;
 
-  const probabilities = tf.tidy(() => {
+  const output = tf.tidy(() => {
     const pixels = tf.tensor3d(data, [height, width, 3], 'int32');
     // MobileNetV2 on TF Hub expects float input scaled to [0, 1].
-    const batch = tf.image
-      .resizeBilinear(pixels, [INPUT_SIZE, INPUT_SIZE])
-      .toFloat()
-      .div(255)
-      .expandDims(0);
+    const batch = tf.image.resizeBilinear(pixels, [INPUT_SIZE, INPUT_SIZE]).toFloat().div(255).expandDims(0);
     return model.predict(batch);
   });
 
-  const logits = await probabilities.data();
-  probabilities.dispose();
+  const logits = await output.data();
+  output.dispose();
 
   // The TF Hub classification head emits 1001 units: index 0 is the
   // "background" class that ImageNet-1k does not have.
-  const offset = logits.length === 1001 ? 1 : 0;
   const probs = softmaxOf(logits);
+  return logits.length === 1001 ? probs.subarray(1) : probs;
+}
 
-  const ranked = [];
-  for (let i = offset; i < probs.length; i += 1) {
-    ranked.push({ label: IMAGENET_CLASSES[i - offset], probability: probs[i] });
-  }
-  ranked.sort((a, b) => b.probability - a.probability);
-
-  return ranked.slice(0, topK).map((p) => ({
-    label: p.label,
-    probability: Math.round(p.probability * 100000) / 100000,
+/** The `k` most probable ImageNet classes, descending. */
+function topClasses(probs, k = 10) {
+  const indices = Array.from(probs.keys()).sort((a, b) => probs[b] - probs[a]).slice(0, k);
+  return indices.map((index) => ({
+    index,
+    label: IMAGENET_CLASSES[index],
+    probability: Math.round(probs[index] * 100000) / 100000,
   }));
 }
 
 /**
- * Full analysis of one image: download, decode, CNN, pixel statistics.
+ * Full analysis of one image: load, decode, CNN, pixel statistics, and a
+ * downscaled JPEG copy suitable for storage.
  *
- * @param {string} url
- * @returns {Promise<{imagenet: Array<{label,probability}>, stats: object, image: object, timings: object}>}
+ * @param {string} input An http(s) URL or a `data:image/…;base64,…` upload
  */
-async function describeImage(url) {
-  const fetchedAt = Date.now();
-  const { buffer, contentType } = await fetchImage(url);
-  const fetchMs = Date.now() - fetchedAt;
+async function describeImage(input) {
+  const loadedAt = Date.now();
+  const buffer = await loadImageBytes(input);
+  const fetchMs = Date.now() - loadedAt;
+  return describeBuffer(buffer, { fetchMs });
+}
 
+/** As `describeImage`, for bytes already in memory (seed data, tests). */
+async function describeBuffer(buffer, { fetchMs = 0 } = {}) {
   const decodedAt = Date.now();
   const decoded = decodeImage(buffer);
   const decodeMs = Date.now() - decodedAt;
@@ -470,32 +631,39 @@ async function describeImage(url) {
   }
 
   const inferAt = Date.now();
-  const imagenet = await classify(model, decoded);
+  const probabilities = await classify(model, decoded);
   const inferenceMs = Date.now() - inferAt;
 
+  const stored = resizeRgb(decoded, STORED_MAX_SIDE);
+
   return {
-    imagenet,
+    probabilities,
+    imagenet: topClasses(probabilities),
     stats,
-    image: {
-      width: decoded.width,
-      height: decoded.height,
-      format: decoded.format,
-      bytes: buffer.length,
-      contentType,
-    },
+    image: { width: decoded.width, height: decoded.height, format: decoded.format, bytes: buffer.length },
+    stored: { buffer: encodeJpeg(stored), width: stored.width, height: stored.height },
+    model: { ...MODEL_CARD, backend: tf.getBackend() },
     timings: { fetchMs, decodeMs, statsMs, inferenceMs },
   };
 }
 
 module.exports = {
   describeImage,
+  describeBuffer,
   loadModel,
   warmUp,
   modelState,
-  // exported for tests
+  MODEL_CARD,
+  // exported for tests and the sample-image script
+  isPrivateAddress,
+  assertPublicUrl,
+  decodeDataUrl,
+  decodeImage,
+  resizeRgb,
+  encodeJpeg,
   rgbToHsv,
   describePixels,
-  decodeImage,
   softmaxOf,
+  topClasses,
   INPUT_SIZE,
 };

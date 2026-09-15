@@ -1,0 +1,11 @@
+{
+  "fetchedAt": "2026-09-15T06:39:58.989Z",
+  "window": {
+    "from": "2023-01-01",
+    "to": "2026-09-15"
+  },
+  "parks": 6,
+  "species": 587,
+  "observationRows": 4175,
+  "gbifRecords": 37182
+}

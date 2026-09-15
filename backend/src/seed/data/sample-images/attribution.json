@@ -1,0 +1,294 @@
+[
+  {
+    "file": "fire-grassland-burn.jpg",
+    "use": "seed",
+    "task": "fire",
+    "expected": [
+      "Flames visible",
+      "Smoke visible"
+    ],
+    "title": "Kazi fire.jpg",
+    "author": "gnozef from netherlands",
+    "license": "CC BY 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Kazi_fire.jpg"
+  },
+  {
+    "file": "fire-smoke-plume.jpg",
+    "use": "seed",
+    "task": "fire",
+    "expected": [
+      "Smoke visible"
+    ],
+    "title": "Huge white and gray smoke rising from forest fire.jpg",
+    "author": "U.S. Fish and Wildlife Service",
+    "license": "Public domain",
+    "licenseUrl": "",
+    "source": "https://commons.wikimedia.org/wiki/File:Huge_white_and_gray_smoke_rising_from_forest_fire.jpg"
+  },
+  {
+    "file": "eval-fire-bonfire.jpg",
+    "use": "evaluation",
+    "task": "fire",
+    "expected": [
+      "Flames visible"
+    ],
+    "title": "Closeup of raging flames in a large bonfire. - Flickr - shixart1985.jpg",
+    "author": "Nenad Stojkovic",
+    "license": "CC BY 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Closeup_of_raging_flames_in_a_large_bonfire._-_Flickr_-_shixart1985.jpg"
+  },
+  {
+    "file": "eval-fire-grass-wales.jpg",
+    "use": "evaluation",
+    "task": "fire",
+    "expected": [
+      "Flames visible",
+      "Smoke visible"
+    ],
+    "title": "Grass fire near Dyffryn Castell - geograph.org.uk - 1746708.jpg",
+    "author": "Rudi Winter",
+    "license": "CC BY-SA 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/2.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Grass_fire_near_Dyffryn_Castell_-_geograph.org.uk_-_1746708.jpg"
+  },
+  {
+    "file": "eval-fire-marsh-burn.jpg",
+    "use": "evaluation",
+    "task": "fire",
+    "expected": [
+      "Flames visible"
+    ],
+    "title": "Prescribed burn of marsh grasses showing heavy plant growth with flames and smoke.jpg",
+    "author": "David Menke",
+    "license": "Public domain",
+    "licenseUrl": "",
+    "source": "https://commons.wikimedia.org/wiki/File:Prescribed_burn_of_marsh_grasses_showing_heavy_plant_growth_with_flames_and_smoke.jpg"
+  },
+  {
+    "file": "eval-fire-woolsey.jpg",
+    "use": "evaluation",
+    "task": "fire",
+    "expected": [
+      "Flames visible"
+    ],
+    "title": "Woolsey Flames (54811019352).jpg",
+    "author": "Santa Monica Mountains National Recreation Area",
+    "license": "Public domain",
+    "licenseUrl": "",
+    "source": "https://commons.wikimedia.org/wiki/File:Woolsey_Flames_(54811019352).jpg"
+  },
+  {
+    "file": "eval-fire-bababudan-hills.jpg",
+    "use": "evaluation",
+    "task": "fire",
+    "expected": [
+      "Flames visible",
+      "Smoke visible"
+    ],
+    "title": "Fire in montane rainforest Bababhudan hills v1.jpg",
+    "author": "Anand Osuri",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Fire_in_montane_rainforest_Bababhudan_hills_v1.jpg"
+  },
+  {
+    "file": "eval-nofire-sunset-paddy.jpg",
+    "use": "evaluation",
+    "task": "fire",
+    "expected": [
+      "No fire or smoke detected"
+    ],
+    "title": "Colorful sky with orange clouds reflecting in the water of a paddy field, at sunset, Vang Vieng, Laos.jpg",
+    "author": "Basile Morin",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Colorful_sky_with_orange_clouds_reflecting_in_the_water_of_a_paddy_field,_at_sunset,_Vang_Vieng,_Laos.jpg"
+  },
+  {
+    "file": "eval-nofire-sunset-falls.jpg",
+    "use": "evaluation",
+    "task": "fire",
+    "expected": [
+      "No fire or smoke detected"
+    ],
+    "title": "Li Phi falls at sunset with orange sky and a fishing boat in Don Khon Si Phan Don Laos.jpg",
+    "author": "Basile Morin",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Li_Phi_falls_at_sunset_with_orange_sky_and_a_fishing_boat_in_Don_Khon_Si_Phan_Don_Laos.jpg"
+  },
+  {
+    "file": "eval-nofire-orange-leaves.jpg",
+    "use": "evaluation",
+    "task": "fire",
+    "expected": [
+      "No fire or smoke detected"
+    ],
+    "title": "Orange autumn leaves (51958670387).jpg",
+    "author": "Raita Futo from Tokyo, Japan",
+    "license": "CC BY 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Orange_autumn_leaves_(51958670387).jpg"
+  },
+  {
+    "file": "eval-nofire-leaves-tamil-nadu.jpg",
+    "use": "evaluation",
+    "task": "fire",
+    "expected": [
+      "No fire or smoke detected"
+    ],
+    "title": "Autumn leaves Tamilnadu India.jpg",
+    "author": "Gabriel Fredrick Sindahnai",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Autumn_leaves_Tamilnadu_India.jpg"
+  },
+  {
+    "file": "tree-canopy-cubbon-park.jpg",
+    "use": "seed",
+    "task": "tree-disease",
+    "expected": [
+      "Healthy green foliage"
+    ],
+    "title": "Tree canopy at Cubbon park, Bengaluru (2026) 01.jpg",
+    "author": "Gpkp",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Tree_canopy_at_Cubbon_park,_Bengaluru_(2026)_01.jpg"
+  },
+  {
+    "file": "tree-chlorosis-ficus.jpg",
+    "use": "seed",
+    "task": "tree-disease",
+    "expected": [
+      "Yellowing foliage (chlorosis)"
+    ],
+    "title": "Ficus benjamina with chlorosis (1 of 2).jpg",
+    "author": "Trio3D",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Ficus_benjamina_with_chlorosis_(1_of_2).jpg"
+  },
+  {
+    "file": "tree-dry-dead.jpg",
+    "use": "seed",
+    "task": "tree-disease",
+    "expected": [
+      "Browning foliage (necrosis or dieback)"
+    ],
+    "title": "A dry aging tree in Nairobi National Park.jpg",
+    "author": "G-lumi-ke",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:A_dry_aging_tree_in_Nairobi_National_Park.jpg"
+  },
+  {
+    "file": "wildlife-indian-pond-heron.jpg",
+    "use": "seed",
+    "task": "wildlife",
+    "expected": [
+      "Bird"
+    ],
+    "title": "Indian pond heron (Ardeola grayii) India.jpg",
+    "author": "Charles J. Sharp",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Indian_pond_heron_(Ardeola_grayii)_India.jpg"
+  },
+  {
+    "file": "wildlife-green-bee-eater.jpg",
+    "use": "seed",
+    "task": "wildlife",
+    "expected": [
+      "Bird"
+    ],
+    "title": "007 Asian green bee-eater in Jim Corbett National Park Photo by Giles Laurent.jpg",
+    "author": "Giles Laurent",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:007_Asian_green_bee-eater_in_Jim_Corbett_National_Park_Photo_by_Giles_Laurent.jpg"
+  },
+  {
+    "file": "wildlife-plain-tiger.jpg",
+    "use": "seed",
+    "task": "wildlife",
+    "expected": [
+      "Butterfly or moth"
+    ],
+    "title": "Danaus chrysippus Female by kadavoor.jpg",
+    "author": "Jeevan Jose, Kerala, India",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Danaus_chrysippus_Female_by_kadavoor.jpg"
+  },
+  {
+    "file": "plant-flowering-tree-cubbon.jpg",
+    "use": "seed",
+    "task": "plant-id",
+    "expected": [
+      "Flowering plant",
+      "Foliage (species outside the model vocabulary)"
+    ],
+    "title": "Flowering tree at Cubbon Park.jpg",
+    "author": "SerChevalerie",
+    "license": "CC0",
+    "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+    "source": "https://commons.wikimedia.org/wiki/File:Flowering_tree_at_Cubbon_Park.jpg"
+  },
+  {
+    "file": "plant-lantana-camara.jpg",
+    "use": "seed",
+    "task": "plant-id",
+    "expected": [
+      "Flowering plant",
+      "Foliage (species outside the model vocabulary)"
+    ],
+    "title": "LantanaFlowerLeaves.jpg",
+    "author": "Alvesgaspar",
+    "license": "CC BY-SA 3.0",
+    "licenseUrl": "http://creativecommons.org/licenses/by-sa/3.0/",
+    "source": "https://commons.wikimedia.org/wiki/File:LantanaFlowerLeaves.jpg"
+  },
+  {
+    "file": "waste-garbage-dump.jpg",
+    "use": "seed",
+    "task": "waste",
+    "expected": [
+      "Litter recognised (bottles, bags, packaging)"
+    ],
+    "title": "Garbage dump Ooty.jpg",
+    "author": "Anand Osuri",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Garbage_dump_Ooty.jpg"
+  },
+  {
+    "file": "waste-plastic-bottle.jpg",
+    "use": "seed",
+    "task": "waste",
+    "expected": [
+      "Litter recognised (bottles, bags, packaging)"
+    ],
+    "title": "Littered plastic bottle.jpg",
+    "author": "Kwameghana(Bright Kwame Ayisi)",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Littered_plastic_bottle.jpg"
+  },
+  {
+    "file": "waste-overflowing-bin.jpg",
+    "use": "seed",
+    "task": "waste",
+    "expected": [
+      "Waste bin recognised",
+      "Litter recognised (bottles, bags, packaging)"
+    ],
+    "title": "Overflowing paper bin.jpg",
+    "author": "Mateusz Konieczny",
+    "license": "CC0",
+    "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+    "source": "https://commons.wikimedia.org/wiki/File:Overflowing_paper_bin.jpg"
+  }
+]

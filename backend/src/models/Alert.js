@@ -43,6 +43,9 @@ const alertSchema = new mongoose.Schema(
     acknowledgedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     acknowledgedAt: { type: Date, default: null },
     resolvedAt: { type: Date, default: null },
+
+    /** True when raised from a demonstration record at seed time. */
+    demo: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

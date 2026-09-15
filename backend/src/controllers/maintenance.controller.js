@@ -9,13 +9,25 @@ const { createCrudController, normaliseId } = require('./crud.factory');
 const asyncHandler = require('../middleware/asyncHandler');
 const { ok } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
+const { nextCode, year } = require('../utils/sequence');
+const { queryObjectId } = require('../utils/objectId');
 
-async function generateOrderCode() {
-  const year = new Date().getFullYear();
-  const count = await WorkOrder.countDocuments({
-    createdAt: { $gte: new Date(`${year}-01-01T00:00:00.000Z`) },
-  });
-  return `WO-${year}-${String(count + 1).padStart(4, '0')}`;
+const generateOrderCode = () =>
+  nextCode({ model: WorkOrder, field: 'orderCode', prefix: `WO-${year()}` });
+
+/**
+ * A scheduled order becomes overdue the moment its date passes, not the next
+ * time someone happens to save it. Run before every read that reports status,
+ * and on a timer by the server.
+ *
+ * @returns {Promise<number>} orders newly marked overdue
+ */
+async function markOverdueOrders(now = new Date()) {
+  const result = await WorkOrder.updateMany(
+    { status: 'scheduled', scheduledDate: { $lt: now } },
+    { $set: { status: 'overdue' } }
+  );
+  return result.modifiedCount || 0;
 }
 
 const crud = createCrudController({
@@ -76,8 +88,9 @@ const getCalendar = asyncHandler(async (req, res) => {
   const end = new Date(Date.UTC(year, month, 1));
 
   const filter = { scheduledDate: { $gte: start, $lt: end } };
-  if (req.query.park) filter.park = req.query.park;
+  if (req.query.park) filter.park = queryObjectId(req.query.park, 'park');
 
+  await markOverdueOrders();
   const orders = await WorkOrder.find(filter)
     .sort({ scheduledDate: 1 })
     .populate('park', 'name')
@@ -97,7 +110,10 @@ const getCalendar = asyncHandler(async (req, res) => {
 /** GET /api/maintenance/stats */
 const getStats = asyncHandler(async (req, res) => {
   const match = {};
-  if (req.query.park) match.park = req.query.park;
+  const park = queryObjectId(req.query.park, 'park');
+  if (park) match.park = park;
+
+  await markOverdueOrders();
 
   const [byStatus, byType, cost, workload] = await Promise.all([
     WorkOrder.aggregate([{ $match: match }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
@@ -180,4 +196,10 @@ const updateProgress = asyncHandler(async (req, res) => {
   return ok(res, order);
 });
 
-module.exports = { ...crud, getCalendar, getStats, updateProgress, generateOrderCode };
+/** GET /api/maintenance — sweeps overdue orders first, so the list is current. */
+const list = asyncHandler(async (req, res, next) => {
+  await markOverdueOrders();
+  return crud.list(req, res, next);
+});
+
+module.exports = { ...crud, list, getCalendar, getStats, updateProgress, generateOrderCode, markOverdueOrders };

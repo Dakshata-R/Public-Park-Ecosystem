@@ -39,6 +39,8 @@ async function startTestServer() {
   });
 
   baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  // Media URLs (e.g. /api/ai/images/:id) are root-relative; tests resolve them here.
+  process.env.TEST_API_ORIGIN = `http://127.0.0.1:${server.address().port}`;
   return baseUrl;
 }
 

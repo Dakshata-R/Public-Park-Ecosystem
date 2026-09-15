@@ -31,7 +31,7 @@ async function startMemoryServer() {
   } catch (err) {
     throw new Error(
       'MONGODB_URI is not set and `mongodb-memory-server` is not installed.\n' +
-        'Either set MONGODB_URI in server/.env or run `npm install` inside server/.'
+        'Either set MONGODB_URI in backend/.env or run `npm install` (with dev dependencies) inside backend/.'
     );
   }
 

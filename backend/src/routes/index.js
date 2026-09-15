@@ -27,6 +27,8 @@ const MODULES = [
   { path: '/analytics',    router: require('./analytics.routes'),    module: '10 · Analytics & Reports' },
   { path: '/assistant',    router: require('./assistant.routes'),    module: '11 · AI Environmental Assistant' },
   { path: '/admin',        router: require('./admin.routes'),        module: '12 · Administration' },
+  { path: '/users',        router: require('./user.routes'),         module: 'Staff directory' },
+  { path: '/settings',     router: require('./settings.routes'),     module: 'Public configuration' },
   { path: '/integrations', router: require('./integration.routes'),  module: 'External APIs · Weather, air quality, GBIF, geocoding' },
 ];
 
@@ -60,7 +62,7 @@ router.get('/', (_req, res) => {
         'Public Park Ecosystem Health Monitoring System & Urban Biodiversity Mapping Portal',
       version: '1.0.0',
       modules: MODULES.map(({ path, module }) => ({ module, basePath: `/api${path}` })),
-      documentation: '/docs/api.md',
+      documentation: 'docs/api-reference.md in the repository',
     },
   });
 });

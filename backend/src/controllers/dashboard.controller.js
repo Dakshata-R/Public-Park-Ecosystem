@@ -19,14 +19,14 @@ const { computeEcosystemHealth, healthTrend, gradeFor } = require('../services/e
 const { analyseBiodiversity } = require('../services/biodiversity.service');
 const { describeAqi } = require('../services/aqi.service');
 const { normaliseId } = require('./crud.factory');
-const { toObjectId } = require('../utils/objectId');
+const { queryObjectId } = require('../utils/objectId');
 
 /** GET /api/dashboard/overview?park= */
 const getOverview = asyncHandler(async (req, res) => {
-  const parkId = req.query.park || null;
-  const parkFilter = parkId ? { park: parkId } : {};
   // Aggregation pipelines bypass Mongoose casting, so `$match` needs a real ObjectId.
-  const aggregateParkMatch = parkId ? { park: toObjectId(parkId) } : {};
+  const parkId = queryObjectId(req.query.park, 'park') || null;
+  const parkFilter = parkId ? { park: parkId } : {};
+  const aggregateParkMatch = parkFilter;
 
   const [
     health,
@@ -62,26 +62,31 @@ const getOverview = asyncHandler(async (req, res) => {
       .sort({ priorityScore: -1 }).limit(5).populate('park', 'name').lean(),
     EcoReport.find({ ...parkFilter }).sort({ createdAt: -1 }).limit(5).populate('park', 'name').lean(),
     Park.find({ active: true }).select('name slug scores areaAcres weeklyVisitors location').lean(),
-    Sensor.find({ ...parkFilter, type: 'aqi', active: true, status: { $ne: 'offline' } }).select('currentValue').lean(),
+    Sensor.find({ ...parkFilter, type: 'aqi', active: true, status: { $ne: 'offline' }, lastReadingAt: { $ne: null } })
+      .select('currentValue source lastReadingAt')
+      .lean(),
   ]);
 
   const sensorStatus = Object.fromEntries(sensorCounts.map((s) => [s._id, s.count]));
 
   // Citywide AQI is the mean of reporting AQI sensors — the value a resident
-  // would be quoted for the area as a whole.
+  // would be quoted for the area as a whole. No reporting sensor → unknown,
+  // never "0 AQI", which would read as perfectly clean air.
   const meanAqi = aqiSensors.length
     ? aqiSensors.reduce((sum, s) => sum + s.currentValue, 0) / aqiSensors.length
-    : 0;
+    : null;
+  const hasBiodiversity = biodiversity.richness > 0;
 
   /**
    * KPI tiles. `value` is what the tile displays; `score` is the normalised
    * 0–100 figure the colour band is chosen from, so an AQI tile can show
    * "84 AQI" while still being coloured by how good 84 actually is.
+   * A null `value` means "no data" and must be rendered as such.
    */
   const kpis = [
     { key: 'ecosystemHealth', label: 'Ecosystem Health', value: health.ecosystemHealth, unit: '/100', score: health.ecosystemHealth, icon: 'Leaf' },
-    { key: 'biodiversity', label: 'Biodiversity', value: biodiversity.score, unit: '/100', score: biodiversity.score, icon: 'Bird' },
-    { key: 'airQuality', label: 'Air Quality', value: Math.round(meanAqi), unit: 'AQI', score: health.subIndices.airQuality, icon: 'Wind' },
+    { key: 'biodiversity', label: 'Biodiversity', value: hasBiodiversity ? biodiversity.score : null, unit: '/100', score: hasBiodiversity ? biodiversity.score : null, icon: 'Bird' },
+    { key: 'airQuality', label: 'Air Quality', value: meanAqi === null ? null : Math.round(meanAqi), unit: 'AQI', score: health.subIndices.airQuality, icon: 'Wind', source: aqiSensors[0]?.source || null },
     { key: 'waterQuality', label: 'Water Quality', value: health.subIndices.waterQuality, unit: '/100', score: health.subIndices.waterQuality, icon: 'Droplets' },
     { key: 'soilHealth', label: 'Soil Health', value: health.subIndices.soilHealth, unit: '/100', score: health.subIndices.soilHealth, icon: 'Sprout' },
     { key: 'treeHealth', label: 'Tree Health', value: health.subIndices.treeHealth, unit: '/100', score: health.subIndices.treeHealth, icon: 'TreePine' },
@@ -99,7 +104,7 @@ const getOverview = asyncHandler(async (req, res) => {
       contributions: health.contributions,
       computedAt: health.computedAt,
     },
-    airQuality: describeAqi(meanAqi),
+    airQuality: meanAqi === null ? null : describeAqi(meanAqi),
     biodiversity: {
       score: biodiversity.score,
       richness: biodiversity.richness,
@@ -129,20 +134,20 @@ const getOverview = asyncHandler(async (req, res) => {
         id: String(p._id),
         name: p.name,
         slug: p.slug,
-        score: p.scores?.ecosystemHealth ?? 0,
-        grade: gradeFor(p.scores?.ecosystemHealth ?? 0),
-        biodiversity: p.scores?.biodiversity ?? 0,
+        score: p.scores?.ecosystemHealth ?? null,
+        grade: p.scores?.ecosystemHealth == null ? null : gradeFor(p.scores.ecosystemHealth),
+        biodiversity: p.scores?.biodiversity ?? null,
         areaAcres: p.areaAcres,
         weeklyVisitors: p.weeklyVisitors,
       }))
-      .sort((a, b) => b.score - a.score),
+      .sort((a, b) => (b.score ?? -1) - (a.score ?? -1)),
   });
 });
 
 /** GET /api/dashboard/trend?days=30&park= */
 const getTrend = asyncHandler(async (req, res) => {
   const days = Math.min(365, Math.max(1, Number.parseInt(req.query.days, 10) || 30));
-  const trend = await healthTrend({ parkId: req.query.park || null, days });
+  const trend = await healthTrend({ parkId: queryObjectId(req.query.park, 'park') || null, days });
   return ok(res, trend, { days, points: trend.length });
 });
 
@@ -154,13 +159,17 @@ const getTrend = asyncHandler(async (req, res) => {
  */
 const getActivity = asyncHandler(async (req, res) => {
   const limit = Math.min(50, Math.max(5, Number.parseInt(req.query.limit, 10) || 15));
+  const park = queryObjectId(req.query.park, 'park');
+  const filter = park ? { park } : {};
 
+  // Observations imported in bulk from GBIF are the reference baseline, not
+  // activity in the portal, so the feed shows only sightings logged here.
   const [incidents, reports, orders, detections, observations] = await Promise.all([
-    Incident.find().sort({ createdAt: -1 }).limit(limit).populate('park', 'name').lean(),
-    CitizenReport.find().sort({ createdAt: -1 }).limit(limit).populate('park', 'name').lean(),
-    WorkOrder.find().sort({ createdAt: -1 }).limit(limit).populate('park', 'name').lean(),
-    AiDetection.find().sort({ createdAt: -1 }).limit(limit).populate('park', 'name').lean(),
-    Observation.find().sort({ createdAt: -1 }).limit(limit).populate('park', 'name').populate('species', 'commonName').lean(),
+    Incident.find(filter).sort({ createdAt: -1 }).limit(limit).populate('park', 'name').lean(),
+    CitizenReport.find(filter).sort({ createdAt: -1 }).limit(limit).populate('park', 'name').lean(),
+    WorkOrder.find(filter).sort({ createdAt: -1 }).limit(limit).populate('park', 'name').lean(),
+    AiDetection.find(filter).sort({ createdAt: -1 }).limit(limit).populate('park', 'name').lean(),
+    Observation.find({ ...filter, source: { $ne: 'gbif' } }).sort({ createdAt: -1 }).limit(limit).populate('park', 'name').populate('species', 'commonName').lean(),
   ]);
 
   const events = [

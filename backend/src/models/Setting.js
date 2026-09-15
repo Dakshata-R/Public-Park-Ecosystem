@@ -16,9 +16,11 @@ const settingSchema = new mongoose.Schema(
   {
     key: { type: String, required: true, unique: true, default: 'system' },
 
-    organisationName: { type: String, default: 'Smart City Parks & Environment Department' },
-    city: { type: String, default: 'Smart City' },
-    contactEmail: { type: String, default: 'parks@smartcity.gov' },
+    /** Shown in the interface header and on exported reports. Set by the administrator. */
+    organisationName: { type: String, default: 'GreenPulse Park Monitoring' },
+    city: { type: String, default: 'Bengaluru' },
+    /** Empty until an administrator provides a real address. */
+    contactEmail: { type: String, default: '' },
 
     /**
      * Weights of the Ecosystem Health Index. Must sum to 1; the scoring

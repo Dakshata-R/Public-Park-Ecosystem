@@ -281,9 +281,11 @@ const INTENTS = {
  * @param {string[]} tokens
  * @returns {{intent: string, confidence: number}}
  */
-function classifyIntent(tokens) {
+function classifyIntent(tokens, question = '') {
   const tokenSet = new Set(tokens);
+  const lower = String(question).toLowerCase();
   let best = { intent: 'general', score: 0, hits: 0 };
+  const scores = {};
 
   for (const [intent, lexicon] of Object.entries(INTENTS)) {
     /** The intent's own name, stemmed the same way the tokens were. */
@@ -305,7 +307,32 @@ function classifyIntent(tokens) {
       hits += 1;
     }
 
+    scores[intent] = { score, hits };
     if (score > best.score) best = { intent, score, hits };
+  }
+
+  // Two-word terms carry meaning their words do not: "air quality" is about
+  // air, however many other words the question shares with other intents.
+  const PHRASES = [
+    ['air quality', 'airQuality'],
+    ['water quality', 'health'],
+    ['soil health', 'health'],
+    ['work order', 'maintenance'],
+  ];
+  for (const [phrase, intent] of PHRASES) {
+    if (lower.includes(phrase)) {
+      const boosted = (scores[intent]?.score || 0) + 3;
+      if (boosted > best.score) best = { intent, score: boosted, hits: (scores[intent]?.hits || 0) + 1 };
+    }
+  }
+
+  // Naming a park is how most questions set their scope ("…at Cubbon Park"),
+  // so the generic `parks` intent only wins when nothing more specific matched.
+  if (best.intent === 'parks') {
+    const specific = Object.entries(scores)
+      .filter(([intent, s]) => intent !== 'parks' && s.score > 0)
+      .sort((a, b) => b[1].score - a[1].score)[0];
+    if (specific) best = { intent: specific[0], ...specific[1] };
   }
 
   return {
@@ -314,7 +341,9 @@ function classifyIntent(tokens) {
   };
 }
 
-const percent = (v) => `${Math.round(v * 10) / 10}`;
+const percent = (v) => (v === null || v === undefined ? 'not measured' : `${Math.round(v * 10) / 10}`);
+const round2 = (v) => Math.round(v * 100) / 100;
+const outOf100 = (v) => (v === null || v === undefined ? 'not measured' : `${percent(v)}/100`);
 
 /** Locate a park mentioned in the question, if any. */
 async function resolveMentionedPark(question) {
@@ -339,29 +368,39 @@ async function compose(intent, question, hits) {
     case 'health': {
       const health = await computeEcosystemHealth(park?._id || null);
       const s = health.subIndices;
+      if (health.ecosystemHealth === null) {
+        return `No indicator has data ${scope} yet, so the Ecosystem Health Index cannot be computed.`;
+      }
       return (
         `The Ecosystem Health Index ${scope} is **${health.ecosystemHealth}/100** (${health.grade}).\n\n` +
-        `It is a weighted mean of five sub-indices:\n` +
-        `• Air quality ${percent(s.airQuality)}/100 (weight ${health.weights.air})\n` +
-        `• Water quality ${percent(s.waterQuality)}/100 (weight ${health.weights.water})\n` +
-        `• Soil health ${percent(s.soilHealth)}/100 (weight ${health.weights.soil})\n` +
-        `• Tree health ${percent(s.treeHealth)}/100 (weight ${health.weights.tree})\n` +
-        `• Biodiversity ${percent(s.biodiversity)}/100 (weight ${health.weights.biodiversity})\n\n` +
+        `It is a weighted mean of the sub-indices that have data:\n` +
+        `• Air quality ${outOf100(s.airQuality)} (weight ${round2(health.weights.air)})\n` +
+        `• Water quality ${outOf100(s.waterQuality)} (weight ${round2(health.weights.water)})\n` +
+        `• Soil health ${outOf100(s.soilHealth)} (weight ${round2(health.weights.soil)})\n` +
+        `• Tree health ${outOf100(s.treeHealth)} (weight ${round2(health.weights.tree)})\n` +
+        `• Biodiversity ${outOf100(s.biodiversity)} (weight ${round2(health.weights.biodiversity)})\n\n` +
         `The lowest-scoring component is the one to act on first.`
       );
     }
 
     case 'airQuality': {
-      const health = await computeEcosystemHealth(park?._id || null);
-      const aqiScore = health.sensorScores.aqi;
-      if (aqiScore === undefined) {
+      const filter = { type: 'aqi', active: true, status: { $ne: 'offline' }, lastReadingAt: { $ne: null } };
+      if (park) filter.park = park._id;
+      const sensors = await Sensor.find(filter).populate('park', 'name').lean();
+      if (!sensors.length) {
         return `No air quality sensor is currently reporting ${scope}. Check the Sensors module for offline devices.`;
       }
+      const mean = sensors.reduce((sum, x) => sum + x.currentValue, 0) / sensors.length;
+      const { describeAqi } = require('./aqi.service');
+      const band = describeAqi(mean);
+      const latest = sensors.reduce((a, b) => (a.lastReadingAt > b.lastReadingAt ? a : b));
+      const source = sensors.every((x) => x.source === 'open-meteo')
+        ? 'Readings come from Open-Meteo CAMS pollutant concentrations for each park, scored with the CPCB breakpoints.'
+        : 'Readings include simulated sensors.';
       return (
-        `Air quality ${scope} scores **${percent(health.subIndices.airQuality)}/100**.\n\n` +
-        `That figure blends the AQI sensor reading (${percent(aqiScore)}/100 after CPCB category normalisation) ` +
-        `with the noise index (${percent(health.sensorScores.noise ?? 0)}/100). ` +
-        `AQI is converted rather than used raw because it is an inverted scale — 0 is clean air, 500 is hazardous.`
+        `The AQI ${scope} is **${Math.round(mean)}** — CPCB category **${band.label}**.\n\n` +
+        `${band.advice}\n\n` +
+        `${source} Latest observation: ${new Date(latest.lastReadingAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}.`
       );
     }
 
@@ -370,16 +409,16 @@ async function compose(intent, question, hits) {
       if (!bio.richness) {
         return `No verified species observations have been recorded ${scope} yet. Citizen sightings become countable once an officer verifies them.`;
       }
-      const topSpecies = bio.species.slice(0, 3).map((s) => `${s.commonName} (${s.count})`).join(', ');
+      const topSpecies = bio.species.slice(0, 3).map((s) => `${s.commonName || s.scientificName} (${s.count})`).join(', ');
       return (
         `Biodiversity ${scope} scores **${bio.score}/100**.\n\n` +
         `• Species richness S = ${bio.richness}\n` +
         `• Shannon–Wiener H' = ${bio.shannon} (maximum possible ${bio.shannonMax})\n` +
         `• Pielou evenness J' = ${bio.evenness}\n` +
         `• Gini–Simpson diversity 1−D = ${bio.simpsonDiversity}\n` +
-        `• Threatened species recorded: ${bio.threatenedSpecies}\n\n` +
-        `Most abundant: ${topSpecies}.` +
-        (bio.invasiveCount ? `\n\n⚠ ${bio.invasiveCount} individuals of invasive species have been recorded.` : '')
+        `• Species of elevated IUCN concern: ${bio.threatenedSpecies}\n\n` +
+        `Most recorded: ${topSpecies}. Abundance counts observation records, largely from GBIF (eBird, iNaturalist), plus sightings verified in this portal.` +
+        (bio.invasiveCount ? `\n\n⚠ ${bio.invasiveCount} records belong to species listed as invasive in India (GRIIS).` : '')
       );
     }
 
@@ -450,23 +489,25 @@ async function compose(intent, question, hits) {
         const full = await Park.findById(park._id).lean();
         return (
           `**${full.name}** — ${full.description}\n\n` +
-          `• Area: ${full.areaAcres} acres\n` +
-          `• Weekly visitors: ${full.weeklyVisitors.toLocaleString()}\n` +
-          `• Established: ${full.establishedYear}\n` +
-          `• Facilities: ${(full.facilities || []).join(', ') || 'none recorded'}\n` +
-          `• Ecosystem Health Index: ${full.scores?.ecosystemHealth ?? 0}/100`
+          `• Area: ${full.areaAcres} acres (from the OpenStreetMap boundary)\n` +
+          (full.establishedYear ? `• Established: ${full.establishedYear}\n` : '') +
+          (full.manager ? `• Managed by: ${full.manager}\n` : '') +
+          (full.openingHours ? `• Opening hours: ${full.openingHours}\n` : '') +
+          `• Facilities mapped: ${(full.facilities || []).join(', ') || 'none recorded'}\n` +
+          `• Ecosystem Health Index: ${outOf100(full.scores?.ecosystemHealth)}`
         );
       }
       const parks = await Park.find({ active: true }).sort({ 'scores.ecosystemHealth': -1 }).lean();
       const lines = parks
-        .map((p) => `• ${p.name} — ${p.areaAcres} acres, health ${p.scores?.ecosystemHealth ?? 0}/100`)
+        .map((p) => `• ${p.name} — ${p.areaAcres} acres, health ${outOf100(p.scores?.ecosystemHealth)}`)
         .join('\n');
       return `${parks.length} parks are monitored, ranked by ecosystem health:\n\n${lines}`;
     }
 
     case 'tips': {
       const health = await computeEcosystemHealth(park?._id || null);
-      const weakest = Object.entries(health.subIndices).sort((a, b) => a[1] - b[1])[0];
+      const weakest = Object.entries(health.subIndices).filter(([, v]) => v !== null).sort((a, b) => a[1] - b[1])[0];
+      if (!weakest) return `No indicator has data ${scope} yet, so there is no weakest component to advise on.`;
       const advice = {
         airQuality: 'Plant a dense buffer of broad-leaved species along the road-facing boundary; leaf surface area is the main driver of particulate capture.',
         waterQuality: 'Trace and cut nutrient runoff at the source. A vegetated buffer strip around the water body intercepts most fertiliser inflow.',
@@ -510,7 +551,7 @@ async function compose(intent, question, hits) {
 async function ask(question) {
   const startedAt = Date.now();
   const tokens = tokenise(question);
-  const { intent, confidence } = classifyIntent(tokens);
+  const { intent, confidence } = classifyIntent(tokens, question);
 
   const hits = await retrieve(question, { k: 5 });
   const answer = await compose(intent, question, hits);
@@ -532,11 +573,11 @@ async function ask(question) {
 /** Suggested prompts shown in the empty chat state. */
 const SUGGESTED_QUESTIONS = [
   'What is the ecosystem health score right now?',
-  'How is the air quality at Central Green Park?',
-  'Which species have been recorded and how diverse are they?',
+  'How is the air quality at Cubbon Park?',
+  'How diverse are the species recorded at Lalbagh?',
   'Show me the open incidents by priority',
-  'What maintenance work is scheduled this week?',
-  'How can we improve biodiversity in the parks?',
+  'What maintenance work is scheduled?',
+  'How can we improve the weakest indicator?',
 ];
 
 module.exports = {

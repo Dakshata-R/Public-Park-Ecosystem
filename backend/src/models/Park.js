@@ -25,25 +25,36 @@ const parkSchema = new mongoose.Schema(
     boundary: { type: polygonSchema, default: undefined },
 
     areaAcres: { type: Number, min: 0, default: 0 },
-    weeklyVisitors: { type: Number, min: 0, default: 0 },
-    establishedYear: { type: Number, min: 1600, max: 2100 },
+    /** Unknown (null) unless a footfall count exists — never estimated. */
+    weeklyVisitors: { type: Number, min: 0, default: null },
+    establishedYear: { type: Number, min: 1600, max: 2100, default: null },
 
     address: { type: String, default: '' },
-    city: { type: String, default: 'Smart City' },
+    city: { type: String, default: 'Bengaluru' },
     manager: { type: String, default: '' },
+    openingHours: { type: String, default: '' },
+
+    /**
+     * Where the park record came from, e.g. `{ provider: 'OpenStreetMap',
+     * id: 'way/22895320' }` — so the boundary can be traced and refreshed.
+     */
+    source: {
+      provider: { type: String, default: '' },
+      id: { type: String, default: '' },
+    },
 
     /**
      * Latest computed indices, cached by the ecosystem-score service so a
-     * dashboard read stays a single query. See
+     * dashboard read stays a single query. null means "not measured". See
      * `services/ecosystem-score.service.js` for the derivation.
      */
     scores: {
-      ecosystemHealth: { type: Number, min: 0, max: 100, default: 0 },
-      biodiversity: { type: Number, min: 0, max: 100, default: 0 },
-      airQuality: { type: Number, min: 0, max: 100, default: 0 },
-      waterQuality: { type: Number, min: 0, max: 100, default: 0 },
-      soilHealth: { type: Number, min: 0, max: 100, default: 0 },
-      treeHealth: { type: Number, min: 0, max: 100, default: 0 },
+      ecosystemHealth: { type: Number, min: 0, max: 100, default: null },
+      biodiversity: { type: Number, min: 0, max: 100, default: null },
+      airQuality: { type: Number, min: 0, max: 100, default: null },
+      waterQuality: { type: Number, min: 0, max: 100, default: null },
+      soilHealth: { type: Number, min: 0, max: 100, default: null },
+      treeHealth: { type: Number, min: 0, max: 100, default: null },
       computedAt: { type: Date, default: null },
     },
 

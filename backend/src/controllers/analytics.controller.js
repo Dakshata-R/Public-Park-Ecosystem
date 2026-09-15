@@ -20,9 +20,12 @@ const { ok } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
 const { analyseBiodiversity, computeIndices } = require('../services/biodiversity.service');
 const { computeEcosystemHealth, normaliseReading } = require('../services/ecosystem-score.service');
-const { toObjectId } = require('../utils/objectId');
+const { queryObjectId } = require('../utils/objectId');
 
-const reportCrud = createCrudController({
+const { generateReport } = require('../services/report.service');
+const { ROLE_RANK } = require('../middleware/auth');
+
+const reportCrudBase = createCrudController({
   model: EcoReport,
   name: 'Report',
   filterable: ['type', 'status', 'park'],
@@ -36,6 +39,31 @@ const reportCrud = createCrudController({
   }),
 });
 
+/** Drafts are working documents: visitors below ecologist see published reports only. */
+const isReportEditor = (req) => (ROLE_RANK[req.user?.role] || 0) >= ROLE_RANK.ecologist;
+
+const reportCrud = {
+  ...reportCrudBase,
+  list: asyncHandler(async (req, res, next) => {
+    if (!isReportEditor(req)) req.query.status = 'published';
+    return reportCrudBase.list(req, res, next);
+  }),
+  getOne: asyncHandler(async (req, res, next) => {
+    if (!isReportEditor(req)) {
+      const report = await EcoReport.findById(req.params.id).select('status').lean();
+      if (!report || report.status !== 'published') throw ApiError.notFound('Report');
+    }
+    return reportCrudBase.getOne(req, res, next);
+  }),
+  /** POST /api/analytics/reports/generate — a draft computed from recorded data. */
+  generate: asyncHandler(async (req, res) => {
+    const days = Math.min(730, Math.max(7, Number.parseInt(req.body.days, 10) || 90));
+    const report = await generateReport({ type: req.body.type, parkId: req.body.park || null, days, user: req.user });
+    const populated = await EcoReport.findById(report._id).populate([{ path: 'park', select: 'name slug' }, { path: 'author', select: 'name role' }]);
+    return res.status(201).json({ success: true, data: populated });
+  }),
+};
+
 /** Parse the shared `?from=&to=&park=` window used by every analytics query. */
 function parseWindow(query) {
   const to = query.to ? new Date(query.to) : new Date();
@@ -46,7 +74,8 @@ function parseWindow(query) {
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
     throw ApiError.badRequest('`from` and `to` must be valid dates');
   }
-  return { from, to, parkId: query.park ? toObjectId(query.park) : null };
+  if (from > to) throw ApiError.badRequest('`from` must be before `to`');
+  return { from, to, parkId: queryObjectId(query.park, 'park') || null };
 }
 
 /**

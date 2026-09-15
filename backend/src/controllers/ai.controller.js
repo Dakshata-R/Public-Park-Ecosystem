@@ -4,17 +4,18 @@
  * Module 5 — AI Ecosystem Monitoring.
  *
  * The endpoints here own the *consequences* of an inference, not the
- * inference itself: persisting the result, escalating a dangerous finding to
- * an incident, and collecting the human verdicts that would form the
- * retraining set for a real model.
+ * inference itself: storing the image and the full result, escalating a fire
+ * finding to an incident, and collecting the human verdicts that measure the
+ * model's real precision.
  */
 
-const { AiDetection, Incident, Setting, Park } = require('../models');
+const crypto = require('crypto');
+const { AiDetection, AiImage, Incident, Setting, Park } = require('../models');
 const { createCrudController, normaliseId } = require('./crud.factory');
 const asyncHandler = require('../middleware/asyncHandler');
 const { ok, created } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
-const { runInference, classesFor, TASK_CLASSES, MODEL_CARDS } = require('../services/ai-inference.service');
+const { runInference, describeTasks, TASKS } = require('../services/ai-inference.service');
 const { generateReferenceCode } = require('./incident.controller');
 const { scoreIncident } = require('../services/priority.service');
 const alertService = require('../services/alert.service');
@@ -32,73 +33,96 @@ const crud = createCrudController({
   defaultSort: { createdAt: -1 },
 });
 
-/** Detection severity → incident type, for automatic escalation. */
-const TASK_TO_INCIDENT_TYPE = {
-  fire: 'fire',
-  waste: 'illegal-dumping',
-  'tree-disease': 'tree-fall',
-};
+/** The API path a stored image is served from. */
+const imagePath = (id) => `/api/ai/images/${id}`;
 
 /**
- * POST /api/ai/analyze
- * Run one image through a task classifier, store the result, and escalate
- * when the finding is both dangerous and confident.
+ * Store the analysed image once, keyed by content hash.
+ * @returns {Promise<import('mongoose').Document>}
  */
-const analyze = asyncHandler(async (req, res) => {
-  const { task, imageUrl, imageName, park, location } = req.body;
+async function storeImage(stored, { source, originalUrl = '', credit = '' }) {
+  const sha256 = crypto.createHash('sha256').update(stored.buffer).digest('hex');
+  const existing = await AiImage.findOne({ sha256 }).select('_id');
+  if (existing) return existing;
 
-  if (!TASK_CLASSES[task]) {
-    throw ApiError.badRequest(
-      `Unknown task '${task}'. Expected one of: ${Object.keys(TASK_CLASSES).join(', ')}`
-    );
+  try {
+    return await AiImage.create({
+      data: stored.buffer,
+      width: stored.width,
+      height: stored.height,
+      bytes: stored.buffer.length,
+      sha256,
+      source,
+      originalUrl,
+      credit,
+    });
+  } catch (err) {
+    if (err.code === 11000) return AiImage.findOne({ sha256 }).select('_id'); // concurrent duplicate
+    throw err;
   }
-  if (!imageUrl) throw ApiError.badRequest('`imageUrl` is required');
+}
 
-  if (park && !(await Park.exists({ _id: park }))) {
-    throw ApiError.badRequest('The selected park does not exist');
-  }
-
-  const result = await runInference(task, imageUrl);
+/**
+ * Persist one inference result and apply the escalation rule.
+ *
+ * Shared by the HTTP handler and the seeder so both follow exactly the same
+ * path — a seeded detection is a real inference over a real photograph.
+ */
+async function recordDetection({ task, result, image, imageName = '', imageCredit = '', park = null, location, user = null, createdAt }) {
   const settings = await Setting.current();
 
   const detection = await AiDetection.create({
     task,
-    imageUrl,
-    imageName: imageName || '',
-    park: park || null,
+    imageUrl: imagePath(image._id),
+    image: image._id,
+    imageName,
+    imageCredit,
+    park,
     location: location || undefined,
     prediction: result.prediction,
+    detail: result.detail || '',
     confidence: result.confidence,
     probabilities: result.probabilities,
+    imagenet: result.imagenet,
+    evidence: result.evidence,
+    notes: result.notes,
     severity: result.severity,
     recommendedAction: result.recommendedAction,
     modelName: result.model.name,
     modelVersion: result.model.version,
     inferenceMs: result.inferenceMs,
-    submittedBy: req.user?._id || null,
+    submittedBy: user?._id || null,
+    ...(createdAt ? { createdAt } : {}),
   });
 
-  // Escalation rule: a high-or-critical finding above the configured
-  // confidence floor opens an incident automatically. Below that floor it is
-  // logged for human review instead — a false fire alarm is expensive.
-  let escalated = null;
-  const dangerous = ['high', 'critical'].includes(result.severity);
+  /**
+   * Escalation rule. Only a finding whose class names an incident type (fire
+   * and smoke) may open an incident without review, and only above the
+   * administrator's confidence floor and with a park to locate it in.
+   * Everything else — a colour-based foliage reading, a litter guess — waits
+   * for a person, because a general-purpose model is not trusted to dispatch
+   * crews on its own.
+   */
+  const escalatable = Boolean(result.incidentType);
   const confident = result.confidence >= settings.aiAutoIncidentConfidence;
+  let escalated = null;
 
-  if (dangerous && confident && park) {
-    const incidentType = TASK_TO_INCIDENT_TYPE[task] || 'infrastructure-damage';
+  if (escalatable && confident && park) {
+    const parkDoc = await Park.findById(park).select('location').lean();
     escalated = await Incident.create({
       referenceCode: await generateReferenceCode(),
-      type: incidentType,
+      type: result.incidentType,
       title: `AI detection: ${result.prediction}`,
-      description: `${result.recommendedAction}\n\nDetected by ${result.model.name} ${result.model.version} at ${result.confidence}% confidence.`,
+      description:
+        `${result.recommendedAction}\n\nDetected by ${result.model.name} at ${result.confidence}% confidence ` +
+        `(evidence: ${Object.entries(result.evidence).map(([k, v]) => `${k} ${v}`).join(', ')}).`,
       park,
-      location: location || (await Park.findById(park).lean()).location,
+      location: location || parkDoc.location,
       severity: result.severity === 'critical' ? 5 : 4,
       source: 'ai-detection',
-      reportedBy: req.user?._id || null,
-      images: [imageUrl],
-      timeline: [{ status: 'reported', note: 'Opened automatically from an AI detection', byName: result.model.name }],
+      reportedBy: user?._id || null,
+      images: [detection.imageUrl],
+      timeline: [{ status: 'reported', note: 'Opened automatically from an AI detection', byName: 'AI Ecosystem Monitoring' }],
     });
 
     const triage = scoreIncident({
@@ -128,49 +152,96 @@ const analyze = asyncHandler(async (req, res) => {
     });
   }
 
+  const reason = escalated
+    ? 'Fire finding above the confidence floor — incident opened automatically.'
+    : !escalatable
+    ? 'This finding type always goes to human review; only fire and smoke open incidents automatically.'
+    : !confident
+    ? `Confidence ${result.confidence}% is below the ${settings.aiAutoIncidentConfidence}% floor; queued for human review.`
+    : 'No park was selected, so no incident could be located; queued for human review.';
+
+  return {
+    detection,
+    escalated,
+    escalationRule: { escalatable, confident, confidenceFloor: settings.aiAutoIncidentConfidence, applied: Boolean(escalated), reason },
+  };
+}
+
+/**
+ * POST /api/ai/analyze
+ * Run one image — an upload (data URL) or an http(s) URL — through a task.
+ */
+const analyze = asyncHandler(async (req, res) => {
+  const { task, imageUrl, imageName, park, location } = req.body;
+
+  if (!TASKS[task]) {
+    throw ApiError.badRequest(`Unknown task '${task}'. Expected one of: ${Object.keys(TASKS).join(', ')}`);
+  }
+  if (park && !(await Park.exists({ _id: park }))) {
+    throw ApiError.badRequest('The selected park does not exist');
+  }
+
+  const result = await runInference(task, imageUrl);
+  const isUpload = imageUrl.trim().startsWith('data:');
+  const image = await storeImage(result.stored, { source: isUpload ? 'upload' : 'url', originalUrl: isUpload ? '' : imageUrl });
+
+  const { detection, escalated, escalationRule } = await recordDetection({
+    task,
+    result,
+    image,
+    imageName: imageName || (isUpload ? 'upload.jpg' : decodeURIComponent(new URL(imageUrl).pathname.split('/').pop() || '')),
+    park: park || null,
+    location,
+    user: req.user,
+  });
+
   return created(res, {
     detection,
     inference: {
+      title: result.title,
+      method: result.method,
       prediction: result.prediction,
+      detail: result.detail,
       confidence: result.confidence,
       probabilities: result.probabilities,
       severity: result.severity,
       recommendedAction: result.recommendedAction,
+      evidence: result.evidence,
+      notes: result.notes,
+      imagenet: result.imagenet,
+      stats: result.stats,
+      image: result.image,
       model: result.model,
+      timings: result.timings,
       inferenceMs: result.inferenceMs,
-      simulated: result.simulated,
     },
     escalated: escalated ? { id: escalated.id, referenceCode: escalated.referenceCode, priority: escalated.priority } : null,
-    escalationRule: {
-      dangerous,
-      confident,
-      confidenceFloor: settings.aiAutoIncidentConfidence,
-      applied: Boolean(escalated),
-      reason: escalated
-        ? 'High-severity finding above the confidence floor — incident opened automatically.'
-        : dangerous && !confident
-        ? `Severity warranted escalation but confidence ${result.confidence}% is below the ${settings.aiAutoIncidentConfidence}% floor; queued for human review.`
-        : dangerous && !park
-        ? 'No park supplied, so no incident could be located; queued for human review.'
-        : 'Finding does not warrant an incident.',
-    },
+    escalationRule,
   });
 });
 
-/** GET /api/ai/tasks — the label vocabulary and model card for each task. */
-const getTasks = asyncHandler(async (_req, res) => {
-  const tasks = Object.keys(TASK_CLASSES).map((task) => ({
-    task,
-    model: MODEL_CARDS[task],
-    classes: classesFor(task),
-  }));
-  return ok(res, tasks);
+/** GET /api/ai/images/:id — the stored JPEG behind a detection. */
+const getImage = asyncHandler(async (req, res) => {
+  const image = await AiImage.findById(req.params.id).select('+data');
+  if (!image) throw ApiError.notFound('Image');
+
+  res.set({
+    'Content-Type': image.contentType,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    ETag: `"${image.sha256}"`,
+  });
+  if (image.credit) res.set('X-Image-Credit', encodeURIComponent(image.credit));
+  return res.send(image.data);
 });
+
+/** GET /api/ai/tasks — the label vocabulary, method and model for each task. */
+const getTasks = asyncHandler(async (_req, res) => ok(res, describeTasks()));
 
 /**
  * POST /api/ai/:id/review
- * Human-in-the-loop verification. `correctedLabel` is what a retraining
- * pipeline would consume as ground truth.
+ * Human-in-the-loop verification. A rejection should carry the label the
+ * reviewer believes is correct, which is what makes the precision figure
+ * and any later retraining set meaningful.
  */
 const review = asyncHandler(async (req, res) => {
   const detection = await AiDetection.findById(req.params.id);
@@ -181,8 +252,17 @@ const review = asyncHandler(async (req, res) => {
     throw ApiError.badRequest("`verdict` must be 'confirmed' or 'rejected'");
   }
 
+  const labels = TASKS[detection.task].classes.map((c) => c.label);
+  if (verdict === 'rejected' && correctedLabel && !labels.includes(correctedLabel)) {
+    throw ApiError.badRequest(`\`correctedLabel\` must be one of: ${labels.join('; ')}`);
+  }
+  if (verdict === 'rejected' && correctedLabel === detection.prediction) {
+    throw ApiError.badRequest('The corrected label is the same as the prediction — confirm the detection instead');
+  }
+
   detection.reviewStatus = verdict;
   detection.reviewedBy = req.user._id;
+  detection.reviewedAt = new Date();
   detection.correctedLabel = verdict === 'rejected' ? correctedLabel || '' : '';
   await detection.save();
 
@@ -219,7 +299,9 @@ const getStats = asyncHandler(async (_req, res) => {
   const rejected = reviewCounts.rejected || 0;
   const reviewed = confirmed + rejected;
 
-  const BUCKET_LABELS = { 0: '<50%', 50: '50–70%', 70: '70–85%', 85: '85–95%', 95: '95–100%' };
+  // Every band is always present, so a client can colour bands by position.
+  const BANDS = [[0, '<50%'], [50, '50–70%'], [70, '70–85%'], [85, '85–95%'], [95, '95–100%']];
+  const bucketCounts = Object.fromEntries(confidence.map((c) => [c._id, c.count]));
 
   return ok(res, {
     byTask: byTask.map((t) => ({
@@ -228,10 +310,7 @@ const getStats = asyncHandler(async (_req, res) => {
       avgConfidence: Math.round(t.avgConfidence * 10) / 10,
     })),
     bySeverity: bySeverity.map((s) => ({ severity: s._id, count: s.count })),
-    confidenceDistribution: confidence.map((c) => ({
-      band: BUCKET_LABELS[c._id] ?? String(c._id),
-      count: c.count,
-    })),
+    confidenceDistribution: BANDS.map(([floor, band]) => ({ band, count: bucketCounts[floor] || 0 })),
     review: {
       pending: reviewCounts.pending || 0,
       confirmed,
@@ -246,15 +325,19 @@ const getStats = asyncHandler(async (_req, res) => {
 /** GET /api/ai/gallery?task= — recent detections for the module's image grid. */
 const getGallery = asyncHandler(async (req, res) => {
   const filter = {};
-  if (req.query.task) filter.task = req.query.task;
+  if (req.query.task) {
+    if (!TASKS[req.query.task]) throw ApiError.badRequest(`Unknown task '${req.query.task}'`);
+    filter.task = req.query.task;
+  }
 
   const detections = await AiDetection.find(filter)
     .sort({ createdAt: -1 })
     .limit(24)
     .populate('park', 'name')
+    .populate('linkedIncident', 'referenceCode priority status')
     .lean();
 
   return ok(res, detections.map(normaliseId));
 });
 
-module.exports = { ...crud, analyze, getTasks, review, getStats, getGallery };
+module.exports = { ...crud, analyze, getImage, getTasks, review, getStats, getGallery, storeImage, recordDetection };

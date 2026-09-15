@@ -16,6 +16,20 @@ const SENSOR_TYPES = ['aqi', 'temperature', 'humidity', 'noise', 'water', 'soil'
 const SENSOR_STATUS = ['online', 'offline', 'warning', 'maintenance'];
 
 /**
+ * Where a sensor's readings come from.
+ *
+ *   open-meteo  a virtual sensor: every reading is a real observation for the
+ *               park's coordinates from Open-Meteo (forecast model / CAMS)
+ *   simulated   no public source exists for this measurement at park scale;
+ *               readings are generated and labelled as such everywhere
+ *   device      a physical probe POSTing to /api/sensors/:id/readings
+ */
+const SENSOR_SOURCES = ['open-meteo', 'simulated', 'device'];
+
+/** Types for which Open-Meteo provides a real per-location value. */
+const LIVE_TYPES = ['aqi', 'temperature', 'humidity'];
+
+/**
  * Per-type metadata: display unit, plausible operating range used by the
  * simulator, and the thresholds that raise a warning.
  * `direction` says whether a higher raw reading is better or worse — the
@@ -53,8 +67,10 @@ const sensorSchema = new mongoose.Schema(
     lastReadingAt: { type: Date, default: null },
 
     status: { type: String, enum: SENSOR_STATUS, default: 'online', index: true },
-    batteryLevel: { type: Number, min: 0, max: 100, default: 100 },
-    firmware: { type: String, default: 'v1.0.0' },
+    source: { type: String, enum: SENSOR_SOURCES, default: 'device', index: true },
+    /** Battery and firmware describe hardware; null for a virtual sensor. */
+    batteryLevel: { type: Number, min: 0, max: 100, default: null },
+    firmware: { type: String, default: '' },
     active: { type: Boolean, default: true },
   },
   { timestamps: true }
@@ -80,3 +96,5 @@ module.exports = mongoose.model('Sensor', sensorSchema);
 module.exports.SENSOR_TYPES = SENSOR_TYPES;
 module.exports.SENSOR_STATUS = SENSOR_STATUS;
 module.exports.SENSOR_PROFILES = SENSOR_PROFILES;
+module.exports.SENSOR_SOURCES = SENSOR_SOURCES;
+module.exports.LIVE_TYPES = LIVE_TYPES;

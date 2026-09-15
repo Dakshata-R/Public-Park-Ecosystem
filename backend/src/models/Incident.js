@@ -69,6 +69,11 @@ const incidentSchema = new mongoose.Schema(
     affectedPeople: { type: Number, min: 0, default: 0 },
     /** Officer's severity judgement on a 1–5 scale, also a priority factor. */
     severity: { type: Number, min: 1, max: 5, default: 3 },
+    /**
+     * Community signal: upvotes on the citizen report this incident came
+     * from, mirrored here so the priority formula can read it on every save.
+     */
+    upvotes: { type: Number, min: 0, default: 0 },
 
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     assignedAt: { type: Date, default: null },
@@ -83,6 +88,9 @@ const incidentSchema = new mongoose.Schema(
     resolutionNotes: { type: String, default: '' },
     images: { type: [String], default: [] },
     timeline: { type: [timelineEntrySchema], default: [] },
+
+    /** True for demonstration records created by the seeder. */
+    demo: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

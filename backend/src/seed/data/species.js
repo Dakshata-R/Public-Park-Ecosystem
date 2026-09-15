@@ -1,21 +1,17 @@
 'use strict';
 
 /**
- * Species catalogue for the demonstration dataset — Indian urban biodiversity.
+ * Hand-written profiles of common Bengaluru urban species.
  *
- * The mix is deliberate rather than arbitrary. It contains:
- *   • common generalists (myna, palm squirrel) that dominate raw abundance,
- *   • specialists and threatened species that carry the conservation weight,
- *   • three invasive species, so the invasive counter and the evenness term
- *     have something real to react to,
- *   • indicator species used to justify the tree-health and water sub-indices.
+ * The catalogue itself comes from GBIF (src/seed/data/open-data). These
+ * entries contribute what GBIF does not carry — a habitat line, a short
+ * description and whether the species is a useful indicator — and are merged
+ * onto the GBIF record with the same scientific name. Species listed here but
+ * not recorded inside the park boundaries are kept in the catalogue with no
+ * observations, so they never affect an index.
  *
- * `weight` is the relative abundance the observation generator samples with —
- * it is what makes the Shannon and evenness figures come out at realistic
- * values instead of a flat, implausible distribution.
- *
- * `parkAffinity` lists park slugs where the species is plausible; an empty
- * array means it may appear anywhere.
+ * `weight` and `parkAffinity` are unused leftovers from the earlier generated
+ * dataset and are ignored by the seeder.
  */
 
 module.exports = [

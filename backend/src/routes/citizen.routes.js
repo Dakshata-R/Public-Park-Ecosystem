@@ -11,6 +11,7 @@ const router = express.Router();
 
 router.get('/stats', controller.getStats);
 router.get('/my-reports', requireAuth, controller.myReports);
+router.get('/my-upvotes', requireAuth, controller.myUpvotes);
 
 router.get('/reports', validate({ query: listQuery }), controller.list);
 router.get('/reports/:id', validate({ params: idParam }), controller.getOne);
@@ -22,6 +23,7 @@ router.get('/reports/:id', validate({ params: idParam }), controller.getOne);
  */
 router.post('/reports', requireAuth, validate({ body: citizen.create }), controller.create);
 router.post('/reports/:id/upvote', requireAuth, validate({ params: idParam }), controller.upvote);
+router.delete('/reports/:id/upvote', requireAuth, validate({ params: idParam }), controller.removeUpvote);
 
 // Officer review is the gate between public input and the operational record.
 router.post(
