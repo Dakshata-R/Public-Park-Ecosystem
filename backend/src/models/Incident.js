@@ -42,6 +42,11 @@ const timelineEntrySchema = new mongoose.Schema(
   { _id: true }
 );
 
+// Embedded documents keep their own `_id`, so they need the same wire
+// normalisation as top-level documents — otherwise a timeline entry reaches
+// the client as `_id` while every other object in the payload uses `id`.
+timelineEntrySchema.plugin(toJSONPlugin);
+
 const incidentSchema = new mongoose.Schema(
   {
     referenceCode: { type: String, required: true, unique: true, uppercase: true },

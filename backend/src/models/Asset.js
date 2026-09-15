@@ -30,6 +30,11 @@ const maintenanceRecordSchema = new mongoose.Schema(
   { _id: true, timestamps: false }
 );
 
+// Embedded documents keep their own `_id`, so they need the same wire
+// normalisation as top-level documents — otherwise a maintenance record
+// reaches the client as `_id` while every other object uses `id`.
+maintenanceRecordSchema.plugin(toJSONPlugin);
+
 const assetSchema = new mongoose.Schema(
   {
     assetCode: { type: String, required: true, unique: true, uppercase: true, trim: true },

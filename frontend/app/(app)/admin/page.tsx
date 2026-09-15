@@ -127,6 +127,11 @@ function UsersTab() {
     page, limit: 15,
     q: search || undefined,
     role: role === 'all' ? undefined : role,
+    // Deactivating an account archives it rather than erasing it, and this
+    // screen is where that state is shown and reversed — so it has to list
+    // archived accounts too. Pickers elsewhere (assigning an officer to an
+    // incident, say) deliberately keep the default and omit them.
+    includeArchived: true,
   });
   const deleteUser = useDeleteUser();
 

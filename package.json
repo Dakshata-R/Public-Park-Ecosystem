@@ -1,0 +1,33 @@
+{
+  "name": "greenpulse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public Park Ecosystem Health Monitoring System & Urban Biodiversity Mapping Portal — a two-part project: backend/ (Express API) and frontend/ (Next.js).",
+  "scripts": {
+    "//": "This root package.json exists only to delegate to the two real projects. Run these from the repository root.",
+
+    "setup": "npm run setup:backend && npm run setup:frontend",
+    "setup:backend": "npm --prefix backend install",
+    "setup:frontend": "npm --prefix frontend install",
+
+    "//backend": "Start the API on http://localhost:5000",
+    "backend": "npm --prefix backend start",
+    "backend:dev": "npm --prefix backend run dev",
+    "seed": "npm --prefix backend run seed",
+
+    "//frontend": "Start the website on http://localhost:3000",
+    "frontend": "npm --prefix frontend start",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+
+    "//check": "Type-check the frontend and run the backend test suite",
+    "typecheck": "npm --prefix frontend run typecheck",
+    "test": "npm --prefix backend test",
+
+    "//note": "There is no combined 'start' script on purpose — each server needs its own terminal so you can read its logs and stop it independently.",
+    "start": "node -e \"console.log('\\nGreenPulse needs TWO terminals.\\n\\n  Terminal 1:  npm run backend     -> http://localhost:5000\\n  Terminal 2:  npm run frontend    -> http://localhost:3000\\n\\nFirst time only:  npm run setup\\nBefore a demo:    npm run build\\n')\""
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}

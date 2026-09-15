@@ -54,3 +54,6 @@ Thumbs.db
 # Certificates and keys
 *.pem
 *.key
+
+# Cached vision model weights (~14 MB, re-downloaded on demand)
+.cache/

@@ -9,10 +9,19 @@ const { incidents } = require('../validators/schemas');
 
 const router = express.Router();
 
-router.get('/triage', controller.getTriageQueue);
-router.get('/stats', controller.getStats);
-router.get('/', validate({ query: listQuery }), controller.list);
-router.get('/:id', validate({ params: idParam }), controller.getOne);
+// Incident records are operational data, not public transparency data: they
+// carry reporter identities, exact hazard locations and assignment history.
+// The navigation hides this module below `officer`, and the role hierarchy in
+// `middleware/auth.js` lists incidents as an officer duty — so the API has to
+// enforce the same boundary rather than relying on the UI to hide the link.
+//
+// Public surfaces stay served by their own aggregates: the dashboard reads
+// `/dashboard/overview` and the analytics page reads
+// `/analytics/incident-trend`, neither of which exposes individual records.
+router.get('/triage', requireAuth, requireRole('officer'), controller.getTriageQueue);
+router.get('/stats', requireAuth, requireRole('officer'), controller.getStats);
+router.get('/', requireAuth, requireRole('officer'), validate({ query: listQuery }), controller.list);
+router.get('/:id', requireAuth, requireRole('officer'), validate({ params: idParam }), controller.getOne);
 
 router.post('/', requireAuth, requireRole('officer'), validate({ body: incidents.create }), controller.create);
 router.patch('/:id', requireAuth, requireRole('officer'), validate({ params: idParam, body: incidents.update }), controller.update);

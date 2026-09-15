@@ -144,7 +144,7 @@ const getHistory = asyncHandler(async (req, res) => {
 
   return ok(res, {
     asset: normaliseId(asset),
-    maintenance,
+    maintenance: maintenance.map(normaliseId),
     workOrders: workOrders.map(normaliseId),
     totalSpend: maintenance.reduce((sum, m) => sum + (m.cost || 0), 0),
   });

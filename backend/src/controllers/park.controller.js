@@ -9,6 +9,7 @@ const { createCrudController, normaliseId } = require('./crud.factory');
 const asyncHandler = require('../middleware/asyncHandler');
 const { ok } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
+const { parseCoordinates } = require('../utils/query');
 const { computeEcosystemHealth, healthTrend } = require('../services/ecosystem-score.service');
 const { analyseBiodiversity } = require('../services/biodiversity.service');
 
@@ -97,13 +98,8 @@ const getTrend = asyncHandler(async (req, res) => {
  * and the reason park geometry is stored as GeoJSON rather than a lat/lng pair.
  */
 const findNearby = asyncHandler(async (req, res) => {
-  const lng = Number.parseFloat(req.query.lng);
-  const lat = Number.parseFloat(req.query.lat);
+  const { lng, lat } = parseCoordinates(req.query);
   const radius = Math.min(50000, Number.parseInt(req.query.radius, 10) || 2000);
-
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
-    throw ApiError.badRequest('Both lng and lat query parameters are required');
-  }
 
   const parks = await Park.find({
     active: true,

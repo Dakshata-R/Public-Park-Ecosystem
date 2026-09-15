@@ -16,6 +16,7 @@ const { Park, Asset, Observation, Incident, Sensor, CitizenReport } = require('.
 const asyncHandler = require('../middleware/asyncHandler');
 const { ok } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
+const { parseCoordinates } = require('../utils/query');
 const { normaliseReading } = require('../services/ecosystem-score.service');
 
 const LAYERS = ['parks', 'trees', 'water', 'wildlife', 'pollution', 'trails', 'sensors', 'reports'];
@@ -271,13 +272,8 @@ const getHeatmap = asyncHandler(async (req, res) => {
  * citizen app would make. Uses the 2dsphere indexes on each collection.
  */
 const getWithinRadius = asyncHandler(async (req, res) => {
-  const lng = Number.parseFloat(req.query.lng);
-  const lat = Number.parseFloat(req.query.lat);
+  const { lng, lat } = parseCoordinates(req.query);
   const radius = Math.min(20000, Math.max(50, Number.parseInt(req.query.radius, 10) || 1000));
-
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
-    throw ApiError.badRequest('Both `lng` and `lat` query parameters are required');
-  }
 
   const near = {
     $near: { $geometry: { type: 'Point', coordinates: [lng, lat] }, $maxDistance: radius },

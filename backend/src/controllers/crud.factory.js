@@ -54,11 +54,25 @@ function createCrudController(config) {
   /** Apply the configured populate spec to a query, if any. */
   const withPopulate = (query) => (populate ? query.populate(populate) : query);
 
+  /**
+   * `?includeArchived=true` opts back into seeing soft-deleted rows — the
+   * administration screens need it to restore a record.
+   */
+  const includeArchived = (req) => String(req.query.includeArchived || '').toLowerCase() === 'true';
+
   /** GET / — paginated, filtered, sorted list. */
   const list = asyncHandler(async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
     const sort = parseSort(req.query.sort, defaultSort);
     const filter = buildFilter(req.query, { allowed: filterable, searchable });
+
+    // A soft delete archives a record rather than destroying it, so the read
+    // paths have to exclude it or DELETE looks successful while the row stays
+    // in every list, every search and every total. An explicit `?active=`
+    // filter still wins, so an admin can list exactly what was archived.
+    if (softDelete && filter.active === undefined && !includeArchived(req)) {
+      filter.active = { $ne: false };
+    }
 
     const [items, total] = await Promise.all([
       withPopulate(model.find(filter).sort(sort).skip(skip).limit(limit)).lean(),
@@ -72,6 +86,13 @@ function createCrudController(config) {
   const getOne = asyncHandler(async (req, res) => {
     const doc = await withPopulate(model.findById(req.params.id));
     if (!doc) throw ApiError.notFound(name);
+
+    // An archived record is gone as far as the API is concerned, so its own
+    // URL must 404 too — otherwise a deleted item stays reachable by id.
+    if (softDelete && doc.active === false && !includeArchived(req)) {
+      throw ApiError.notFound(name);
+    }
+
     return ok(res, doc);
   });
 
@@ -153,9 +174,27 @@ function createCrudController(config) {
 /**
  * `.lean()` skips the toJSON transform, so `_id` must be renamed by hand for
  * list responses to match the shape of single-document responses.
+ *
+ * Three shapes have to be handled, not just the first:
+ *
+ *   1. `_id` on the document itself            → renamed to a string `id`
+ *   2. a *populated* ref (a nested sub-document) → recursed into
+ *   3. an *un-populated* ref (a bare ObjectId)  → stringified
+ *
+ * (3) is easy to miss: a bare ObjectId is a non-array object with no `_id`,
+ * so a naive recursion walks straight past it and `JSON.stringify` then
+ * serialises its internal byte buffer as `{ buffer: { data: [...] } }` —
+ * useless to the client. Dates and Buffers are likewise objects that must be
+ * passed through untouched rather than spread into `{}`.
  */
 function normaliseId(doc) {
   if (!doc || typeof doc !== 'object') return doc;
+
+  // Leaf object types that must survive verbatim.
+  if (typeof doc.toHexString === 'function') return doc.toHexString();
+  if (doc instanceof Date) return doc;
+  if (Buffer.isBuffer(doc)) return doc;
+
   if (Array.isArray(doc)) return doc.map(normaliseId);
 
   const out = { ...doc };
@@ -167,7 +206,7 @@ function normaliseId(doc) {
   delete out.password;
 
   for (const [key, value] of Object.entries(out)) {
-    if (value && typeof value === 'object' && (value._id || Array.isArray(value))) {
+    if (value && typeof value === 'object') {
       out[key] = normaliseId(value);
     }
   }

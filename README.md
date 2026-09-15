@@ -154,6 +154,34 @@ offline** — readings simply stop being anchored to live data.
 
 ---
 
+## Tests
+
+```bash
+npm test                         # from the repository root
+```
+
+**113 automated tests, all passing, in about thirteen seconds.** No server needs to
+be running: each suite starts its own in-memory MongoDB
+(`mongodb-memory-server`) and binds the Express app to a free port, so the
+tests never touch your development database and can run in parallel.
+
+| Suite | Tests | Covers |
+|---|---|---|
+| `test/unit/aqi.test.js` | 13 | CPCB sub-indices, band edges, AQI→score inversion, monotonicity |
+| `test/unit/biodiversity.test.js` | 12 | Shannon, Pielou, Simpson, Margalef, dominance, composite score |
+| `test/unit/anomaly.test.js` | 11 | Three-detector majority vote, constant history, zero IQR, short history |
+| `test/unit/priority.test.js` | 14 | Triage weighting, ageing, clamping, queue ordering |
+| `test/unit/serialisation.test.js` | 12 | ObjectId/Date wire normalisation (regression) |
+| `test/integration/auth.test.js` | 13 | Registration, sign-in, JWT tampering, role escalation, password rotation |
+| `test/integration/modules.test.js` | 37 | All twelve modules, the full incident workflow, RBAC, pagination, soft delete |
+
+Expected values in the unit suites are derived from the published formulae
+rather than captured from the implementation, so a regression cannot pass by
+agreeing with itself. The integration suites seed the real dataset and drive
+the API over HTTP — nothing is stubbed.
+
+---
+
 ## Documentation
 
 | Document | Contents |

@@ -6,6 +6,8 @@
  * sorting and pagination behave identically across the twelve modules.
  */
 
+const ApiError = require('./ApiError');
+
 const MAX_LIMIT = 200;
 
 /**
@@ -89,4 +91,41 @@ function buildMeta(total, { page, limit }) {
   };
 }
 
-module.exports = { parsePagination, parseSort, buildFilter, buildMeta, escapeRegex, MAX_LIMIT };
+/**
+ * Parse and range-check `lng`/`lat` query parameters for a geospatial query.
+ *
+ * A finiteness check alone is not enough: MongoDB's `$near` rejects
+ * coordinates outside [-180, 180] / [-90, 90] by throwing, which would
+ * surface to the client as a 500. Validating here turns a malformed request
+ * into the 400 it actually is.
+ *
+ * @param {object} query Express `req.query`
+ * @returns {{lng: number, lat: number}}
+ * @throws {ApiError} 400 when either value is missing or out of range
+ */
+function parseCoordinates(query) {
+  const lng = Number.parseFloat(query.lng);
+  const lat = Number.parseFloat(query.lat);
+
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+    throw ApiError.badRequest('Both `lng` and `lat` query parameters are required');
+  }
+  if (lng < -180 || lng > 180) {
+    throw ApiError.badRequest('`lng` must be between -180 and 180');
+  }
+  if (lat < -90 || lat > 90) {
+    throw ApiError.badRequest('`lat` must be between -90 and 90');
+  }
+
+  return { lng, lat };
+}
+
+module.exports = {
+  parsePagination,
+  parseSort,
+  buildFilter,
+  buildMeta,
+  escapeRegex,
+  parseCoordinates,
+  MAX_LIMIT,
+};

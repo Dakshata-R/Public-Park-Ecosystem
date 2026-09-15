@@ -42,6 +42,16 @@ function normalise(err) {
   if (err.name === 'JsonWebTokenError') return new ApiError(401, 'Invalid authentication token');
   if (err.name === 'TokenExpiredError') return new ApiError(401, 'Authentication token has expired');
 
+  // body-parser rejects an unparseable or oversized body before any route
+  // runs. That is a bad request, not a server fault, so it must not fall
+  // through to the 500 branch below.
+  if (err.type === 'entity.parse.failed' || (err instanceof SyntaxError && 'body' in err)) {
+    return new ApiError(400, 'Request body is not valid JSON');
+  }
+  if (err.type === 'entity.too.large') {
+    return new ApiError(413, 'Request body is too large');
+  }
+
   return null; // unexpected — treat as a bug
 }
 

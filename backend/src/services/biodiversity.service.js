@@ -110,7 +110,10 @@ function computeIndices(abundances = []) {
   // Berger–Parker dominance: share held by the commonest species.
   const dominance = Math.max(...proportions);
 
-  const round = (v) => Math.round(v * 10000) / 10000;
+  // `+ 0` collapses -0 to 0: a one-species community gives H' = −(1·ln 1),
+  // which evaluates to negative zero. Harmless once serialised, but a
+  // negative diversity index is meaningless and breaks identity comparisons.
+  const round = (v) => Math.round(v * 10000) / 10000 + 0;
 
   return {
     richness,
