@@ -362,7 +362,7 @@ async function resolveMentionedPark(question) {
  */
 async function compose(intent, question, hits) {
   const park = await resolveMentionedPark(question);
-  const scope = park ? park.name : 'across all monitored parks';
+  const scope = park ? `at ${park.name}` : 'across all monitored parks';
 
   switch (intent) {
     case 'health': {

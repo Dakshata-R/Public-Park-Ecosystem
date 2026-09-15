@@ -146,9 +146,11 @@ async function recordDetection({ task, result, image, imageName = '', imageCredi
       source: 'ai',
       severity: result.severity,
       park,
-      relatedModel: 'AiDetection',
-      relatedId: detection._id,
-      dedupeKey: `ai:${detection._id}`,
+      // Keyed to the incident, like every incident alert, so resolving the
+      // incident clears it (incident resolution auto-resolves `incident:<id>`).
+      relatedModel: 'Incident',
+      relatedId: escalated._id,
+      dedupeKey: `incident:${escalated._id}`,
     });
   }
 

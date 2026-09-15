@@ -330,6 +330,25 @@ test('module 5 · the prediction comes from the pixels, not the request', async 
   assert.equal(inference.model.name, 'MobileNetV2 1.0 (ImageNet-1k)');
 });
 
+test('module 5 · a confident fire photo opens an incident whose alert clears on resolution', async () => {
+  const res = await post('/ai/analyze', {
+    task: 'fire',
+    imageUrl: sampleDataUrl('eval-fire-bonfire.jpg'),
+    park: ids.park,
+  }, tokens.officer);
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.data.detection.prediction, 'Flames visible');
+  const { escalated } = res.body.data;
+  assert.ok(escalated, `no incident was opened: ${res.body.data.escalationRule.reason}`);
+
+  const alertsFor = async () =>
+    itemsOf(await get('/alerts?limit=200', tokens.officer)).filter((a) => a.relatedId === escalated.id);
+  assert.equal((await alertsFor()).filter((a) => a.status === 'active').length, 1, 'no active alert for the incident');
+
+  await post(`/incidents/${escalated.id}/resolve`, { resolutionNotes: 'Extinguished' }, tokens.officer);
+  assert.equal((await alertsFor()).filter((a) => a.status === 'active').length, 0, 'the alert survived the incident');
+});
+
 test('module 5 · the analysed image is stored once and served back as a JPEG', async () => {
   const res = await post('/ai/analyze', { task: 'fire', imageUrl: sampleDataUrl('fire-grassland-burn.jpg') }, tokens.officer);
   assert.equal(res.status, 201, JSON.stringify(res.body));

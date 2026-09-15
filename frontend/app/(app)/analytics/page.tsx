@@ -84,7 +84,11 @@ const GBIF_SNAPSHOT_START = Date.UTC(2023, 0, 1);
 
 const ENGAGEMENT_KEYS = ['issue', 'wildlife-sighting', 'feedback', 'suggestion'];
 
-const humanise = (key: string) => key.replace(/([A-Z])/g, ' $1').trim();
+/** `airQuality` → "Air quality". */
+const humanise = (key: string) => {
+  const words = key.replace(/([A-Z])/g, ' $1').trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
 const dateOnly = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString() : NO_DATA);
 
 /** Tooltip text for a series value; a gap reads "No data", never 0. */
