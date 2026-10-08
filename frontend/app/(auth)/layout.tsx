@@ -1,64 +1,52 @@
 import Link from 'next/link';
-import { Leaf } from 'lucide-react';
+import { Leaf, MapPin, Bird, Wind } from 'lucide-react';
 
 /**
  * Layout for the sign-in and registration screens.
  *
  * Deliberately outside the dashboard shell: there is no sidebar to show
- * before a role is known, and the split panel gives the project's purpose a
- * moment of explanation before asking for credentials.
+ * before a role is known. The left panel is a short, quiet introduction.
  */
+const HIGHLIGHTS = [
+  { icon: MapPin, text: 'Bengaluru parks mapped from OpenStreetMap' },
+  { icon: Bird, text: 'Species records and biodiversity indices from GBIF' },
+  { icon: Wind, text: 'Live air quality and weather from Open-Meteo' },
+];
+
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      {/* Left: the pitch. Hidden on small screens, where the form is all
-          there is room for. */}
-      <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-primary via-primary/90 to-accent p-10 text-primary-foreground lg:flex">
-        <div className="pointer-events-none absolute inset-0 opacity-10">
-          <div className="absolute -right-20 -top-20 h-80 w-80 rounded-full bg-white blur-3xl" />
-          <div className="absolute -bottom-32 -left-20 h-96 w-96 rounded-full bg-white blur-3xl" />
-        </div>
-
-        <Link href="/dashboard" className="relative flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 backdrop-blur">
+      {/* Left: a short introduction. Hidden on small screens, where the form
+          is all there is room for. */}
+      <div className="hidden flex-col justify-between bg-primary p-12 text-primary-foreground lg:flex">
+        <Link href="/dashboard" className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15">
             <Leaf className="h-5 w-5" />
           </div>
-          <div className="leading-tight">
-            <p className="font-display text-lg font-bold">GreenPulse</p>
-            <p className="text-xs text-primary-foreground/70">Ecosystem &amp; Biodiversity Portal</p>
-          </div>
+          <span className="font-display text-lg font-bold">GreenPulse</span>
         </Link>
 
-        <div className="relative max-w-md space-y-5">
-          <h1 className="font-display text-3xl font-bold leading-tight">
-            Bengaluru&apos;s parks, read from open data.
-          </h1>
-          <p className="text-sm leading-relaxed text-primary-foreground/80">
-            Cubbon Park, Lalbagh Botanical Gardens and other Bengaluru parks, mapped from
-            OpenStreetMap, with species records from GBIF, air quality and weather from
-            Open-Meteo, and photograph analysis by a MobileNetV2 image model — alongside an
-            incident, maintenance and citizen-reporting workflow shown with demonstration records.
-          </p>
-
-          <div className="grid grid-cols-2 gap-3 pt-2">
-            {[
-              ['GBIF species records', 'Shannon and Simpson indices from occurrence records since 2023'],
-              ['CPCB AQI', 'Computed from Open-Meteo (CAMS) pollutant concentrations'],
-              ['OpenStreetMap', 'Park boundaries, facilities and asset positions'],
-              ['MobileNetV2', 'ImageNet classifier run on the server, with staff review of its findings'],
-            ].map(([title, detail]) => (
-              <div key={title} className="rounded-xl bg-white/10 p-3 backdrop-blur">
-                <p className="text-sm font-semibold">{title}</p>
-                <p className="mt-0.5 text-[11px] leading-snug text-primary-foreground/70">{detail}</p>
-              </div>
-            ))}
+        <div className="max-w-sm space-y-6">
+          <div className="space-y-3">
+            <h1 className="font-display text-3xl font-bold leading-tight">
+              Healthier parks, one record at a time.
+            </h1>
+            <p className="text-sm leading-relaxed text-primary-foreground/75">
+              Monitor ecosystem health and biodiversity across Bengaluru&apos;s public parks.
+            </p>
           </div>
+
+          <ul className="space-y-3">
+            {HIGHLIGHTS.map(({ icon: Icon, text }) => (
+              <li key={text} className="flex items-center gap-3 text-sm text-primary-foreground/90">
+                <Icon className="h-4 w-4 shrink-0 text-primary-foreground/70" />
+                {text}
+              </li>
+            ))}
+          </ul>
         </div>
 
-        <p className="relative text-xs text-primary-foreground/60">
-          Academic prototype · Incidents, work orders and citizen reports are labelled demo records;
-          water, soil and noise sensors are simulated.
-        </p>
+        <p className="text-xs text-primary-foreground/50">Ecosystem &amp; Biodiversity Portal</p>
       </div>
 
       {/* Right: the form. */}

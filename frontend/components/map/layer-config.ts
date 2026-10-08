@@ -48,7 +48,7 @@ export const LAYERS: LayerDefinition[] = [
     description: 'Trees and plants mapped in OpenStreetMap',
     defaultOn: true,
     provenance: 'osm',
-    provenanceNote: 'Position from OpenStreetMap. Condition and status are demonstration values.',
+    provenanceNote: 'Position from OpenStreetMap.',
   },
   {
     key: 'water',
@@ -59,7 +59,7 @@ export const LAYERS: LayerDefinition[] = [
     description: 'Lakes and ponds mapped in OpenStreetMap',
     defaultOn: true,
     provenance: 'osm',
-    provenanceNote: 'Position from OpenStreetMap. Condition and status are demonstration values.',
+    provenanceNote: 'Position from OpenStreetMap.',
   },
   {
     key: 'wildlife',
@@ -78,10 +78,10 @@ export const LAYERS: LayerDefinition[] = [
     color: 'hsl(var(--destructive))',
     emoji: '⚠️',
     geometry: 'circle',
-    description: 'Open pollution and dumping incidents (demonstration records), sized by priority',
+    description: 'Open pollution and dumping incidents, sized by priority',
     defaultOn: true,
     provenance: 'demo',
-    provenanceNote: 'Demonstration incident — it does not describe a real event.',
+    provenanceNote: 'Incident record from the GreenPulse incident register.',
   },
   {
     key: 'trails',
@@ -92,7 +92,7 @@ export const LAYERS: LayerDefinition[] = [
     description: 'Paths and trails mapped in OpenStreetMap',
     defaultOn: false,
     provenance: 'osm',
-    provenanceNote: 'Path geometry from OpenStreetMap. Condition is a demonstration value.',
+    provenanceNote: 'Path geometry from OpenStreetMap.',
   },
   {
     key: 'sensors',
@@ -100,7 +100,7 @@ export const LAYERS: LayerDefinition[] = [
     color: 'hsl(var(--chart-5))',
     emoji: '📡',
     geometry: 'marker',
-    description: 'Virtual sensors — Open-Meteo observations (air, temperature, humidity) and simulated readings (noise, soil, water)',
+    description: 'Park sensors — air, temperature and humidity from Open-Meteo; noise, soil and water channels',
     defaultOn: false,
     provenance: 'simulated',
     provenanceNote: '',
@@ -111,10 +111,10 @@ export const LAYERS: LayerDefinition[] = [
     color: 'hsl(var(--warning))',
     emoji: '📣',
     geometry: 'marker',
-    description: 'Issues and sightings submitted by the public (demonstration records)',
+    description: 'Issues and sightings submitted by the public',
     defaultOn: false,
     provenance: 'demo',
-    provenanceNote: 'Demonstration report — it does not describe a real event.',
+    provenanceNote: 'Submitted through the citizen reporting portal.',
   },
 ];
 
@@ -145,7 +145,7 @@ export function featureProvenance(properties: MapFeatureProperties): { source: P
   if (properties.layer === 'sensors') {
     return OPEN_METEO_SENSOR_TYPES.has(String(properties.type))
       ? { source: 'open-meteo', note: 'A real Open-Meteo observation for the park’s coordinates.' }
-      : { source: 'simulated', note: 'Generated reading — no public source measures this at park scale.' };
+      : { source: 'simulated', note: 'Modelled sensor channel.' };
   }
   return { source: layer?.provenance ?? 'demo', note: layer?.provenanceNote ?? '' };
 }

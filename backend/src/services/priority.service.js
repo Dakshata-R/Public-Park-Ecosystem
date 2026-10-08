@@ -116,7 +116,7 @@ function scoreIncident(incident = {}, now = new Date()) {
 
   const overdue = isOpen && ageHours > profile.responseHours;
   const explanation =
-    `${profile.label} (hazard ${hazard}) at severity ${incident.severity ?? 3}/5` +
+    `${profile.label} at severity ${incident.severity ?? 3}/5` +
     (people ? `, ~${people} people affected` : '') +
     (overdue ? `, ${Math.round(ageHours)} h old against a ${profile.responseHours} h target` : '') +
     ` → ${rounded}/100 (${band.priority}).`;

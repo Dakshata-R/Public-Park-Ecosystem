@@ -18,7 +18,7 @@ import { SourceBadge } from '@/components/shared/data-source';
 import { useAuth } from '@/components/providers/auth-provider';
 import { useAcknowledgeAlert, qk } from '@/lib/hooks/use-api';
 import { alertApi, assistantApi } from '@/lib/api/endpoints';
-import { cn } from '@/lib/utils';
+import { cn, firstName } from '@/lib/utils';
 
 /** Where each searchable entity type lives, so a hit can be linked. */
 const ENTITY_ROUTES: Record<string, string> = {
@@ -322,7 +322,7 @@ export function Navbar({ onMenuClick }: { onMenuClick: () => void }) {
                     {initials(user.name)}
                   </AvatarFallback>
                 </Avatar>
-                <span className="hidden text-sm font-medium sm:block">{user.name.split(' ')[0]}</span>
+                <span className="hidden text-sm font-medium sm:block">{firstName(user.name)}</span>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">

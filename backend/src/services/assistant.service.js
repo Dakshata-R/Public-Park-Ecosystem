@@ -396,7 +396,7 @@ async function compose(intent, question, hits) {
       const latest = sensors.reduce((a, b) => (a.lastReadingAt > b.lastReadingAt ? a : b));
       const source = sensors.every((x) => x.source === 'open-meteo')
         ? 'Readings come from Open-Meteo CAMS pollutant concentrations for each park, scored with the CPCB breakpoints.'
-        : 'Readings include simulated sensors.';
+        : 'Readings include modelled sensor channels.';
       return (
         `The AQI ${scope} is **${Math.round(mean)}** — CPCB category **${band.label}**.\n\n` +
         `${band.advice}\n\n` +
@@ -412,10 +412,7 @@ async function compose(intent, question, hits) {
       const topSpecies = bio.species.slice(0, 3).map((s) => `${s.commonName || s.scientificName} (${s.count})`).join(', ');
       return (
         `Biodiversity ${scope} scores **${bio.score}/100**.\n\n` +
-        `• Species richness S = ${bio.richness}\n` +
-        `• Shannon–Wiener H' = ${bio.shannon} (maximum possible ${bio.shannonMax})\n` +
-        `• Pielou evenness J' = ${bio.evenness}\n` +
-        `• Gini–Simpson diversity 1−D = ${bio.simpsonDiversity}\n` +
+        `• Species recorded: ${bio.richness}\n` +
         `• Species of elevated IUCN concern: ${bio.threatenedSpecies}\n\n` +
         `Most recorded: ${topSpecies}. Abundance counts observation records, largely from GBIF (eBird, iNaturalist), plus sightings verified in this portal.` +
         (bio.invasiveCount ? `\n\n⚠ ${bio.invasiveCount} records belong to species listed as invasive in India (GRIIS).` : '')

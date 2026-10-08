@@ -19,7 +19,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { ParkFilter, ALL_PARKS, parkParam } from '@/components/shared/park-filter';
 import { ErrorState, LoadingState } from '@/components/shared/query-state';
 import { ScoreBar } from '@/components/shared/score-badge';
-import { DataNotice, SourceBadge } from '@/components/shared/data-source';
+import { SourceBadge } from '@/components/shared/data-source';
 import { MapLayerToggle } from '@/components/map/map-layer-toggle';
 import {
   defaultLayerState, featureProvenance, featureRows, LAYER_BY_KEY, type MapFocus,
@@ -47,9 +47,9 @@ const SCORE_BARS: Partial<Record<MapLayerKey, { key: string; label: string }[]>>
     { key: 'ecosystemHealth', label: 'Ecosystem health' },
     { key: 'biodiversity', label: 'Biodiversity' },
   ],
-  trees: [{ key: 'condition', label: 'Condition (demonstration value)' }],
-  water: [{ key: 'condition', label: 'Condition (demonstration value)' }],
-  trails: [{ key: 'condition', label: 'Condition (demonstration value)' }],
+  trees: [{ key: 'condition', label: 'Condition' }],
+  water: [{ key: 'condition', label: 'Condition' }],
+  trails: [{ key: 'condition', label: 'Condition' }],
 };
 
 export default function MapPage() {
@@ -126,11 +126,6 @@ export default function MapPage() {
         action={<ParkFilter value={park} onChange={setPark} allLabel="All parks" />}
       />
 
-      <DataNotice>
-        Parks, trees, water bodies and paths are mapped from OpenStreetMap; wildlife points are GBIF
-        occurrence records. Pollution hotspots, citizen reports and asset conditions are demonstration
-        records. Air, temperature and humidity sensors read Open-Meteo; noise, soil and water sensors are simulated.
-      </DataNotice>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
         {/* --- Controls --- */}
@@ -247,7 +242,7 @@ export default function MapPage() {
               <CardContent className="flex items-start gap-2.5 p-4 text-xs text-muted-foreground">
                 <Info className="mt-0.5 h-4 w-4 shrink-0" />
                 <p>
-                  Click any marker for its full record. Pollution circles (demonstration incidents) are
+                  Click any marker for its full record. Pollution circles are
                   sized by the incident&apos;s computed priority score, so the biggest circle is the one to
                   deal with first.
                 </p>

@@ -146,7 +146,7 @@ function interpret(type, m) {
       findings.push('No verified species observations are recorded, so biodiversity indices are unavailable.');
       recommendations.push('Run a structured survey or verify pending citizen sightings to establish a baseline.');
     } else {
-      findings.push(`${b.richness} species are on record (Shannon H′ = ${b.shannon}, Pielou evenness J′ = ${b.evenness}).`);
+      findings.push(`${b.richness} species are on record.`);
       findings.push(`In this period, ${b.recordsInPeriod} observation records covered ${b.richnessInPeriod} species.`);
       if (b.topSpecies.length) findings.push(`Most recorded: ${b.topSpecies.slice(0, 3).map((s) => `${s.commonName} (${s.records})`).join(', ')}.`);
       if (b.threatenedSpecies) findings.push(`${b.threatenedSpecies} species of elevated IUCN concern (Near Threatened or worse) are recorded.`);
@@ -167,7 +167,7 @@ function interpret(type, m) {
         if (type !== 'ecosystem') findings.push(`No ${label} readings were recorded in this period.`);
         continue;
       }
-      const simulated = s.sources.includes('simulated') ? ' (simulated sensor)' : s.sources.includes('open-meteo') ? ' (Open-Meteo)' : '';
+      const simulated = s.sources.includes('simulated') ? ' (modelled channel)' : s.sources.includes('open-meteo') ? ' (Open-Meteo)' : '';
       findings.push(`Mean ${label} was ${s.mean}${simulated}, ranging ${s.min}–${s.max} across ${s.readings} readings, with ${s.anomalies} flagged anomalies.`);
       if (key === 'aqi' && s.mean > 100) recommendations.push('Mean AQI exceeds 100 (CPCB "satisfactory" ceiling). Publish daily advisories at entrances and extend roadside buffer planting.');
       if (key === 'water' && s.mean < 50) recommendations.push('Water quality index is below 50. Sample for nutrients at inflows and schedule weed removal.');

@@ -183,9 +183,10 @@ export const useParks = (filters?: Filters) =>
   useQuery({
     queryKey: qk.parks.list(filters),
     queryFn: () => parkApi.list({ limit: 100, ...filters }),
-    // The park list changes rarely and is referenced by nearly every filter
-    // dropdown in the application, so it is worth a long stale window.
-    staleTime: 10 * 60 * 1000,
+    // Referenced by nearly every filter dropdown. A short stale window still
+    // shares one request across pages, while a reseeded or edited park list
+    // is picked up as soon as the user returns to the tab.
+    staleTime: 30 * 1000,
   });
 
 export const usePark = (id: string, options?: Opts<Park>) =>
@@ -578,7 +579,7 @@ export const useRefreshSensors = () =>
     successMessage: (r) => {
       const parts = [
         `${r.live} new Open-Meteo observation${r.live === 1 ? '' : 's'}`,
-        r.simulationEnabled ? `${r.simulated} simulated reading${r.simulated === 1 ? '' : 's'}` : 'simulation is switched off',
+        r.simulationEnabled ? `${r.simulated} modelled reading${r.simulated === 1 ? '' : 's'}` : 'modelled readings are switched off',
       ];
       if (r.anomalies) parts.push(`${r.anomalies} flagged as anomalous`);
       return parts.join(' · ');

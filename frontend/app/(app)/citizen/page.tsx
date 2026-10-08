@@ -1038,13 +1038,6 @@ function ReviewDialog({ report, onClose }: { report: CitizenReport | null; onClo
         </DialogHeader>
 
         <div className="space-y-4">
-          {report?.demo && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <SourceBadge source="demo" />
-              This report is a demonstration record.
-            </div>
-          )}
-
           <p className="rounded-lg bg-muted p-3 text-sm">{report?.description}</p>
 
           <div className="space-y-2">

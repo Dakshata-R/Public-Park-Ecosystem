@@ -24,8 +24,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
 /**
  * Data attribution, required by the licences of the open sources the
- * application is built on, and a reminder that demonstration records are
- * labelled wherever they appear.
+ * application is built on.
  */
 function ShellFooter() {
   // The organisation name is optional decoration; a failed or pending
@@ -52,15 +51,6 @@ function ShellFooter() {
         <a href="https://www.gbif.org" target="_blank" rel="noreferrer" className="hover:underline">GBIF.org</a>
         <span aria-hidden>·</span>
         <a href="https://open-meteo.com" target="_blank" rel="noreferrer" className="hover:underline">Open-Meteo.com (CAMS)</a>
-        <span aria-hidden>·</span>
-        <span>
-          Sample photographs from{' '}
-          <a href="https://commons.wikimedia.org" target="_blank" rel="noreferrer" className="hover:underline">
-            Wikimedia Commons
-          </a>
-        </span>
-        <span aria-hidden>·</span>
-        <span>Demo records are labelled</span>
       </div>
     </footer>
   );

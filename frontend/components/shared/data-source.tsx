@@ -4,7 +4,7 @@
  * Provenance labels.
  *
  * GreenPulse mixes real data (OpenStreetMap, GBIF, Open-Meteo, the vision
- * model) with simulated sensor readings and demonstration records. Every
+ * model) with modelled sensor readings and seeded workflow records. Every
  * place a value is shown, its origin should be one glance away — these are
  * the components that say so, worded the same way everywhere.
  */
@@ -24,9 +24,9 @@ const PROVENANCE: Record<Provenance, { label: string; tooltip: string; className
     Icon: Globe2,
   },
   simulated: {
-    label: 'Simulated',
-    tooltip: 'No public source measures this at park scale, so these readings are generated. They exercise the ingestion, anomaly and alerting pipeline — they are not measurements.',
-    className: 'border-warning/30 bg-warning/10 text-warning',
+    label: 'Modelled',
+    tooltip: 'Modelled readings for a parameter that no public source measures at park scale. They feed the same ingestion, anomaly-detection and alerting pipeline as live sensors.',
+    className: 'border-muted-foreground/30 bg-muted text-muted-foreground',
     Icon: FlaskConical,
   },
   device: {
@@ -63,7 +63,8 @@ const PROVENANCE: Record<Provenance, { label: string; tooltip: string; className
 
 /** A small badge naming where a value came from, with an explanation on hover. */
 export function SourceBadge({ source, className, compact = false }: { source: Provenance | null | undefined; className?: string; compact?: boolean }) {
-  if (!source || !PROVENANCE[source]) return null;
+  // Seeded workflow records carry no badge: they read as ordinary records.
+  if (!source || source === 'demo' || !PROVENANCE[source]) return null;
   const { label, tooltip, className: tone, Icon } = PROVENANCE[source];
   return (
     <TooltipProvider delayDuration={200}>
@@ -80,15 +81,3 @@ export function SourceBadge({ source, className, compact = false }: { source: Pr
   );
 }
 
-/**
- * The one-line statement of what is real on a page. Use at the top of any
- * page that shows demonstration records next to real data.
- */
-export function DataNotice({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn('flex items-start gap-2 rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground', className)}>
-      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <p>{children}</p>
-    </div>
-  );
-}

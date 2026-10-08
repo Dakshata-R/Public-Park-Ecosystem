@@ -16,13 +16,14 @@
 
 import {
   Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudMoon, CloudRain,
-  CloudRainWind, CloudSnow, CloudSun, Droplets, Eye, Gauge, Moon, Sun,
-  Sunrise, Sunset, Thermometer, Wind, WifiOff, Info, TriangleAlert,
+  CloudRainWind, CloudSnow, CloudSun, Droplets, Gauge, Moon, Sun,
+  Wind, WifiOff, Info, TriangleAlert,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { SourceInfo } from './source-info';
 import { useParkConditions } from '@/lib/hooks/use-api';
 import { cn } from '@/lib/utils';
 import type { LiveAirQuality } from '@/lib/types';
@@ -68,16 +69,6 @@ const clock = (iso: string | null | undefined) => {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
   return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: PARK_TIME_ZONE });
-};
-
-/**
- * Open-Meteo's sunrise/sunset are park-local wall-clock strings with no offset
- * ("2026-09-15T06:08"). Passing them to `new Date()` would reinterpret them in
- * the viewer's time zone, so the time portion is shown as-is.
- */
-const wallClock = (local: string | null | undefined) => {
-  const match = local ? /T(\d{2}:\d{2})/.exec(local) : null;
-  return match ? `${match[1]} IST` : '—';
 };
 
 export function ConditionsPanel({ park, className }: { park?: string; className?: string }) {
@@ -134,7 +125,6 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
     .map((t) => new Date(t).getTime())
     .filter((t) => Number.isFinite(t));
   const latestObserved = observedTimes.length ? new Date(Math.max(...observedTimes)).toISOString() : null;
-  const cached = Boolean((data.weather.ok && data.weather.cached) || (air.ok && air.cached));
   const partial = !data.weather.ok || !air.ok;
 
   return (
@@ -142,7 +132,10 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <CardTitle className="text-lg">Live Conditions</CardTitle>
+            <div className="flex items-center gap-1.5">
+              <CardTitle className="text-lg">Live Conditions</CardTitle>
+              <SourceInfo sources={['openMeteoWeather', 'openMeteoAir']} note="Fetched live for the park's coordinates. AQI scored on the CPCB National AQI scale." />
+            </div>
             <CardDescription>{data.location.park || data.location.label}</CardDescription>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
@@ -150,14 +143,6 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
               <Badge variant="outline" className="gap-1 text-[10px] font-normal" title="Time of the most recent upstream observation">
                 Updated {clock(latestObserved)} IST
               </Badge>
-            )}
-            {cached && (
-              <span
-                className="text-[10px] text-muted-foreground"
-                title="Served from the server's short-lived cache of the upstream response"
-              >
-                cached response
-              </span>
             )}
           </div>
         </div>
@@ -195,9 +180,7 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
                 { icon: Droplets, label: 'Humidity', value: `${weather.humidity}%` },
                 { icon: Wind, label: 'Wind', value: `${Math.round(weather.windSpeed)} km/h ${compass(weather.windDirection)}` },
                 { icon: Gauge, label: 'Pressure', value: `${Math.round(weather.pressure)} hPa` },
-                { icon: Sun, label: 'UV max', value: weather.uvIndexMax != null ? String(weather.uvIndexMax) : '—' },
-                { icon: Sunrise, label: 'Sunrise', value: wallClock(weather.sunrise) },
-                { icon: Sunset, label: 'Sunset', value: wallClock(weather.sunset) },
+                { icon: Sun, label: 'UV index', value: weather.uvIndexMax != null ? String(weather.uvIndexMax) : '—' },
               ].map((row) => (
                 <div key={row.label} className="flex items-center gap-2 rounded-lg bg-muted/50 p-2.5">
                   <row.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -224,10 +207,17 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
                     </TooltipTrigger>
                     <TooltipContent className="max-w-xs">
                       <p className="text-xs">
-                        Computed by GreenPulse from Open-Meteo CAMS pollutant concentrations using CPCB
-                        breakpoint tables. The overall AQI is the maximum of the sub-indices, not
-                        their average — air is only as clean as its worst pollutant.
+                        Computed from Open-Meteo CAMS pollutant concentrations using CPCB breakpoint
+                        tables. The AQI is the highest pollutant sub-index.
                       </p>
+                      {air.subIndices && (
+                        <p className="mt-1.5 text-xs tabular-nums">
+                          {Object.entries(air.subIndices)
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([pollutant, index]) => `${POLLUTANT_LABELS[pollutant] ?? pollutant} ${index}`)
+                            .join(' · ')}
+                        </p>
+                      )}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -247,62 +237,9 @@ export function ConditionsPanel({ park, className }: { park?: string; className?
                 {clock(air.observedAt) && ` · ${clock(air.observedAt)} IST`}
               </span>
             </div>
-
-            {/* Per-pollutant sub-indices — the working, shown. */}
-            {air.subIndices && (
-              <div className="mt-3 space-y-1.5">
-                {Object.entries(air.subIndices)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([pollutant, index]) => (
-                    <div key={pollutant} className="flex items-center gap-2">
-                      <span className="w-12 shrink-0 text-[11px] text-muted-foreground">
-                        {POLLUTANT_LABELS[pollutant] ?? pollutant}
-                      </span>
-                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className={cn(
-                            'h-full rounded-full',
-                            index > 200 ? 'bg-destructive' : index > 100 ? 'bg-warning' : 'bg-success'
-                          )}
-                          style={{ width: `${Math.min(100, (index / 300) * 100)}%` }}
-                        />
-                      </div>
-                      <span className="w-7 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
-                        {index}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            )}
-
-            {air.method && <p className="mt-2.5 text-[11px] text-muted-foreground">{air.method}</p>}
-            {air.advice && <p className="mt-1.5 text-xs text-muted-foreground">{air.advice}</p>}
           </div>
         )}
 
-        {/* Advisory combining both sources. */}
-        {data.advisory && (
-          <div className="flex items-start gap-2 rounded-lg bg-primary/5 p-3">
-            <Thermometer className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-            <p className="text-xs leading-relaxed">{data.advisory}</p>
-          </div>
-        )}
-
-        {/* Provenance. Live data must always say where it came from. */}
-        <div className="space-y-0.5 text-[10px] text-muted-foreground">
-          {data.weather.ok && (
-            <p className="flex items-center gap-1.5">
-              <Eye className="h-3 w-3 shrink-0" />
-              {data.weather.attribution || 'Weather data by Open-Meteo.com'}
-            </p>
-          )}
-          {air.ok && (
-            <p className="flex items-center gap-1.5">
-              <Eye className="h-3 w-3 shrink-0" />
-              {air.attribution || 'Air quality data by Open-Meteo.com (CAMS)'}
-            </p>
-          )}
-        </div>
       </CardContent>
     </Card>
   );

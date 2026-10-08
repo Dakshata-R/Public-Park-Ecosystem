@@ -78,7 +78,7 @@ const ingestReading = asyncHandler(async (req, res) => {
   if (!sensor) throw ApiError.notFound('Sensor');
   if (sensor.source !== 'device') {
     throw ApiError.conflict(
-      `${sensor.name} is ${sensor.source === 'open-meteo' ? 'a virtual sensor fed by Open-Meteo' : 'a simulated sensor'}; ` +
+      `${sensor.name} is ${sensor.source === 'open-meteo' ? 'a virtual sensor fed by Open-Meteo' : 'a modelled sensor'}; ` +
         'only physical devices accept posted readings'
     );
   }

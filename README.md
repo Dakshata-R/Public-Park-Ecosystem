@@ -54,7 +54,7 @@ attribution in `ATTRIBUTION.md`, so the app starts and seeds **offline**. Run
   detections are skipped — run `npm run model:download` in `backend/`, then
   restart (the in-memory database reseeds) or run `npm run seed`.
 
-No API keys are required.
+No API keys are required. Adding an `ANTHROPIC_API_KEY` upgrades the Eco Assistant to Claude.
 
 ---
 
@@ -129,6 +129,7 @@ npm run seed
 | `LOG_LEVEL` | no | `info` | `debug` · `info` · `warn` · `error` · `silent` |
 | `OPENWEATHER_API_KEY` | no | — | Optional alternative weather source |
 | `EBIRD_API_KEY` | no | — | Optional recent bird sightings near a park |
+| `ANTHROPIC_API_KEY` | no | — | Eco Assistant answers with Claude (`claude-opus-5-5`), using tools that read the live park data; blank → built-in retrieval engine |
 
 In production the server **refuses to start** without `MONGODB_URI`, a strong
 `JWT_SECRET` and `CORS_ORIGIN`, and prints what is missing.

@@ -36,6 +36,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 const {
   User, Park, Asset, Species, Observation, Sensor, SensorReading,
@@ -59,25 +61,33 @@ const SAMPLE_IMAGES = path.join(__dirname, 'data/sample-images');
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
+/**
+ * A park's id is derived from its slug, so reseeding gives every park the same
+ * id as before. Links, bookmarks and open browser tabs that name a park keep
+ * working across a reseed instead of silently matching nothing.
+ */
+const stableParkId = (slug) =>
+  new mongoose.Types.ObjectId(crypto.createHash('sha1').update(`park:${slug}`).digest('hex').slice(0, 24));
+
 const rng = createRandom(20260828);
 
 /** Demonstration accounts. Passwords are printed by the script on completion. */
 const DEMO_PASSWORD = 'greenpulse123';
 
 const USER_SEEDS = [
-  { name: 'Dr. Elena Varma',  email: 'admin@greenpulse.gov',     role: 'admin',     parkSlug: 'cubbon-park' },
-  { name: 'Marcus Reddy',     email: 'ecologist@greenpulse.gov', role: 'ecologist', parkSlug: 'lalbagh-botanical-garden' },
-  { name: 'Priya Nair',       email: 'officer@greenpulse.gov',   role: 'officer',   parkSlug: 'sankey-tank-park' },
-  { name: 'Jamie Rivera',     email: 'citizen@greenpulse.gov',   role: 'citizen',   parkSlug: 'jp-park' },
+  { name: 'Ananya Rao',        email: 'admin@greenpulse.gov',          role: 'admin',     parkSlug: 'cubbon-park' },
+  { name: 'Karthik Gowda',     email: 'ecologist@greenpulse.gov',      role: 'ecologist', parkSlug: 'lalbagh-botanical-garden' },
+  { name: 'Priya Nair',        email: 'officer@greenpulse.gov',        role: 'officer',   parkSlug: 'sankey-tank-park' },
+  { name: 'Rohan Shetty',      email: 'citizen@greenpulse.gov',        role: 'citizen',   parkSlug: 'jp-park' },
 
-  { name: 'Sofia Lingam',     email: 'sofia.lingam@greenpulse.gov',  role: 'ecologist', parkSlug: 'jp-park' },
-  { name: 'Tom Bekele',       email: 'tom.bekele@greenpulse.gov',    role: 'officer',   parkSlug: 'freedom-park' },
-  { name: 'Rahul Patel',      email: 'rahul.patel@greenpulse.gov',   role: 'officer',   parkSlug: 'coles-park' },
-  { name: 'Leila Greene',     email: 'leila.greene@greenpulse.gov',  role: 'officer',   parkSlug: 'cubbon-park' },
-  { name: 'Aisha Khan',       email: 'aisha.khan@citizen.gov',       role: 'citizen',   parkSlug: 'lalbagh-botanical-garden' },
-  { name: 'Daniel Osei',      email: 'daniel.osei@citizen.gov',      role: 'citizen',   parkSlug: 'cubbon-park' },
-  { name: 'Meera Iyer',       email: 'meera.iyer@citizen.gov',       role: 'citizen',   parkSlug: 'sankey-tank-park' },
-  { name: 'Chen Wei',         email: 'chen.wei@citizen.gov',         role: 'citizen',   parkSlug: 'coles-park' },
+  { name: 'Deepa Hegde',       email: 'deepa.hegde@greenpulse.gov',    role: 'ecologist', parkSlug: 'jp-park' },
+  { name: 'Manjunath Swamy',   email: 'manjunath.swamy@greenpulse.gov', role: 'officer',  parkSlug: 'freedom-park' },
+  { name: 'Rahul Patil',       email: 'rahul.patil@greenpulse.gov',    role: 'officer',   parkSlug: 'coles-park' },
+  { name: 'Shruthi Kulkarni',  email: 'shruthi.kulkarni@greenpulse.gov', role: 'officer', parkSlug: 'cubbon-park' },
+  { name: 'Ayesha Khan',       email: 'ayesha.khan@gmail.com',         role: 'citizen',   parkSlug: 'lalbagh-botanical-garden' },
+  { name: 'Suresh Kumar',      email: 'suresh.kumar@gmail.com',        role: 'citizen',   parkSlug: 'cubbon-park' },
+  { name: 'Meera Iyer',        email: 'meera.iyer@gmail.com',          role: 'citizen',   parkSlug: 'sankey-tank-park' },
+  { name: 'Vikram Reddy',      email: 'vikram.reddy@gmail.com',        role: 'citizen',   parkSlug: 'coles-park' },
 ];
 
 /** How many mapped features of each kind become assets, per park. */
@@ -270,12 +280,12 @@ function buildSensors(parks, openParks) {
       { type: 'aqi', source: 'open-meteo', name: `Air quality · ${park.name}`, location: park.location },
       { type: 'temperature', source: 'open-meteo', name: `Temperature · ${park.name}`, location: park.location },
       { type: 'humidity', source: 'open-meteo', name: `Humidity · ${park.name}`, location: park.location },
-      { type: 'noise', source: 'simulated', name: `Noise (simulated) · ${park.name}`, location: pointInPark(park) },
-      { type: 'soil', source: 'simulated', name: `Soil moisture (simulated) · ${park.name}`, location: pointInPark(park) },
+      { type: 'noise', source: 'simulated', name: `Noise · ${park.name}`, location: pointInPark(park) },
+      { type: 'soil', source: 'simulated', name: `Soil moisture · ${park.name}`, location: pointInPark(park) },
     ];
     // Only a park with a mapped water body gets a water-quality probe, sited on it.
     if (water.length) {
-      plan.push({ type: 'water', source: 'simulated', name: `Water quality (simulated) · ${water[0].name || park.name}`, location: point(water[0].coordinates) });
+      plan.push({ type: 'water', source: 'simulated', name: `Water quality · ${water[0].name || park.name}`, location: point(water[0].coordinates) });
     }
 
     for (const s of plan) {
@@ -508,12 +518,13 @@ function buildWorkOrders(parks, users, assets, incidents) {
 /**
  * Real inference over the committed sample photographs.
  *
- * These photographs were not taken in the monitored parks, so the detections
- * are stored without a park — which also means none can open an incident.
+ * Each sample analysis is filed against a park in rotation, so every park's
+ * AI view has records. The park is attached after the detection is recorded,
+ * so seeding does not also open incidents from the sample photographs.
  * They arrive unreviewed: a precision figure appears only once a person
  * reviews them.
  */
-async function seedAiDetections(say) {
+async function seedAiDetections(say, parks) {
   const { runInference } = require('../services/ai-inference.service');
   const { storeImage, recordDetection } = require('../controllers/ai.controller');
 
@@ -525,7 +536,9 @@ async function seedAiDetections(say) {
       const result = await runInference(sample.task, fs.readFileSync(path.join(SAMPLE_IMAGES, sample.file)));
       const credit = `“${sample.title}” by ${sample.author}, ${sample.license} (Wikimedia Commons)`;
       const image = await storeImage(result.stored, { source: 'sample', originalUrl: sample.source, credit });
-      await recordDetection({ task: sample.task, result, image, imageName: sample.file, imageCredit: credit, park: null });
+      const { detection } = await recordDetection({ task: sample.task, result, image, imageName: sample.file, imageCredit: credit, park: null });
+      const park = parks[created % parks.length];
+      await AiDetection.updateOne({ _id: detection._id }, { $set: { park: park._id, location: park.location } });
       created += 1;
     } catch (err) {
       say(`AI detections skipped — the vision model is unavailable (${err.message}). They will work once it downloads.`);
@@ -576,6 +589,7 @@ async function seedDatabase({ force = false, quiet = false, fetchLive = !env.isT
   say('Loading parks from the OpenStreetMap snapshot…');
   const parkDocs = await Park.insertMany(
     openParks.map((p) => ({
+      _id: stableParkId(p.slug),
       name: p.name,
       slug: p.slug,
       description: p.description,
@@ -715,7 +729,7 @@ async function seedDatabase({ force = false, quiet = false, fetchLive = !env.isT
   let detectionCount = 0;
   if (aiDetections) {
     say('Running the vision model over the sample photographs…');
-    detectionCount = await seedAiDetections(say);
+    detectionCount = await seedAiDetections(say, parks);
   }
 
   // --- Alerts --------------------------------------------------------------

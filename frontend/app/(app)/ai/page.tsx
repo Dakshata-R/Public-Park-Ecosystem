@@ -337,8 +337,8 @@ function AnalyzeTab() {
           )}
 
           <div className="space-y-1.5">
-            <Label>Park (needed for auto-escalation)</Label>
-            <ParkFilter value={park} onChange={setPark} allLabel="Not specified" className="w-full" />
+            <Label>Park</Label>
+            <ParkFilter value={park} onChange={setPark} allLabel="Select a park" className="w-full" />
             <p className="text-[11px] text-muted-foreground">
               Without a park an incident has no location, so even a confident fire or smoke finding
               is queued for human review instead of opened automatically.

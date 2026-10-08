@@ -13,7 +13,7 @@ import { useMemo, useState } from 'react';
 import {
   Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { Plus, Pencil, Trash2, Wrench, History, AlertTriangle, ExternalLink, Sparkles } from 'lucide-react';
+import { Plus, Pencil, Trash2, Wrench, History, AlertTriangle, ExternalLink } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -29,14 +29,13 @@ import {
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable } from '@/components/shared/data-table';
 import { FilterBar } from '@/components/shared/filter-bar';
 import { Pagination } from '@/components/shared/pagination';
 import { StatusBadge } from '@/components/shared/status-badges';
 import { MetricTile, ScoreBar, NO_DATA } from '@/components/shared/score-badge';
-import { DataNotice, SourceBadge } from '@/components/shared/data-source';
+import { SourceBadge } from '@/components/shared/data-source';
 import { ParkFilter, ALL_PARKS, parkParam } from '@/components/shared/park-filter';
 import { QueryState, SkeletonCards, LoadingState, EmptyState, ErrorState } from '@/components/shared/query-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
@@ -47,7 +46,6 @@ import {
 } from '@/lib/hooks/use-api';
 import { ApiError } from '@/lib/api/client';
 import { makePoint } from '@/lib/api/geo';
-import { cn } from '@/lib/utils';
 import type { Asset, AssetType } from '@/lib/types';
 
 const ASSET_TYPES: AssetType[] = ['tree', 'plant', 'bench', 'lake', 'path', 'light', 'structure'];
@@ -94,29 +92,6 @@ const shortDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateStri
 /** `node/123` or `way/123` → the OpenStreetMap page for that element. */
 const osmUrl = (id: string) => `https://www.openstreetmap.org/${id}`;
 const isOsm = (asset: Asset) => asset.source?.provider === 'OpenStreetMap' && Boolean(asset.source.id);
-
-const DEMO_CONDITION_TOOLTIP =
-  'Condition and maintenance history are demonstration values. The asset’s position and type are real (OpenStreetMap), but no condition survey has been recorded for it.';
-
-/** Marks an asset whose condition and maintenance history are demonstration values. */
-function DemoConditionBadge({ compact = false, className }: { compact?: boolean; className?: string }) {
-  return (
-    <TooltipProvider delayDuration={200}>
-      <UiTooltip>
-        <TooltipTrigger asChild>
-          <Badge
-            variant="outline"
-            className={cn('gap-1 whitespace-nowrap border-muted-foreground/30 bg-muted font-normal text-muted-foreground', className)}
-          >
-            <Sparkles className="h-3 w-3" />
-            {!compact && 'Demo condition'}
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs text-xs">{DEMO_CONDITION_TOOLTIP}</TooltipContent>
-      </UiTooltip>
-    </TooltipProvider>
-  );
-}
 
 export default function AssetsPage() {
   const { can } = useAuth();
@@ -187,7 +162,6 @@ export default function AssetsPage() {
         render: (asset: Asset) => (
           <div className="flex items-center gap-1.5">
             <ScoreBar score={asset.condition} className="flex-1" />
-            {asset.demo && <DemoConditionBadge compact className="px-1 py-0" />}
           </div>
         ),
       },
@@ -261,12 +235,6 @@ export default function AssetsPage() {
         }
       />
 
-      <DataNotice>
-        Asset positions and types come from OpenStreetMap (© OpenStreetMap contributors). For assets
-        marked &ldquo;Demo condition&rdquo;, the condition score and maintenance history are demonstration
-        values — so the mean condition, needs-attention count and maintenance spend below illustrate the
-        workflow rather than describe the parks.
-      </DataNotice>
 
       {/* --- Inventory summary --- */}
       <QueryState query={stats} skeleton={<SkeletonCards count={4} height="h-24" />}>
@@ -672,8 +640,7 @@ function MaintenanceDialog({ asset, onClose }: { asset: Asset | null; onClose: (
         <DialogHeader>
           <DialogTitle>Log maintenance</DialogTitle>
           <DialogDescription>
-            {asset?.name} · condition currently {asset?.condition}/100
-            {asset?.demo && ' (a demonstration value)'}. Recording work also advances the condition, so
+            {asset?.name} · condition currently {asset?.condition}/100. Recording work also advances the condition, so
             the register does not stay pessimistic after a repair.
           </DialogDescription>
         </DialogHeader>
@@ -733,11 +700,10 @@ function AssetDetailSheet({ asset, onClose }: { asset: Asset | null; onClose: ()
 
         {asset && (
           <div className="mt-6 space-y-6">
-            {(isOsm(asset) || asset.demo) && (
+            {isOsm(asset) && (
               <div className="space-y-2 rounded-lg border p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   {isOsm(asset) && <SourceBadge source="osm" />}
-                  {asset.demo && <DemoConditionBadge />}
                   {isOsm(asset) && (
                     <a
                       href={osmUrl(asset.source!.id)}
@@ -752,7 +718,6 @@ function AssetDetailSheet({ asset, onClose }: { asset: Asset | null; onClose: ()
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   {isOsm(asset) && 'Position and type from OpenStreetMap (© OpenStreetMap contributors). '}
-                  {asset.demo && 'Condition and maintenance history are demonstration values.'}
                 </p>
               </div>
             )}
@@ -761,7 +726,7 @@ function AssetDetailSheet({ asset, onClose }: { asset: Asset | null; onClose: ()
               <MetricTile
                 label="Condition"
                 value={asset.condition}
-                hint={asset.demo ? `${asset.status} · demonstration value` : asset.status}
+                hint={asset.status}
               />
               <MetricTile label="Installed" value={shortDate(asset.installedAt)} hint="Date entered service" />
             </div>
@@ -794,7 +759,6 @@ function AssetDetailSheet({ asset, onClose }: { asset: Asset | null; onClose: ()
             <div>
               <p className="mb-2 flex items-center gap-2 text-sm font-medium">
                 Maintenance history
-                {asset.demo && <DemoConditionBadge compact />}
               </p>
               {history.isPending ? (
                 <LoadingState label="Loading history…" />
@@ -852,7 +816,6 @@ function AssetDetailSheet({ asset, onClose }: { asset: Asset | null; onClose: ()
                   order.
                   {(asset.type === 'tree' || asset.type === 'plant') &&
                     ' Trees and plants in poor condition also drag down the park’s tree-health sub-index, and through it the Ecosystem Health Index.'}
-                  {asset.demo && ' (The condition is a demonstration value.)'}
                 </p>
               </div>
             )}

@@ -20,7 +20,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  ArrowUpRight, Bot, Send, User, Sparkles, Loader2, Database, Clock, Search, RotateCcw, RefreshCw,
+  ArrowUpRight, Bot, Send, User, Sparkles, Loader2, Database, RotateCcw, RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -299,29 +299,8 @@ export default function AssistantPage() {
                     )}
                   </div>
 
-                  {/* Time and, for answers, provenance. */}
-                  {(clock(turn.at) || (turn.role === 'assistant' && turn.intent)) && (
-                    <div className="flex flex-wrap items-center gap-1.5 px-1">
-                      {clock(turn.at) && (
-                        <span className="text-[10px] tabular-nums text-muted-foreground">{clock(turn.at)}</span>
-                      )}
-                      {turn.role === 'assistant' && turn.intent && (
-                        <Badge variant="outline" className="text-[10px] capitalize">
-                          {turn.intent.replace(/([A-Z])/g, ' $1').trim()}
-                        </Badge>
-                      )}
-                      {turn.intentConfidence !== undefined && (
-                        <span className="text-[10px] text-muted-foreground">
-                          intent confidence {(turn.intentConfidence * 100).toFixed(0)}%
-                        </span>
-                      )}
-                      {turn.latencyMs !== undefined && (
-                        <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                          <Clock className="h-2.5 w-2.5" />
-                          {turn.latencyMs} ms
-                        </span>
-                      )}
-                    </div>
+                  {clock(turn.at) && (
+                    <span className="px-1 text-[10px] tabular-nums text-muted-foreground">{clock(turn.at)}</span>
                   )}
                 </div>
               </div>
@@ -422,8 +401,7 @@ export default function AssistantPage() {
                 Sources
               </CardTitle>
               <CardDescription className="text-xs">
-                Documents the retrieval step surfaced, ranked by TF-IDF cosine similarity. Each link opens
-                the module that holds the record — find the record there by name.
+                The records this answer was built from. Each link opens the module that holds it.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -461,35 +439,6 @@ export default function AssistantPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-dashed">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Search className="h-3.5 w-3.5" />
-                How it works
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-[11px] leading-relaxed text-muted-foreground">
-              <p>
-                Your question is tokenised, classified into an intent, and matched against a corpus
-                rebuilt from the database. Documents are ranked by
-              </p>
-              <code className="block rounded bg-muted px-2 py-1.5 text-[10px]">
-                cos(q,d) = Σ qₜ·dₜ ⁄ (‖q‖₂ · ‖d‖₂)
-              </code>
-              <p>
-                where each weight is tf·idf. Cosine rather than a raw dot product because document
-                lengths here vary by an order of magnitude — a species description dwarfs an
-                incident title, and without length normalisation the long documents would always win.
-              </p>
-              <p>
-                The answer is then composed from the retrieved records. Figures are read from the
-                database, never invented — which is the advantage of this approach over a language
-                model at prototype stage. The database mixes real records (parks, species, air
-                quality, weather) with demonstration ones (incidents, work orders, citizen reports),
-                so answers about the latter describe demonstration data.
-              </p>
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>

@@ -12,20 +12,18 @@
 
 import { useState } from 'react';
 import {
-  Shield, Users, Settings2, ScrollText, Activity, Plus, Pencil, Trash2,
+  Shield, Users, ScrollText, Activity, Plus, Pencil, Trash2,
   RefreshCw, Database, TriangleAlert, Globe2, CheckCircle2, XCircle, Eraser,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -40,12 +38,12 @@ import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { SourceBadge } from '@/components/shared/data-source';
 import { useAuth } from '@/components/providers/auth-provider';
 import {
-  useUsers, useSettings, useAuditLog, useSystemStats, useParks, useIntegrationStatus,
-  useCreateUser, useUpdateUser, useDeleteUser, useUpdateSettings,
-  useRecomputeScores, useReindexAssistant, useReseed, useClearIntegrationCache, qk,
+  useUsers, useAuditLog, useSystemStats, useParks, useIntegrationStatus,
+  useCreateUser, useUpdateUser, useDeleteUser,
+  useRecomputeScores, useReindexAssistant, useReseed, useClearIntegrationCache,
 } from '@/lib/hooks/use-api';
 import { cn } from '@/lib/utils';
-import type { AuditEntry, SystemSettings, User, UserRole } from '@/lib/types';
+import type { AuditEntry, User, UserRole } from '@/lib/types';
 
 const ROLES: UserRole[] = ['citizen', 'ecologist', 'officer', 'admin'];
 
@@ -120,20 +118,18 @@ export default function AdminPage() {
     <div className="space-y-6">
       <PageHeader
         title="Administration"
-        description="User accounts, system configuration, the audit trail, and platform maintenance actions."
+        description="User accounts, the audit trail and platform maintenance."
         icon="Shield"
       />
 
       <Tabs defaultValue="users" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3 sm:w-auto">
           <TabsTrigger value="users"><Users className="mr-1.5 h-3.5 w-3.5" />Users</TabsTrigger>
-          <TabsTrigger value="settings"><Settings2 className="mr-1.5 h-3.5 w-3.5" />Settings</TabsTrigger>
           <TabsTrigger value="audit"><ScrollText className="mr-1.5 h-3.5 w-3.5" />Audit log</TabsTrigger>
           <TabsTrigger value="system"><Activity className="mr-1.5 h-3.5 w-3.5" />System</TabsTrigger>
         </TabsList>
 
         <TabsContent value="users"><UsersTab /></TabsContent>
-        <TabsContent value="settings"><SettingsTab /></TabsContent>
         <TabsContent value="audit"><AuditTab /></TabsContent>
         <TabsContent value="system"><SystemTab /></TabsContent>
       </Tabs>
@@ -264,8 +260,7 @@ function UsersTab() {
         <AlertDescription className="text-xs">
           Roles form a hierarchy — <strong>citizen → ecologist → officer → admin</strong> — so an
           officer route also admits admins. Public registration always creates a citizen; elevated
-          roles can only be granted here. Accounts marked &ldquo;Demo record&rdquo; are the seeded
-          demonstration users.
+          roles can only be granted here.
         </AlertDescription>
       </Alert>
 
@@ -451,308 +446,6 @@ function UserFormDialog({ open, user, onClose }: { open: boolean; user: User | n
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Settings
-// ---------------------------------------------------------------------------
-
-/**
- * One settings card's local draft.
- *
- * `draft` is null until the user edits something, and the card renders the
- * server value until then — so a save in another card (which refetches the
- * whole settings document) never overwrites edits that have not been saved
- * here. Saving writes the response into the cache and drops the draft.
- */
-function useSettingsDraft<T>(fromServer: T) {
-  const queryClient = useQueryClient();
-  const update = useUpdateSettings();
-  const [draft, setDraft] = useState<T | null>(null);
-
-  const values = draft ?? fromServer;
-  const change = (patch: Partial<T>) => setDraft((current) => ({ ...(current ?? fromServer), ...patch }));
-
-  const save = (body: Partial<SystemSettings>) =>
-    update.mutate(body, {
-      onSuccess: (saved) => {
-        queryClient.setQueryData(qk.admin.settings, saved);
-        setDraft(null);
-      },
-    });
-
-  return { values, change, dirty: draft !== null, discard: () => setDraft(null), save, saving: update.isPending };
-}
-
-function SettingsTab() {
-  const query = useSettings();
-
-  if (query.isPending) return <LoadingState label="Loading settings…" />;
-  if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
-
-  return (
-    <div className="space-y-4">
-      <WeightsCard settings={query.data} />
-      <AlgorithmCard settings={query.data} />
-      <OrganisationCard settings={query.data} />
-    </div>
-  );
-}
-
-function DraftFooter({ dirty, saving, onDiscard }: { dirty: boolean; saving: boolean; onDiscard: () => void }) {
-  if (!dirty) return null;
-  return (
-    <div className="flex items-center justify-between text-xs text-muted-foreground">
-      <span>Unsaved changes</span>
-      <Button type="button" size="sm" variant="ghost" className="h-7" disabled={saving} onClick={onDiscard}>
-        Discard
-      </Button>
-    </div>
-  );
-}
-
-function WeightsCard({ settings }: { settings: SystemSettings }) {
-  // Local weights so the user can rebalance freely and only be validated on
-  // save — blocking each individual slider move would make it unusable.
-  const { values: weights, change, dirty, discard, save, saving } = useSettingsDraft(settings.healthIndexWeights);
-
-  const sum = Object.values(weights).reduce((a, b) => a + b, 0);
-  const balanced = Math.abs(sum - 1) <= 0.01;
-
-  /** Scale every weight so the set sums to exactly 1. */
-  const normalise = () => {
-    if (sum <= 0) return;
-    change(
-      Object.fromEntries(
-        Object.entries(weights).map(([key, value]) => [key, Math.round((value / sum) * 100) / 100])
-      ) as typeof weights
-    );
-  };
-
-  return (
-    <Card className="border-primary/20">
-      <CardHeader>
-        <CardTitle className="text-lg">Ecosystem Health Index Weights</CardTitle>
-        <CardDescription>
-          EHI = Σ wₖ·Sₖ ⁄ Σ wₖ over the sub-indices that have data. Changing these re-scores every park
-          in the system, so they must sum to 1.00.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {(Object.keys(weights) as (keyof typeof weights)[]).map((key) => (
-          <div key={key} className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="capitalize">{key === 'tree' ? 'Tree health' : key}</Label>
-              <span className="text-sm font-medium tabular-nums">{weights[key].toFixed(2)}</span>
-            </div>
-            <Slider
-              value={[weights[key] * 100]}
-              onValueChange={([v]) => change({ [key]: v / 100 } as Partial<typeof weights>)}
-              min={0}
-              max={100}
-              step={1}
-            />
-          </div>
-        ))}
-
-        <div
-          className={cn(
-            'flex flex-wrap items-center justify-between gap-2 rounded-lg p-3',
-            balanced ? 'bg-success/10' : 'bg-destructive/10'
-          )}
-        >
-          <div className="flex items-center gap-2">
-            {balanced ? (
-              <CheckCircle2 className="h-4 w-4 text-success" />
-            ) : (
-              <TriangleAlert className="h-4 w-4 text-destructive" />
-            )}
-            <span className={cn('text-sm', balanced ? 'text-success' : 'text-destructive')}>
-              Sum: {sum.toFixed(2)} {balanced ? '' : '— must be 1.00'}
-            </span>
-          </div>
-          {!balanced && (
-            <Button size="sm" variant="outline" onClick={normalise}>Normalise to 1.00</Button>
-          )}
-        </div>
-
-        <DraftFooter dirty={dirty} saving={saving} onDiscard={discard} />
-
-        <Button
-          className="w-full"
-          disabled={!dirty || !balanced || saving}
-          onClick={() => save({ healthIndexWeights: weights })}
-        >
-          {saving ? 'Saving and re-scoring…' : 'Save weights and recompute all scores'}
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AlgorithmCard({ settings }: { settings: SystemSettings }) {
-  const { values, change, dirty, discard, save, saving } = useSettingsDraft({
-    anomalyZThreshold: settings.anomalyZThreshold,
-    aiAutoIncidentConfidence: settings.aiAutoIncidentConfidence,
-    enableSensorSimulation: settings.enableSensorSimulation,
-    enablePublicReporting: settings.enablePublicReporting,
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Algorithm Parameters &amp; Switches</CardTitle>
-        <CardDescription>Thresholds used by the anomaly detector and the AI escalation rule, and platform switches</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label>Anomaly z-score threshold</Label>
-            <span className="text-sm font-medium tabular-nums">{values.anomalyZThreshold.toFixed(1)}σ</span>
-          </div>
-          <Slider
-            value={[values.anomalyZThreshold * 10]}
-            onValueChange={([v]) => change({ anomalyZThreshold: v / 10 })}
-            min={10}
-            max={60}
-            step={1}
-          />
-          <p className="text-xs text-muted-foreground">
-            A reading is flagged when |z| exceeds this. 3σ covers ~99.7% of a normal
-            distribution — lowering it catches more, at the cost of false positives.
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label>AI auto-escalation confidence floor</Label>
-            <span className="text-sm font-medium tabular-nums">{values.aiAutoIncidentConfidence}%</span>
-          </div>
-          <Slider
-            value={[values.aiAutoIncidentConfidence]}
-            onValueChange={([v]) => change({ aiAutoIncidentConfidence: v })}
-            min={50}
-            max={100}
-            step={1}
-          />
-          <p className="text-xs text-muted-foreground">
-            Only a fire or smoke finding at or above this confidence opens an incident automatically.
-            Every other finding — and any fire or smoke result below it — is queued for human review.
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-            <div>
-              <Label>Sensor simulation</Label>
-              <p className="text-[11px] text-muted-foreground">
-                Generate readings for the simulated water-quality, soil-moisture and noise sensors. Open-Meteo
-                air-quality, temperature and humidity sensors are real observations and are not affected.
-              </p>
-            </div>
-            <Switch
-              checked={values.enableSensorSimulation}
-              onCheckedChange={(v) => change({ enableSensorSimulation: v })}
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-            <div>
-              <Label>Public reporting</Label>
-              <p className="text-[11px] text-muted-foreground">
-                When off, the server refuses new citizen reports from citizen accounts. Officers and
-                administrators can still file reports, and existing reports stay visible.
-              </p>
-            </div>
-            <Switch
-              checked={values.enablePublicReporting}
-              onCheckedChange={(v) => change({ enablePublicReporting: v })}
-            />
-          </div>
-        </div>
-
-        <DraftFooter dirty={dirty} saving={saving} onDiscard={discard} />
-
-        <Button className="w-full" disabled={!dirty || saving} onClick={() => save(values)}>
-          {saving ? 'Saving…' : 'Save parameters and switches'}
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-function OrganisationCard({ settings }: { settings: SystemSettings }) {
-  const { values, change, dirty, discard, save, saving } = useSettingsDraft({
-    organisationName: settings.organisationName,
-    city: settings.city,
-    contactEmail: settings.contactEmail,
-  });
-
-  const email = values.contactEmail.trim();
-  const emailInvalid = Boolean(email) && !z.string().email().safeParse(email).success;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Organisation</CardTitle>
-        <CardDescription>
-          Published to every visitor through the public settings — the organisation name appears in the
-          page footer and on exported PDFs.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="organisationName">Organisation name</Label>
-            <Input
-              id="organisationName"
-              value={values.organisationName}
-              onChange={(e) => change({ organisationName: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="city">City</Label>
-            <Input id="city" value={values.city} onChange={(e) => change({ city: e.target.value })} />
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="contactEmail">Public contact email</Label>
-          <Input
-            id="contactEmail"
-            type="email"
-            placeholder="Optional"
-            value={values.contactEmail}
-            aria-invalid={emailInvalid}
-            onChange={(e) => change({ contactEmail: e.target.value })}
-          />
-          {emailInvalid ? (
-            <p className="text-xs text-destructive">Enter a valid email address, or leave it blank.</p>
-          ) : (
-            <p className="text-[11px] text-muted-foreground">
-              Optional. When blank, no contact address is shown to visitors.
-            </p>
-          )}
-        </div>
-
-        <DraftFooter dirty={dirty} saving={saving} onDiscard={discard} />
-
-        <Button
-          variant="outline"
-          className="w-full"
-          disabled={!dirty || emailInvalid || saving}
-          onClick={() =>
-            save({
-              organisationName: values.organisationName.trim(),
-              city: values.city.trim(),
-              contactEmail: email,
-            })
-          }
-        >
-          {saving ? 'Saving…' : 'Save organisation details'}
-        </Button>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -1060,11 +753,11 @@ function SystemTab() {
 
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 p-3">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-destructive">Reseed database — reference snapshot + demo records</p>
+              <p className="text-sm font-medium text-destructive">Reseed database — reference snapshot + sample records</p>
               <p className="text-[11px] text-muted-foreground">
                 {isProduction
                   ? 'Unavailable: the server refuses to reseed in production.'
-                  : 'Wipes every collection, reloads the reference snapshot and regenerates the demo records. Development only.'}
+                  : 'Wipes every collection, reloads the reference snapshot and regenerates the sample records. Development only.'}
               </p>
             </div>
             {!isProduction && (

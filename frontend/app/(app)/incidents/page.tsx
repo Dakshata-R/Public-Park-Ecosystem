@@ -192,13 +192,13 @@ export default function IncidentsPage() {
 // Triage
 // ---------------------------------------------------------------------------
 
-/** The five weighted factors, matching the formula in `priority.service.js`. */
+/** The five factors behind an incident's priority, matching `priority.service.js`. */
 const FACTORS = [
-  { key: 'hazard', label: 'Hazard', weight: 0.35, note: 'Intrinsic danger of the incident type' },
+  { key: 'hazard', label: 'Hazard', weight: 0.35, note: 'How dangerous this type of incident is' },
   { key: 'severity', label: 'Severity', weight: 0.25, note: "Officer's 1–5 judgement" },
-  { key: 'exposure', label: 'Exposure', weight: 0.2, note: 'People affected, log-scaled' },
-  { key: 'urgency', label: 'Urgency', weight: 0.1, note: 'Age against the response target' },
-  { key: 'community', label: 'Community', weight: 0.1, note: 'Upvotes on the citizen report it came from, log-scaled' },
+  { key: 'exposure', label: 'Exposure', weight: 0.2, note: 'How many people are affected' },
+  { key: 'urgency', label: 'Urgency', weight: 0.1, note: 'How long it has been open' },
+  { key: 'community', label: 'Community', weight: 0.1, note: 'Upvotes from citizens' },
 ] as const;
 
 const upvoteLabel = (n: number) => `${n} upvote${n === 1 ? '' : 's'}`;
@@ -211,14 +211,8 @@ function TriageTab({ park, onSelect }: { park?: string; onSelect: (i: TriagedInc
       <Alert className="border-primary/20 bg-primary/5">
         <ArrowDownWideNarrow className="h-4 w-4 text-primary" />
         <AlertDescription className="text-xs leading-relaxed">
-          <strong>P = 100 · (0.35·H + 0.25·Ŝ + 0.20·Ê + 0.10·Û + 0.10·Ĉ)</strong>
-          <br />
-          Exposure is log-scaled because the difference between 10 and 100 people affected matters
-          far more than between 4 000 and 4 090. Urgency follows Û(t) = 1 − e^(−t/τ), so an
-          unattended incident climbs quickly while genuinely late and then stops — it can never
-          outrank a new fire. The community signal Ĉ follows the upvotes on the citizen report an
-          incident was opened from; incidents logged by officers, sensors or the AI start at zero.
-          Scores here are recomputed on every request.
+          Incidents are ranked by priority: how dangerous the incident type is, how severe it is,
+          how many people are affected, how long it has been open and how many citizens upvoted it.
         </AlertDescription>
       </Alert>
 
@@ -644,7 +638,7 @@ function StatsTab({ park }: { park?: string }) {
                       </BarChart>
                     </ResponsiveContainer>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Bar intensity follows the hazard weight the triage formula assigns each type.
+                      Darker bars are the more hazardous incident types.
                     </p>
                   </>
                 )}
@@ -699,8 +693,7 @@ function StatsTab({ park }: { park?: string }) {
             <CardHeader>
               <CardTitle className="text-lg">Response Time Against Target</CardTitle>
               <CardDescription>
-                Mean hours to resolve, compared with the response target the triage formula uses
-                as its ageing constant τ
+                Average hours to resolve each incident type, against its response target
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1144,9 +1137,6 @@ function IncidentDetailSheet({
                     <div key={factor.key} className="space-y-1">
                       <div className="flex items-baseline justify-between text-xs">
                         <span>{factor.label}</span>
-                        <span className="tabular-nums text-muted-foreground">
-                          {value.toFixed(2)} × {factor.weight} = {contribution.toFixed(1)}
-                        </span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                         <div className="h-full rounded-full bg-primary" style={{ width: `${contribution}%` }} />
@@ -1154,7 +1144,7 @@ function IncidentDetailSheet({
                       <p className="text-[10px] text-muted-foreground">
                         {factor.key === 'community'
                           ? incident.source === 'citizen-report'
-                            ? `${upvoteLabel(incident.upvotes ?? 0)} on the citizen report it came from, log-scaled`
+                            ? `${upvoteLabel(incident.upvotes ?? 0)} on the citizen report it came from`
                             : 'Not opened from a citizen report, so there are no upvotes to count'
                           : factor.note}
                       </p>

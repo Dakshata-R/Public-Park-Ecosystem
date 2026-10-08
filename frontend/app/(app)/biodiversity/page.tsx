@@ -3,45 +3,36 @@
 /**
  * Module 4 — Biodiversity Management.
  *
- * The species catalogue is the visible half; the diversity indices are the
- * point. This page shows the mathematics rather than hiding it behind a single
- * score: the abundance vector the indices were computed from, the per-taxocene
- * breakdown, and a calculator that lets an assessor put their own numbers in
- * and watch the formulas respond.
+ * Species catalogue, observation records and a park-by-park comparison.
  */
 
 import { useState } from 'react';
 import {
-  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
-  PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart,
+  Bar, BarChart, CartesianGrid, Cell,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  Bird, CheckCircle2, Sparkles, TriangleAlert, Globe2, Calculator, Info, ShieldQuestion, ExternalLink,
+  Bird, CheckCircle2, Sparkles, TriangleAlert, Globe2, Info, ShieldQuestion, ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PageHeader } from '@/components/shared/page-header';
 import { FilterBar } from '@/components/shared/filter-bar';
 import { Pagination } from '@/components/shared/pagination';
 import { ConservationBadge } from '@/components/shared/status-badges';
-import { MetricTile, ScoreBar } from '@/components/shared/score-badge';
-import { DataNotice, SourceBadge } from '@/components/shared/data-source';
+import { ScoreBar } from '@/components/shared/score-badge';
+import { SourceBadge } from '@/components/shared/data-source';
 import { ParkFilter, ALL_PARKS, parkParam } from '@/components/shared/park-filter';
-import { QueryState, SkeletonCards, LoadingState, EmptyState, ErrorState } from '@/components/shared/query-state';
+import { QueryState, LoadingState, EmptyState, ErrorState } from '@/components/shared/query-state';
 import { useAuth } from '@/components/providers/auth-provider';
 import {
-  useBiodiversityIndices, useBiodiversityComparison, useSeasonality,
+  useBiodiversityComparison,
   useSpeciesList, useSpeciesObservations, useGbifVerification, useVerifyObservation,
   useObservations,
 } from '@/lib/hooks/use-api';
-import { biodiversityApi } from '@/lib/api/endpoints';
-import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { THREATENED_STATUSES } from '@/lib/types';
 import type { ConservationStatus, Observation, Species, SpeciesClass } from '@/lib/types';
@@ -107,26 +98,6 @@ function observedLabel(observation: Pick<Observation, 'observedAt' | 'source'>) 
     : date.toLocaleDateString();
 }
 
-/** Server validation detail is more useful than a generic failure. */
-function errorMessage(err: unknown) {
-  if (err instanceof ApiError) {
-    const detail = err.details ? Object.values(err.details).join('. ') : '';
-    return detail ? `${err.message}: ${detail}` : err.message;
-  }
-  return err instanceof Error ? err.message : 'The calculation failed.';
-}
-
-const CLASS_COLOURS: Record<string, string> = {
-  bird: 'hsl(var(--chart-1))',
-  mammal: 'hsl(var(--chart-3))',
-  butterfly: 'hsl(var(--chart-5))',
-  reptile: 'hsl(var(--chart-4))',
-  amphibian: 'hsl(var(--chart-2))',
-  tree: 'hsl(var(--chart-6))',
-  plant: 'hsl(var(--chart-2))',
-  insect: 'hsl(var(--chart-5))',
-};
-
 const TOOLTIP_STYLE = {
   background: 'hsl(var(--popover))',
   border: '1px solid hsl(var(--border))',
@@ -138,35 +109,21 @@ export default function BiodiversityPage() {
   const [park, setPark] = useState(ALL_PARKS);
   const [selected, setSelected] = useState<Species | null>(null);
 
-  const indices = useBiodiversityIndices(parkParam(park));
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Biodiversity Management"
-        description="Species catalogue, observation records, and the ecological diversity indices computed from them. Only verified observations count towards the indices."
+        description="Species recorded across Bengaluru's parks, with verified observation records from GBIF."
         icon="Bird"
         action={<ParkFilter value={park} onChange={setPark} allLabel="All parks (citywide)" />}
       />
 
-      <DataNotice>
-        Species and counts come from GBIF occurrence records (eBird, iNaturalist and other datasets)
-        located inside each park&apos;s OpenStreetMap boundary since January 2023. Abundance here is the
-        number of records, not a count of individuals. GBIF publication lags by months, so the most
-        recent months are incomplete. Data: GBIF.org · boundaries © OpenStreetMap contributors.
-      </DataNotice>
-
-      <Tabs defaultValue="indices" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-4">
-          <TabsTrigger value="indices">Indices</TabsTrigger>
+      <Tabs defaultValue="catalogue" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-3 sm:w-auto">
           <TabsTrigger value="catalogue">Catalogue</TabsTrigger>
           <TabsTrigger value="observations">Observations</TabsTrigger>
           <TabsTrigger value="compare">Compare</TabsTrigger>
         </TabsList>
-
-        <TabsContent value="indices" className="space-y-6">
-          <IndicesTab park={parkParam(park)} query={indices} />
-        </TabsContent>
 
         <TabsContent value="catalogue" className="space-y-4">
           <CatalogueTab park={parkParam(park)} onSelect={setSelected} />
@@ -183,406 +140,6 @@ export default function BiodiversityPage() {
 
       <SpeciesSheet species={selected} onClose={() => setSelected(null)} />
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Indices
-// ---------------------------------------------------------------------------
-
-function IndicesTab({
-  park,
-  query,
-}: {
-  park?: string;
-  query: ReturnType<typeof useBiodiversityIndices>;
-}) {
-  const seasonality = useSeasonality({ park });
-
-  return (
-    <QueryState query={query} skeleton={<SkeletonCards count={4} />}>
-      {(data) => {
-        const abundanceChart = data.abundance.slice(0, 12).map((row) => ({
-          name: displayName(row),
-          count: row.count,
-          isInvasive: row.isInvasive,
-        }));
-
-        const classChart = Object.entries(data.byClass).map(([name, value]) => ({ name, value }));
-
-        // Per-taxocene radar: evenness within each class, which is the fair
-        // comparison across groups surveyed by different methods.
-        const taxoceneRadar = Object.entries(data.byClassIndices)
-          .filter(([, v]) => v.richness > 1)
-          .map(([name, v]) => ({ name, evenness: Math.round(v.evenness * 100) }));
-
-        return (
-          <div className="space-y-6">
-            {/* --- Headline indices --- */}
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <MetricTile
-                label="Biodiversity Score"
-                value={data.score}
-                hint="0–100 composite"
-                tone={data.score >= 70 ? 'success' : data.score >= 50 ? 'warning' : 'destructive'}
-              />
-              <MetricTile label="Species richness" value={data.indices.richness} hint="S — distinct species" />
-              <MetricTile
-                label="Shannon–Wiener"
-                value={data.indices.shannon.toFixed(3)}
-                hint={`H′ · maximum possible ${data.indices.shannonMax.toFixed(3)}`}
-              />
-              <MetricTile
-                label="Pielou evenness"
-                value={data.indices.evenness.toFixed(3)}
-                hint="J′ = H′ / ln(S)"
-                tone={data.indices.evenness >= 0.75 ? 'success' : data.indices.evenness >= 0.5 ? 'warning' : 'destructive'}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              {/* --- The formulas, with this dataset's numbers --- */}
-              <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle className="text-lg">How the score is derived</CardTitle>
-                  <CardDescription>
-                    Every figure below is computed from {data.indices.totalIndividuals.toLocaleString()} verified
-                    occurrence records across {data.indices.richness} species. Each record counts as one
-                    unit of abundance nᵢ, so &ldquo;individual&rdquo; below means &ldquo;record&rdquo;.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    {[
-                      {
-                        symbol: "H′",
-                        name: 'Shannon–Wiener index',
-                        formula: 'H′ = −Σ pᵢ · ln(pᵢ)',
-                        value: data.indices.shannon.toFixed(4),
-                        note: 'Uncertainty in guessing the species of a randomly drawn individual. Rises with both richness and evenness.',
-                      },
-                      {
-                        symbol: "J′",
-                        name: "Pielou's evenness",
-                        formula: 'J′ = H′ / ln(S)',
-                        value: data.indices.evenness.toFixed(4),
-                        note: 'Isolates evenness from richness. 1 means every species is equally abundant.',
-                      },
-                      {
-                        symbol: '1−D',
-                        name: 'Gini–Simpson diversity',
-                        formula: 'D = Σ pᵢ²',
-                        value: data.indices.simpsonDiversity.toFixed(4),
-                        note: 'Probability two individuals drawn at random are different species.',
-                      },
-                      {
-                        symbol: 'D_Mg',
-                        name: 'Margalef richness',
-                        formula: 'D_Mg = (S − 1) / ln(N)',
-                        value: data.indices.margalef.toFixed(4),
-                        note: 'Richness corrected for sampling effort, so unevenly surveyed parks stay comparable.',
-                      },
-                      {
-                        symbol: 'd',
-                        name: 'Berger–Parker dominance',
-                        formula: 'd = max(pᵢ)',
-                        value: data.indices.dominance.toFixed(4),
-                        note: 'Share held by the commonest species. High dominance is what drags evenness down.',
-                      },
-                    ].map((metric) => (
-                      <div key={metric.symbol} className="flex items-start gap-3 rounded-lg border p-3">
-                        <div className="flex h-9 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-mono text-sm font-bold text-primary">
-                          {metric.symbol}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-baseline justify-between gap-2">
-                            <p className="text-sm font-medium">{metric.name}</p>
-                            <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{metric.formula}</code>
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground">{metric.note}</p>
-                        </div>
-                        <span className="shrink-0 font-mono text-lg font-bold tabular-nums">{metric.value}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="rounded-lg bg-primary/5 p-3">
-                    <p className="text-xs font-medium">Composite score</p>
-                    <code className="mt-1 block text-[11px] leading-relaxed">
-                      Score = 100 · (0.35·Ĥ + 0.25·J′ + 0.20·R̂ + 0.20·Ĉ) = {data.score}
-                    </code>
-                    <p className="mt-1.5 text-[11px] text-muted-foreground">
-                      Ĥ normalised Shannon · J′ evenness · R̂ normalised richness ·
-                      Ĉ conservation component ({data.conservationComponent.toFixed(3)}). Shannon carries the
-                      largest weight because it is the only term reacting to richness and evenness at once.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-lg">Composition</CardTitle>
-                    <CardDescription>Records by taxonomic class</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <PieChart>
-                        <Pie data={classChart} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={78} innerRadius={46} paddingAngle={2}>
-                          {classChart.map((entry) => (
-                            <Cell key={entry.name} fill={CLASS_COLOURS[entry.name] ?? 'hsl(var(--chart-1))'} />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={TOOLTIP_STYLE} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <MetricTile
-                    label="Threatened"
-                    value={data.threatenedSpecies}
-                    hint="Species Near Threatened or worse (IUCN)"
-                    tone={data.threatenedSpecies > 0 ? 'warning' : undefined}
-                  />
-                  <MetricTile
-                    label="Invasive records"
-                    value={data.invasiveIndividuals.toLocaleString()}
-                    hint={
-                      data.indices.totalIndividuals > 0
-                        ? `${((100 * data.invasiveIndividuals) / data.indices.totalIndividuals).toFixed(1)}% of records · GRIIS India`
-                        : 'No records'
-                    }
-                    tone={data.invasiveIndividuals > 0 ? 'destructive' : undefined}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* --- Taxocene caveat, stated rather than hidden --- */}
-            {taxoceneRadar.length > 1 && (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-start gap-2">
-                    <div>
-                      <CardTitle className="text-lg">Per-Taxocene Indices</CardTitle>
-                      <CardDescription>
-                        Diversity computed within each taxonomic class — the methodologically sound
-                        comparison
-                      </CardDescription>
-                    </div>
-                    <TooltipProvider>
-                      <UiTooltip>
-                        <TooltipTrigger className="mt-1"><Info className="h-4 w-4 text-muted-foreground" /></TooltipTrigger>
-                        <TooltipContent className="max-w-sm">
-                          <p className="text-xs">
-                            Ecologists compute diversity within a taxocene — one taxonomic group
-                            surveyed by one method — not across all life. Pooling bird counts with
-                            plant-stem counts mixes units of survey effort. The pooled score above
-                            is reported because a manager needs one comparable number per park; these
-                            are the figures to quote when comparing sites rigorously.
-                          </p>
-                        </TooltipContent>
-                      </UiTooltip>
-                    </TooltipProvider>
-                  </div>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <RadarChart data={taxoceneRadar}>
-                      <PolarGrid stroke="hsl(var(--border))" />
-                      <PolarAngleAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
-                      <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-                      <Radar name="Evenness J′ (%)" dataKey="evenness" stroke="hsl(var(--chart-1))" fill="hsl(var(--chart-1))" fillOpacity={0.35} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    </RadarChart>
-                  </ResponsiveContainer>
-
-                  <div className="overflow-x-auto scrollbar-thin">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-left text-xs text-muted-foreground">
-                          <th className="py-2 font-medium">Class</th>
-                          <th className="py-2 text-right font-medium">S</th>
-                          <th className="py-2 text-right font-medium">N</th>
-                          <th className="py-2 text-right font-medium">H′</th>
-                          <th className="py-2 text-right font-medium">J′</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(data.byClassIndices ?? {}).map(([name, v]) => (
-                          <tr key={name} className="border-b last:border-0">
-                            <td className="py-2 capitalize">{name}</td>
-                            <td className="py-2 text-right tabular-nums">{v.richness}</td>
-                            <td className="py-2 text-right tabular-nums">{v.individuals.toLocaleString()}</td>
-                            <td className="py-2 text-right tabular-nums">{v.shannon.toFixed(3)}</td>
-                            <td className="py-2 text-right tabular-nums">{v.evenness.toFixed(3)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      A class with S = 1 necessarily has H′ = 0: a single species carries no
-                      diversity, which is the formula behaving correctly rather than missing data.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* --- Abundance vector --- */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Abundance Distribution</CardTitle>
-                <CardDescription>
-                  Top {abundanceChart.length} of {data.indices.richness} species from the abundance vector
-                  n₁…n_S the indices are computed from. Invasive species are shown in red.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {abundanceChart.length === 0 ? (
-                  <EmptyState title="No verified records" description="There are no verified records in this scope." icon="Bird" />
-                ) : (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={abundanceChart} margin={{ bottom: 60 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="name" angle={-40} textAnchor="end" height={90} stroke="hsl(var(--muted-foreground))" fontSize={10} interval={0} />
-                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    <Bar dataKey="count" name="Records" radius={[4, 4, 0, 0]}>
-                      {abundanceChart.map((entry, i) => (
-                        <Cell key={i} fill={entry.isInvasive ? 'hsl(var(--destructive))' : 'hsl(var(--chart-1))'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* --- Seasonality --- */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Seasonality</CardTitle>
-                <CardDescription>
-                  Verified records per calendar month, pooled across years since January 2023 —
-                  migration and flowering both show up here, which is why a single annual figure would
-                  mislead. Recent months are under-counted while GBIF publication catches up.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {seasonality.isPending ? (
-                  <LoadingState label="Loading seasonality…" />
-                ) : seasonality.isError ? (
-                  <ErrorState error={seasonality.error} onRetry={() => seasonality.refetch()} />
-                ) : seasonality.data.every((row) => row.sightings === 0) ? (
-                  <EmptyState title="No verified records" description="Nothing has been recorded in this scope yet." icon="Bird" />
-                ) : (
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={seasonality.data}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                      <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                      <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Line yAxisId="left" type="monotone" dataKey="individuals" name="Records" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} />
-                      <Line yAxisId="right" type="monotone" dataKey="richness" name="Species present" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-
-            <IndexCalculator />
-          </div>
-        );
-      }}
-    </QueryState>
-  );
-}
-
-/**
- * A live calculator over the same backend endpoint the indices use.
- *
- * Its purpose is demonstrative: an assessor can type an abundance vector and
- * watch H′ and J′ respond, which shows the formulas are genuinely implemented
- * rather than the numbers being decorative.
- */
-function IndexCalculator() {
-  const [input, setInput] = useState('50, 40, 30, 20, 10');
-  const [result, setResult] = useState<Awaited<ReturnType<typeof biodiversityApi.previewIndices>> | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const compute = async () => {
-    const abundances = input
-      .split(/[,\s]+/)
-      .map((token) => Number(token.trim()))
-      .filter((n) => Number.isFinite(n) && n > 0);
-
-    if (!abundances.length) {
-      setError('Enter at least one positive number.');
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-    try {
-      setResult(await biodiversityApi.previewIndices(abundances));
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Card className="border-primary/20">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Calculator className="h-5 w-5 text-primary" />
-          Index Calculator
-        </CardTitle>
-        <CardDescription>
-          Enter an abundance vector (n₁, n₂, …) and the server recomputes every index. Try
-          <code className="mx-1 rounded bg-muted px-1">100, 1, 1, 1</code> against
-          <code className="mx-1 rounded bg-muted px-1">25, 25, 25, 25</code> — same richness, very
-          different evenness.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="50, 40, 30, 20, 10"
-            className="font-mono"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !busy) void compute();
-            }}
-          />
-          <Button onClick={compute} disabled={busy}>{busy ? 'Computing…' : 'Compute'}</Button>
-        </div>
-
-        {error && <p className="text-xs text-destructive">{error}</p>}
-
-        {result && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <MetricTile label="Richness S" value={result.richness} />
-            <MetricTile label="Total N" value={result.total} />
-            <MetricTile label="Shannon H′" value={result.shannon.toFixed(4)} />
-            <MetricTile label="Evenness J′" value={result.evenness.toFixed(4)} />
-            <MetricTile label="Simpson D" value={result.simpson.toFixed(4)} />
-            <MetricTile label="Gini–Simpson" value={result.simpsonDiversity.toFixed(4)} />
-            <MetricTile label="Margalef" value={result.margalef.toFixed(4)} />
-            <MetricTile label="Dominance" value={result.dominance.toFixed(4)} />
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -890,8 +447,6 @@ function CompareTab() {
                     <th className="px-4 py-3 text-right font-medium">Score</th>
                     <th className="px-4 py-3 text-right font-medium">S</th>
                     <th className="px-4 py-3 text-right font-medium">N</th>
-                    <th className="px-4 py-3 text-right font-medium">H′</th>
-                    <th className="px-4 py-3 text-right font-medium">J′</th>
                     <th className="px-4 py-3 text-right font-medium">1−D</th>
                     <th className="px-4 py-3 text-right font-medium">Threatened</th>
                   </tr>
@@ -905,8 +460,6 @@ function CompareTab() {
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">{row.richness}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{row.totalIndividuals.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.shannon.toFixed(3)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.evenness.toFixed(3)}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{row.simpsonDiversity.toFixed(3)}</td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {row.threatenedSpecies > 0 ? (

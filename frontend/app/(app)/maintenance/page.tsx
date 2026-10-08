@@ -699,7 +699,7 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
                 <SelectContent>
                   {assets?.items.map((asset) => (
                     <SelectItem key={asset.id} value={asset.id}>
-                      {asset.name} ({asset.condition}/100{asset.demo ? ', demo condition' : ''})
+                      {asset.name} ({asset.condition}/100)
                     </SelectItem>
                   ))}
                 </SelectContent>

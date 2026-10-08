@@ -15,6 +15,8 @@ interface KpiCardProps {
   /** Where the value came from, shown as a small provenance badge. */
   source?: Provenance | null;
   index?: number;
+  /** Optional element beside the label, such as a data-source info icon. */
+  info?: React.ReactNode;
 }
 
 const toneStyles: Record<string, string> = {
@@ -34,6 +36,7 @@ export function KpiCard({
   tone = 'primary',
   source,
   index = 0,
+  info,
 }: KpiCardProps) {
   const missing = value === null || value === undefined || value === '';
 
@@ -46,7 +49,10 @@ export function KpiCard({
       <Card className="relative overflow-hidden p-5 hover:shadow-md transition-shadow">
         <div className="flex items-start justify-between">
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium text-muted-foreground">{label}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium text-muted-foreground">{label}</p>
+              {info}
+            </div>
             {missing ? (
               // A missing value gets no colour band: grey says "unknown", not "bad".
               <p className="py-1.5 text-lg font-medium text-muted-foreground">{NO_DATA}</p>

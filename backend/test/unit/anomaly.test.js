@@ -32,7 +32,7 @@ test('a large spike is flagged by a majority of detectors', () => {
   assert.equal(result.isAnomaly, true);
   assert.ok(result.votes >= 2, `expected >= 2 votes, got ${result.votes}`);
   assert.ok(result.zScore > 3, `expected a large z-score, got ${result.zScore}`);
-  assert.match(result.reason, /detectors flagged/);
+  assert.match(result.reason, /Unusual reading/);
 });
 
 test('a large drop is flagged just as a spike is', () => {

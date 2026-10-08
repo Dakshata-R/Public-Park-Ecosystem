@@ -151,7 +151,7 @@ function detect(value, history, options = {}) {
 
   const direction = value > mu ? 'above' : 'below';
   const reason = isAnomaly
-    ? `${votes}/3 detectors flagged the reading — ${Math.abs(zScore).toFixed(1)}σ ${direction} the ${xs.length}-sample mean of ${mu.toFixed(1)}`
+    ? `Unusual reading: well ${direction} the recent average of ${mu.toFixed(1)}`
     : 'within expected range';
 
   const round = (v) => Math.round(v * 1000) / 1000;

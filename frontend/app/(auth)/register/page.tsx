@@ -1,5 +1,6 @@
 'use client';
 
+import { firstName } from '@/lib/utils';
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -69,7 +70,7 @@ function RegisterForm() {
     setSubmitting(true);
     try {
       const user = await signUp(values.name, values.email, values.password);
-      toast.success(`Welcome, ${user.name.split(' ')[0]}`, {
+      toast.success(`Welcome, ${firstName(user.name)}`, {
         description: 'You can now report issues and log wildlife sightings.',
       });
       router.push(redirectTo);

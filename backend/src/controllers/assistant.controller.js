@@ -10,7 +10,27 @@ const asyncHandler = require('../middleware/asyncHandler');
 const { ok, created } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
 const assistant = require('../services/assistant.service');
+const llm = require('../services/llm-assistant.service');
+const logger = require('../utils/logger');
 const { normaliseId } = require('./crud.factory');
+
+/**
+ * Answer with Claude when it is configured, using the conversation so far for
+ * context; otherwise — or if the API fails — with the retrieval engine, so the
+ * assistant always replies.
+ */
+async function answer(question, sessionId) {
+  if (llm.isEnabled()) {
+    try {
+      const history = await ChatMessage.find({ sessionId }).sort({ createdAt: -1 }).limit(10).select('role content').lean();
+      const result = await llm.ask(question, history.reverse());
+      return { ...result, engine: 'claude', intent: undefined, intentConfidence: undefined };
+    } catch (err) {
+      logger.warn(`Eco Assistant: language model unavailable, using retrieval engine (${err.message})`);
+    }
+  }
+  return { ...(await assistant.ask(question)), engine: 'retrieval' };
+}
 
 /**
  * POST /api/assistant/ask
@@ -34,7 +54,7 @@ const ask = asyncHandler(async (req, res) => {
     }
   }
 
-  const result = await assistant.ask(question);
+  const result = await answer(question, sessionId);
 
   await ChatMessage.create({
     sessionId,
@@ -60,6 +80,7 @@ const ask = asyncHandler(async (req, res) => {
     intentConfidence: result.intentConfidence,
     citations: result.citations,
     latencyMs: result.latencyMs,
+    engine: result.engine,
   });
 });
 

@@ -8,7 +8,6 @@ import {
   Megaphone,
   Siren,
   Wrench,
-  BarChart3,
   Bot,
   Shield,
   Leaf,
@@ -40,7 +39,7 @@ export const navItems: NavItem[] = [
   { label: 'Biodiversity Map', href: '/map', icon: Map, group: 'Overview', description: 'Interactive GIS map of parks, wildlife and pollution hotspots' },
   { label: 'Biodiversity', href: '/biodiversity', icon: Bird, group: 'Records', description: 'Species catalogue, GBIF records and diversity indices' },
   { label: 'Park Assets', href: '/assets', icon: TreePine, group: 'Records', description: 'Trees, benches, lakes and paths mapped from OpenStreetMap' },
-  { label: 'Sensors', href: '/sensors', icon: Gauge, group: 'Records', description: 'Open-Meteo observations, simulated probes and anomaly detection' },
+  { label: 'Sensors', href: '/sensors', icon: Gauge, group: 'Records', description: 'Live park sensors and anomaly detection' },
   { label: 'Citizen Portal', href: '/citizen', icon: Megaphone, group: 'Records', description: 'Report an issue or log a wildlife sighting' },
 
   // --- Operations ---
@@ -50,7 +49,6 @@ export const navItems: NavItem[] = [
   // --- Intelligence ---
   { label: 'AI Monitoring', href: '/ai', icon: ScanEye, group: 'Intelligence', description: 'MobileNetV2 image analysis with human review' },
   { label: 'Eco Assistant', href: '/assistant', icon: Bot, group: 'Intelligence', description: 'Ask questions about the park data in plain language' },
-  { label: 'Analytics', href: '/analytics', icon: BarChart3, group: 'Intelligence', description: 'Trends, comparisons and exportable reports' },
 
   // --- System ---
   { label: 'Administration', href: '/admin', icon: Shield, group: 'System', minRole: 'admin', description: 'Users, system settings and the audit log' },

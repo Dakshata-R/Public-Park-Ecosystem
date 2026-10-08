@@ -86,10 +86,15 @@ const getSummary = asyncHandler(async (req, res) => {
   const { from, to, parkId } = parseWindow(req.query);
   const parkMatch = parkId ? { park: parkId } : {};
   const window = { $gte: from, $lte: to };
+  // Work orders are scheduled ahead, so an open-ended window (no explicit
+  // `to`) also counts the upcoming ones rather than only past dates.
+  const orderWindow = req.query.to ? window : { $gte: from };
 
   const [health, biodiversity, incidents, reports, orders, detections, assets] = await Promise.all([
     computeEcosystemHealth(parkId),
-    analyseBiodiversity({ parkId, since: from }),
+    // GBIF publishes records months after observation, so a short window
+    // would read as "no species". Biodiversity uses the full record set.
+    analyseBiodiversity({ parkId }),
     Incident.aggregate([
       { $match: { ...parkMatch, reportedAt: window } },
       {
@@ -104,7 +109,7 @@ const getSummary = asyncHandler(async (req, res) => {
     ]),
     CitizenReport.countDocuments({ ...parkMatch, createdAt: window }),
     WorkOrder.aggregate([
-      { $match: { ...parkMatch, scheduledDate: window } },
+      { $match: { ...parkMatch, scheduledDate: orderWindow } },
       {
         $group: {
           _id: null,

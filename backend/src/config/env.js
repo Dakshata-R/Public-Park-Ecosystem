@@ -41,6 +41,10 @@ const env = {
 
   autoSeed: toBool(process.env.AUTO_SEED, true),
   sensorIntervalMs: toInt(process.env.SENSOR_SIMULATION_INTERVAL_MS, 60000),
+
+  // Eco Assistant language model. Blank key → the built-in retrieval engine answers.
+  anthropicApiKey: (process.env.ANTHROPIC_API_KEY || '').trim(),
+  assistantModel: (process.env.ASSISTANT_MODEL || 'claude-opus-5-5').trim(),
 };
 
 env.isProduction = env.nodeEnv === 'production';

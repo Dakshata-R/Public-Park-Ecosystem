@@ -3,11 +3,13 @@
 /**
  * Park selector, shared by every module that can be scoped to one park.
  *
- * The park list is loaded through `useParks`, which TanStack Query caches for
- * ten minutes — so the eight pages that render this control cause one request
- * between them, not eight.
+ * The park list is loaded through `useParks`, which TanStack Query shares
+ * between the pages that render this control. A selected park that is no
+ * longer in the list (deleted, or the database was reseeded) falls back to
+ * all parks rather than leaving every panel empty.
  */
 
+import { useEffect } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useParks } from '@/lib/hooks/use-api';
 import { cn } from '@/lib/utils';
@@ -29,6 +31,11 @@ export function ParkFilter({
   includeAll?: boolean;
 }) {
   const { data, isPending } = useParks();
+  const known = !data || value === ALL_PARKS || data.items.some((park) => park.id === value);
+
+  useEffect(() => {
+    if (!known) onChange(includeAll ? ALL_PARKS : data?.items[0]?.id ?? ALL_PARKS);
+  }, [known, includeAll, data, onChange]);
 
   return (
     <Select value={value} onValueChange={onChange}>

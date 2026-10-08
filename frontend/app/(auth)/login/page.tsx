@@ -1,12 +1,13 @@
 'use client';
 
+import { firstName } from '@/lib/utils';
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, LogIn, ShieldCheck, ArrowRight, WifiOff } from 'lucide-react';
+import { Loader2, LogIn, ArrowRight, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -83,7 +84,7 @@ function LoginForm() {
     setSubmitting(true);
     try {
       const user = await login(values.email, values.password);
-      toast.success(`Welcome back, ${user.name.split(' ')[0]}`);
+      toast.success(`Welcome back, ${firstName(user.name)}`);
       router.push(redirectTo);
     } catch (error) {
       const message =
@@ -112,8 +113,7 @@ function LoginForm() {
       <div className="space-y-1.5">
         <h1 className="font-display text-2xl font-bold tracking-tight">Sign in</h1>
         <p className="text-sm text-muted-foreground">
-          Access the operational modules. Dashboards and the biodiversity map are
-          public and need no account.
+          Welcome back. Sign in to continue.
         </p>
       </div>
 
@@ -172,35 +172,29 @@ function LoginForm() {
           <div className="relative">
             <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
             <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
-              <span className="bg-background px-2 text-muted-foreground">Demonstration accounts</span>
+              <span className="bg-background px-2 text-muted-foreground">Or sign in as</span>
             </div>
           </div>
 
-          <Alert className="border-primary/20 bg-primary/5">
-            <ShieldCheck className="h-4 w-4 text-primary" />
-            <AlertDescription className="text-xs">
-              All four use the password <code className="rounded bg-muted px-1 py-0.5 font-mono">{DEMO_PASSWORD}</code>.
-              Click one to sign in and see how the interface changes with permission level.
-            </AlertDescription>
-          </Alert>
-
-          <div className="space-y-1.5">
+          <div className="grid grid-cols-2 gap-2">
             {DEMO_ACCOUNTS.map((account) => (
               <button
                 key={account.email}
                 type="button"
                 onClick={() => signInAsDemo(account.email)}
                 disabled={submitting}
-                className="group flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"
+                title={account.detail}
+                className="group flex items-center justify-between rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"
               >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{account.role}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{account.detail}</p>
-                </div>
-                <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                {account.role}
+                <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
               </button>
             ))}
           </div>
+
+          <p className="text-center text-xs text-muted-foreground">
+            Demo password: <code className="rounded bg-muted px-1 py-0.5 font-mono">{DEMO_PASSWORD}</code>
+          </p>
         </>
       )}
 

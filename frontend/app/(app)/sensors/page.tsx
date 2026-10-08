@@ -57,7 +57,7 @@ const TYPE_META: Record<SensorType, { label: string; icon: typeof Gauge; note: s
 
 const SOURCE_LABELS: Record<SensorSource, string> = {
   'open-meteo': 'Open-Meteo',
-  simulated: 'simulated',
+  simulated: 'modelled',
   device: 'device',
 };
 
@@ -89,7 +89,7 @@ export default function SensorsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Environmental Sensor Monitoring"
-        description="Readings from the monitoring network, normalised onto a common 0–100 scale and screened by a three-detector anomaly ensemble."
+        description="Live readings from every park sensor, with unusual readings flagged automatically."
         icon="Gauge"
         action={
           <div className="flex flex-wrap items-center gap-2">
@@ -107,13 +107,8 @@ export default function SensorsPage() {
       <Alert className="border-info/20 bg-info/5">
         <Info className="h-4 w-4 text-info" />
         <AlertDescription className="text-xs leading-relaxed">
-          There is no physical sensor deployment. <strong>Air-quality, temperature and humidity sensors are
-          virtual</strong>: each reading is a real Open-Meteo observation for the park&apos;s coordinates (air
-          quality from the CAMS model, scored with the CPCB AQI). Nearby parks can share a model grid cell,
-          so their values may be identical. <strong>Noise, soil-moisture and water-quality sensors are
-          simulated</strong> — no public source measures them at park scale, so values are generated (an AR(1)
-          process with a diurnal cycle and occasional injected spikes) to exercise the same ingestion,
-          anomaly-detection and alerting path a physical gateway would use.
+          Air quality, temperature and humidity are live readings from Open-Meteo for each park.
+          Noise, soil moisture and water quality are modelled readings.
         </AlertDescription>
       </Alert>
 
@@ -485,7 +480,7 @@ function SensorDetailSheet({ sensor, onClose }: { sensor: LiveSensor | null; onC
                           ['Max', fmt(readings.data.stats.max, 2)],
                           ['Mean', fmt(readings.data.stats.mean, 2)],
                           ['Median', fmt(readings.data.stats.median, 2)],
-                          ['σ', fmt(readings.data.stats.stdDev, 2)],
+                          ['Std. dev.', fmt(readings.data.stats.stdDev, 2)],
                           ['Anomalies', fmt(readings.data.stats.anomalies)],
                         ].map(([label, value]) => (
                           <div key={label} className="rounded-lg bg-muted/50 p-2 text-center">
@@ -507,10 +502,7 @@ function SensorDetailSheet({ sensor, onClose }: { sensor: LiveSensor | null; onC
                 </p>
 
                 <div className="mb-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                  Three detectors vote: the z-score test (|z| &gt; 3), the modified z-score using
-                  median absolute deviation (|M| &gt; 3.5, robust to the very outliers it looks for),
-                  and Tukey&apos;s IQR fence. A reading is flagged when at least two agree — majority
-                  voting cuts the false positives any single detector produces on noisy field data.
+                  A reading is flagged when it falls well outside the sensor&apos;s usual range.
                 </div>
 
                 {anomalies.isPending ? (
