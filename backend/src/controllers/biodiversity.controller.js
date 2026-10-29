@@ -40,7 +40,7 @@ const observationCrud = createCrudController({
     observer: req.user?._id || null,
     observerName: body.observerName || req.user?.name || 'Anonymous',
     // Officers and above record verified data directly; citizens do not.
-    verified: ['officer', 'admin', 'ecologist'].includes(req.user?.role) ? true : false,
+    verified: ['officer', 'admin'].includes(req.user?.role) ? true : false,
   }),
   afterCreate: async (doc) => {
     // Keep the species' park list in step with where it has actually been seen.
@@ -151,7 +151,7 @@ const getSpeciesObservations = asyncHandler(async (req, res) => {
 /**
  * POST /api/biodiversity/observations/:id/verify
  * Verification is what admits a citizen sighting into the indices, so it is
- * restricted to ecologists and above at the route level.
+ * restricted to park officers and above at the route level.
  */
 const verifyObservation = asyncHandler(async (req, res) => {
   const observation = await Observation.findById(req.params.id);

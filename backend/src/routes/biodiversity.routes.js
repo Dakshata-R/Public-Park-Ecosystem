@@ -20,23 +20,23 @@ router.get('/species', validate({ query: listQuery }), controller.species.list);
 router.get('/species/:id', validate({ params: idParam }), controller.species.getOne);
 router.get('/species/:id/observations', validate({ params: idParam }), controller.getSpeciesObservations);
 
-router.post('/species', requireAuth, requireRole('ecologist'), validate({ body: biodiversity.createSpecies }), controller.species.create);
-router.patch('/species/:id', requireAuth, requireRole('ecologist'), validate({ params: idParam, body: biodiversity.updateSpecies }), controller.species.update);
+router.post('/species', requireAuth, requireRole('officer'), validate({ body: biodiversity.createSpecies }), controller.species.create);
+router.patch('/species/:id', requireAuth, requireRole('officer'), validate({ params: idParam, body: biodiversity.updateSpecies }), controller.species.update);
 router.delete('/species/:id', requireAuth, requireRole('admin'), validate({ params: idParam }), controller.species.remove);
 
 // --- Observations ----------------------------------------------------------
 router.get('/observations', validate({ query: listQuery }), controller.observations.list);
 router.get('/observations/:id', validate({ params: idParam }), controller.observations.getOne);
 
-// Any signed-in user may record a sighting; only an ecologist can verify one,
+// Any signed-in user may record a sighting; only a park officer or admin can verify one,
 // because verification is what admits the record into the indices.
 router.post('/observations', requireAuth, validate({ body: biodiversity.createObservation }), controller.observations.create);
-router.patch('/observations/:id', requireAuth, requireRole('ecologist'), validate({ params: idParam, body: biodiversity.updateObservation }), controller.observations.update);
-router.delete('/observations/:id', requireAuth, requireRole('ecologist'), validate({ params: idParam }), controller.observations.remove);
+router.patch('/observations/:id', requireAuth, requireRole('officer'), validate({ params: idParam, body: biodiversity.updateObservation }), controller.observations.update);
+router.delete('/observations/:id', requireAuth, requireRole('officer'), validate({ params: idParam }), controller.observations.remove);
 router.post(
   '/observations/:id/verify',
   requireAuth,
-  requireRole('ecologist'),
+  requireRole('officer'),
   validate({ params: idParam, body: biodiversity.verifyObservation }),
   controller.verifyObservation
 );

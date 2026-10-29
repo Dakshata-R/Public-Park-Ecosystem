@@ -20,7 +20,6 @@ import type { User, UserRole } from '@/lib/types';
 /** Same hierarchy the backend enforces in `middleware/auth.js`. */
 const ROLE_RANK: Record<UserRole, number> = {
   citizen: 1,
-  ecologist: 2,
   officer: 3,
   admin: 4,
 };

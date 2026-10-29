@@ -105,9 +105,9 @@ function RegisterForm() {
       <Alert className="border-info/20 bg-info/5">
         <Info className="h-4 w-4 text-info" />
         <AlertDescription className="text-xs">
-          Public registration creates a <strong>citizen</strong> account. Officer,
-          ecologist and administrator roles are granted by an administrator — they
-          cannot be self-assigned.
+          Public registration creates a <strong>citizen</strong> account. Park officer
+          and administrator roles are granted by an administrator — they cannot be
+          self-assigned.
         </AlertDescription>
       </Alert>
 

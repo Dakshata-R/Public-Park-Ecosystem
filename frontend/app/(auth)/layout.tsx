@@ -23,7 +23,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15">
             <Leaf className="h-5 w-5" />
           </div>
-          <span className="font-display text-lg font-bold">GreenPulse</span>
+          <span className="font-display text-lg font-bold">Park Ecosystem Portal</span>
         </Link>
 
         <div className="max-w-sm space-y-6">

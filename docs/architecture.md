@@ -88,7 +88,7 @@ Park ─────────────┬──→ referenced by nearly ev
   Incident ───────┤    priorityScore · upvotes · timeline[] · → assignedTo (User) · demo
   WorkOrder ──────┤    → Asset · → Incident · progress · demo
   CitizenReport ──┤    → Incident (when accepted) · → Species (sightings) · upvotedBy[] · demo
-  AiDetection ────┤    probabilities[] · imagenet[] · evidence · → AiImage · → Incident (fire only)
+  AiDetection ────┤    wildlife · species · probabilities[] · imagenet[] · evidence · → AiImage
   Alert ──────────┤    dedupeKey · occurrences · demo
   EcoReport ──────┘    frozen metric snapshot · findings · recommendations · draft/published
 
@@ -177,7 +177,7 @@ over those, or a demonstration record that says so.
 | Observations | GBIF occurrence records inside each park boundary since 2023-01-01, one row per species × park × month, `count` = number of records | Snapshot `observations.json` (4 175 rows, 37 182 records), `source: 'gbif'`, `verified: true` |
 | AQI, temperature, humidity | Open-Meteo forecast model and CAMS air quality for each park's coordinates | Live, `Sensor.source = 'open-meteo'`; seed backfills 48 h of real hourly history |
 | Noise, soil moisture, water quality | Generated | `Sensor.source = 'simulated'` |
-| AI detections | Real MobileNetV2 inference over 13 openly licensed Wikimedia Commons photos | Seeded without a park, so none opens an incident |
+| AI detections | Real MobileNetV2 wildlife recognition over 3 openly licensed Wikimedia Commons wildlife photos | Filed against parks in rotation; none opens an incident |
 | Users, citizen reports, incidents, work orders, alerts derived from them | Seeder (mulberry32-seeded) | `demo: true` |
 | Ecological reports | `report.service` over all of the above | Generated, then published by the seeder |
 
@@ -217,10 +217,10 @@ resumes.
 
 ---
 
-## 5. Vision pipeline (Module 5)
+## 5. Vision pipeline (Module 5 — wildlife recognition)
 
 ```
-POST /api/ai/analyze  { task, imageUrl: https://… | data:image/…;base64,… }
+POST /api/ai/analyze  { task: 'wildlife', imageUrl: https://… | data:image/…;base64,… }
   │
   ├─ requireAuth, per-user rate limit (20 analyses / minute)
   ├─ vision.loadImageBytes
@@ -228,12 +228,15 @@ POST /api/ai/analyze  { task, imageUrl: https://… | data:image/…;base64,… 
   │           manual redirects (≤3), each hop re-validated; 15 s timeout; ≤8 MB
   │    data → base64 decode; ≤8 MB
   ├─ decode by magic number (JPEG or PNG only; ≥16×16)
-  ├─ describePixels   vegetation indices, HSV foliage bands, flame & smoke chromaticity
   ├─ MobileNetV2      bilinear resize to 224×224, /255, 1001 logits → softmax → drop "background"
-  ├─ ai-inference.interpret(task)   pool ImageNet class groups + pixel stats → task probabilities
+  ├─ ai-inference.interpret(task)   pool ImageNet animal class groups → wildlife label probabilities (fallback)
+  ├─ llm-vision       if a language-model key is set (GEMINI_API_KEY free · GROQ · LLM_BASE_URL · ANTHROPIC):
+  │                   stored JPEG → llm-provider → strict JSON schema, validated with zod (one repair
+  │                   round) → species, severity and action in the same labels; any failure →
+  │                   keep the fallback result
   ├─ storeImage       ≤640 px JPEG, deduplicated by SHA-256 → AiImage
-  ├─ recordDetection  AiDetection with probabilities, top-5 ImageNet classes, evidence, notes
-  └─ escalation rule  incident only for a fire/smoke finding ≥ confidence floor with a park
+  └─ recordDetection  AiDetection with engine, provider, species, probabilities, top-5 ImageNet
+                      classes, evidence, notes — queued for officer review, never auto-escalated
 ```
 
 The model is the Google MobileNetV2 1.0 / 224 ImageNet classification checkpoint
@@ -254,7 +257,7 @@ The task mapping and its measured accuracy are documented in
 A strict hierarchy, enforced server-side in `middleware/auth.js`:
 
 ```
-  citizen (1)  →  ecologist (2)  →  officer (3)  →  admin (4)
+  citizen (1)  →  park officer (3)  →  admin (4)
 ```
 
 `requireRole('officer')` admits officers *and* admins, so routes need not
@@ -264,7 +267,7 @@ enumerate every superior role.
 |---|---|
 | Browse dashboard, map, parks, assets, biodiversity, sensors, alerts, maintenance, citizen reports, published reports, analytics aggregates | *(public)* |
 | Submit reports, upvote, log sightings, run AI image analysis, read own reports and upvotes | citizen (any signed-in account) |
-| Verify, edit and delete observations, curate species, review AI detections, generate and edit reports, see draft reports | ecologist |
+| Verify, edit and delete observations, curate species, review AI detections, generate and edit reports, see draft reports | officer |
 | Incidents (including reading them), work orders, asset writes, sensor edits and refresh, citizen-report review, row-level CSV/JSON export, staff directory | officer |
 | Users, settings, other deletions, sensor and park creation, reseed, cache clear | admin |
 
@@ -413,11 +416,11 @@ Stated plainly, and documented at the point in the code where each matters:
 | Limitation | Where |
 |---|---|
 | No physical sensors. AQI/temperature/humidity are model values for the park's coordinates (coarse CAMS/forecast grid — nearby parks can share a cell); noise, soil and water are simulated | `sensor.service.js`, `external.service.js` |
-| General ImageNet network, not trained on park categories: species at ImageNet granularity, litter detection 0/3 on the evaluation photos, foliage health is a colour measurement | `ai-inference.service.js`, `scripts/evaluate-vision.js` |
-| Vision constants were calibrated on the same 22 photos the evaluation reports, so the accuracy is optimistic | `ai-inference.service.js` header |
+| Without an API key the fallback names animal species only at ImageNet granularity ("tiger", not "Bengal tiger"); with a key, identification depends on an external API and its free-tier quota (Gemini / Groq) unless a local model is used | `ai-inference.service.js`, `llm-vision.service.js`, `llm-provider.service.js` |
+| The vision evaluation covers only 3 labelled wildlife photos — a smoke test, not a validated error rate | `scripts/evaluate-vision.js` |
 | GBIF `count` is a number of occurrence records, not individuals; effort is dominated by eBird/iNaturalist activity and differs hugely between parks | `fetch-open-data.js`, `biodiversity.service.js` |
 | Pooled diversity index mixes survey effort across taxa | `biodiversity.service.js` |
 | Asset condition, users, reports, incidents and work orders are demonstration records | `seed/seed.js` (`demo: true`) |
-| Assistant retrieves genuinely, generates from templates | `assistant.service.js` |
+| Assistant retrieves genuinely, generates from templates — unless a language-model key is set, when the model (Gemini, Groq, local or Claude) answers through the same role-scoped tools | `assistant.service.js`, `llm-assistant.service.js` |
 | JWT in `localStorage`; production should use httpOnly cookies | `lib/api/client.ts` |
 | In-memory API cache and rate limiters — single process only | `external.service.js`, `app.js`, `ai.routes.js` |

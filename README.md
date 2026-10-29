@@ -1,11 +1,11 @@
-# GreenPulse
+# Park Ecosystem Portal
 
 **Public Park Ecosystem Health Monitoring System & Urban Biodiversity Mapping Portal**
 
-GreenPulse monitors the ecological health of six public parks in Bengaluru. It
+Park Ecosystem Portal monitors the ecological health of six public parks in Bengaluru. It
 combines live air-quality and weather observations, biodiversity records
 published through GBIF, park boundaries and assets mapped in OpenStreetMap, and
-image analysis with a trained neural network. On top of that data it provides
+wildlife recognition from photos with a trained neural network. On top of that data it provides
 incident triage, maintenance planning, citizen reporting, analytics and a
 retrieval-based assistant.
 
@@ -31,7 +31,7 @@ The interface labels the origin of every value. In short:
 | Invasive / introduced species | GRIIS India checklist (Darwin Core archive) | **Real** |
 | Air quality (CPCB AQI), temperature, humidity | Open-Meteo forecast model and CAMS air quality, fetched live | **Real** "virtual sensors" |
 | Noise, soil moisture, water quality sensors | Generated (AR(1) + daily cycle + noise) | **Simulated**, labelled as such |
-| AI image analysis | MobileNetV2 (ImageNet) run on the server with TensorFlow.js, plus pixel colour analysis | **Real inference** — see accuracy below |
+| AI wildlife recognition | AI vision — Gemini (free key), Groq, a local model or Claude — for animal species identification, with an API key; MobileNetV2 (ImageNet) on the server with TensorFlow.js as evidence and fallback | **Real inference** — see accuracy below |
 | User accounts, citizen reports, incidents, work orders | Seeder | **Demo records**, flagged `demo: true` and badged in the UI |
 | Ecological reports | Generated from the data above | **Computed** |
 
@@ -54,7 +54,18 @@ attribution in `ATTRIBUTION.md`, so the app starts and seeds **offline**. Run
   detections are skipped — run `npm run model:download` in `backend/`, then
   restart (the in-memory database reseeds) or run `npm run seed`.
 
-No API keys are required. Adding an `ANTHROPIC_API_KEY` upgrades the Eco Assistant to Claude.
+No API keys are required. Adding a free `GEMINI_API_KEY` (create one at
+<https://aistudio.google.com/apikey>, no credit card) upgrades the Eco Assistant
+to a language model that understands follow-up questions and looks up live park
+data through tools, and lets AI Monitoring name animal species (common and
+scientific name) from a photo. Groq (`GROQ_API_KEY`, also free), a local model
+through Ollama (`LLM_BASE_URL`) or Claude (`ANTHROPIC_API_KEY`) work the same
+way — see `backend/.env.example`.
+
+```bash
+# backend/.env
+GEMINI_API_KEY=your-key-here
+```
 
 ---
 
@@ -94,12 +105,20 @@ All use the password **`greenpulse123`**. The login page lists them when
 
 | Role | Email | Can do |
 |---|---|---|
-| Administrator | `admin@greenpulse.gov` | Everything, including users and system settings |
-| Ecologist | `ecologist@greenpulse.gov` | Species records, sighting verification, AI reviews, reports |
-| Park Officer | `officer@greenpulse.gov` | Incidents, work orders, assets, sensors, exports |
-| Citizen | `citizen@greenpulse.gov` | Report issues, log sightings, upvote, analyse images |
+| Administrator | `admin@greenpulse.gov` | Everything: assigns incidents and work orders to park officers, monitors and updates all progress, users and settings |
+| Park Officer | `officer@greenpulse.gov` | Works the tasks assigned to them (**My Tasks**), updates their progress, reviews citizen reports, sightings and AI detections |
+| Citizen | `citizen@greenpulse.gov` | Report issues, log sightings with photos, upvote, view sensor and park data |
 
-The dashboard, map and biodiversity catalogue are public.
+More park officers: `karthik.gowda@`, `deepa.hegde@`, `manjunath.swamy@`,
+`rahul.patil@` and `shruthi.kulkarni@greenpulse.gov`. The dashboard, map and
+biodiversity catalogue are public.
+
+**Workflow.** A citizen's report is reviewed by a park officer or the admin.
+An accepted sighting becomes a verified record shown under *Biodiversity →
+Citizen sightings*. An accepted issue becomes an incident. The admin assigns a
+park officer, and a work order appears on that officer's *My Tasks* list. The
+officer records progress (the incident moves to *in progress*), and reaching
+100% resolves the incident.
 
 ### Using a persistent local database
 
@@ -129,7 +148,12 @@ npm run seed
 | `LOG_LEVEL` | no | `info` | `debug` · `info` · `warn` · `error` · `silent` |
 | `OPENWEATHER_API_KEY` | no | — | Optional alternative weather source |
 | `EBIRD_API_KEY` | no | — | Optional recent bird sightings near a park |
-| `ANTHROPIC_API_KEY` | no | — | Eco Assistant answers with Claude (`claude-opus-5-5`), using tools that read the live park data; blank → built-in retrieval engine |
+| `GEMINI_API_KEY` | no | — | **Recommended, free** ([get one](https://aistudio.google.com/apikey)). The Eco Assistant answers with Gemini (`gemini-3.5-flash-lite`) using tools that read the live park data, and AI Monitoring names animal species. Blank → built-in retrieval engine and MobileNetV2 fallback |
+| `GROQ_API_KEY` | no | — | Alternative free provider (`llama-3.3-70b-versatile` for the assistant, `qwen/qwen3.8-27b` for vision) |
+| `LLM_BASE_URL` / `LLM_API_KEY` | no | — | Any OpenAI-compatible server: Ollama (`http://localhost:11434/v1`, no key), OpenRouter, LM Studio |
+| `ANTHROPIC_API_KEY` | no | — | Claude (`claude-opus-5-5`), through the Anthropic SDK |
+| `LLM_PROVIDER` | no | first key present | `gemini` · `groq` · `openai-compatible` · `ollama` · `openrouter` · `anthropic` · `none` |
+| `ASSISTANT_MODEL` / `VISION_MODEL` | no | the provider's default | Model overrides for whichever provider is active |
 
 In production the server **refuses to start** without `MONGODB_URI`, a strong
 `JWT_SECRET` and `CORS_ORIGIN`, and prints what is missing.
@@ -149,7 +173,7 @@ In production the server **refuses to start** without `MONGODB_URI`, a strong
 npm test                       # backend: unit + integration suites (in-memory MongoDB, real vision model)
 npm run typecheck              # frontend: tsc --noEmit
 npm --prefix frontend run build
-npm --prefix backend run eval:vision   # AI accuracy report on 22 labelled photographs
+npm --prefix backend run eval:vision   # AI accuracy report on 3 labelled wildlife photographs (add -- --llm for AI vision with your key)
 ```
 
 The integration suites seed the real snapshot into their own in-memory MongoDB
@@ -159,24 +183,20 @@ downloadable).
 
 ### AI accuracy (`npm run eval:vision`)
 
-Measured on 22 openly licensed Wikimedia Commons photographs with known labels.
-These are the same photographs the task thresholds were calibrated on, so the
-figures are optimistic — there is no separate held-out test set:
+AI Monitoring runs one task, **Wildlife recognition**. The fallback engine
+(MobileNetV2) was measured on 3 openly licensed Wikimedia Commons wildlife
+photographs with known labels — a small set, so treat the figure as a smoke
+test rather than an accuracy estimate:
 
 | Task | Correct |
 |---|---|
-| Fire & smoke | 9 / 11 (no false alarms on sunsets or autumn leaves) |
-| Tree & foliage health | 3 / 3 |
-| Wildlife | 3 / 3 |
-| Plant & fungus | 1 / 2 |
-| Litter | **0 / 3** |
-| **Overall** | **16 / 22 (73 %)** |
+| Wildlife recognition | 3 / 3 (Indian pond heron and green bee-eater → Bird; plain tiger → Butterfly or moth) |
 
-MobileNetV2 is a general ImageNet classifier: it names animals at ImageNet
-granularity (an Indian pond heron is its closest class, "bittern"), foliage
-health is a colour measurement rather than a diagnosis, and it does not
-recognise litter scenes. Every detection therefore enters a human review
-queue, and only fire findings may open an incident automatically.
+Without an API key, the fallback names animals only at ImageNet granularity (an
+Indian pond heron is its closest class, "bittern"). With a language-model key
+set (a free `GEMINI_API_KEY` is enough), AI vision names the species (common and
+scientific) with a severity and an action; each result records which engine — and which provider and model — produced it. Every detection enters a
+review queue for a park officer — none acts on its own.
 
 ---
 
@@ -239,10 +259,11 @@ project applies the CPCB breakpoints with the official averaging periods
 **Composite Ecosystem Health Index.** A weighted mean over the sub-indices that
 have data. A missing indicator is reported as "no data", never as zero.
 
-**Real image inference.** MobileNetV2 runs on the server (TensorFlow.js,
-WebAssembly backend, ~30–80 ms per image). Each task turns ImageNet class
-evidence and pixel colour statistics into its own labels, and returns the
-evidence with the result.
+**Real image inference.** With an API key (Gemini's free tier is enough), a
+multimodal language model identifies the animal species under a strict JSON
+schema, validated again on the server. MobileNetV2 always runs on the server
+(TensorFlow.js, WebAssembly backend, ~30–80 ms per image), as the evidence shown
+with every result and as the fallback engine.
 
 **Computed priority.** Incident ranking comes from hazard type, severity,
 exposure, ageing against a response target, and community upvotes (one per
@@ -264,8 +285,8 @@ Full derivations are in [`docs/algorithms.md`](docs/algorithms.md).
 - **No physical sensors.** Air quality, temperature and humidity are real
   observations from gridded models (nearby parks can share a grid cell); noise,
   soil and water readings are simulated.
-- **General-purpose vision model.** See the accuracy table above; litter
-  detection does not work reliably.
+- **Vision without an API key is general-purpose.** See the accuracy table
+  above: species at ImageNet granularity ("tiger", not "Bengal tiger").
 - **GBIF record counts are not population counts**, and recent months are
   incomplete because publication lags observation.
 - **Operational records are demonstration data** until the portal is used.
@@ -293,6 +314,6 @@ Full derivations are in [`docs/algorithms.md`](docs/algorithms.md).
 
 © OpenStreetMap contributors (ODbL) · GBIF.org and the publishing datasets ·
 GRIIS India · Open-Meteo.com (CC BY 4.0) with Copernicus CAMS data · sample
-photographs from Wikimedia Commons (credits in
+wildlife photographs from Wikimedia Commons (credits in
 `backend/src/seed/data/sample-images/attribution.json`) · MobileNetV2 by
 Google via TensorFlow Hub.

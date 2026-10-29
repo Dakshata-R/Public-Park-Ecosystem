@@ -45,12 +45,11 @@ import {
 import { cn } from '@/lib/utils';
 import type { AuditEntry, User, UserRole } from '@/lib/types';
 
-const ROLES: UserRole[] = ['citizen', 'ecologist', 'officer', 'admin'];
+const ROLES: UserRole[] = ['citizen', 'officer', 'admin'];
 
 const ROLE_TONE: Record<UserRole, string> = {
   admin: 'bg-destructive/15 text-destructive border-destructive/30',
   officer: 'bg-warning/15 text-warning border-warning/30',
-  ecologist: 'bg-info/15 text-info border-info/30',
   citizen: 'bg-secondary text-secondary-foreground border-border',
 };
 
@@ -67,7 +66,7 @@ const userSchema = (editing: boolean) =>
       name: z.string().min(2, 'Name is required').max(120),
       email: z.string().email('Enter a valid email address'),
       password: z.string().max(128, 'Password must be at most 128 characters'),
-      role: z.enum(['citizen', 'ecologist', 'officer', 'admin']),
+      role: z.enum(['citizen', 'officer', 'admin']),
       park: z.string(),
       active: z.boolean(),
     })
@@ -258,9 +257,10 @@ function UsersTab() {
       <Alert className="border-dashed">
         <Shield className="h-4 w-4" />
         <AlertDescription className="text-xs">
-          Roles form a hierarchy — <strong>citizen → ecologist → officer → admin</strong> — so an
-          officer route also admits admins. Public registration always creates a citizen; elevated
-          roles can only be granted here.
+          Three roles — <strong>citizen → park officer → admin</strong>. Citizens report and view
+          sensor data; park officers work the tasks assigned to them and review reports; admins assign
+          work and monitor everything. Public registration always creates a citizen; elevated roles can
+          only be granted here.
         </AlertDescription>
       </Alert>
 

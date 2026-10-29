@@ -7,6 +7,10 @@
  * unplanned events, work orders are scheduled tasks. Completing one is what
  * actually restores an asset's condition, which is why the asset register and
  * the maintenance log cannot drift apart — the same mutation writes both.
+ *
+ * Administrators see every work order, raise and assign them, and monitor
+ * progress. A park officer sees only the tasks assigned to them ("My tasks")
+ * and records progress on those; the API applies the same scoping.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -81,6 +85,8 @@ const DAY_MS = 86_400_000;
 
 const typeLabel = (type: string) => type.replace(/-/g, ' ');
 const parkName = (park: WorkOrder['park']) => (typeof park === 'object' && park ? park.name : '');
+const assigneeId = (order: WorkOrder) =>
+  typeof order.assignedTo === 'object' && order.assignedTo ? order.assignedTo.id : order.assignedTo ?? null;
 const assigneeName = (order: WorkOrder) =>
   (typeof order.assignedTo === 'object' && order.assignedTo ? order.assignedTo.name : null) ||
   order.assignedTeam ||
@@ -103,6 +109,7 @@ const toDateInput = (iso: string) => {
 
 export default function MaintenancePage() {
   const { can } = useAuth();
+  const isAdmin = can('admin');
   const [park, setPark] = useState(ALL_PARKS);
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState<WorkOrder | null>(null);
@@ -110,13 +117,17 @@ export default function MaintenancePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Maintenance Management"
-        description="Work orders, scheduling and progress tracking. Completing an order logs the work against its asset and restores the asset's condition."
+        title={isAdmin ? 'Maintenance Management' : 'My Tasks'}
+        description={
+          isAdmin
+            ? 'Every work order across the parks. Assign them to park officers and monitor progress. Completing an order logs the work against its asset and resolves the incident it came from.'
+            : 'The work orders assigned to you by the administrator. Open a task to record your progress — 100% marks it complete and resolves its incident.'
+        }
         icon="Wrench"
         action={
           <div className="flex flex-wrap items-center gap-2">
             <ParkFilter value={park} onChange={setPark} />
-            {can('officer') && (
+            {isAdmin && (
               <Button onClick={() => setCreating(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 New work order
@@ -128,17 +139,17 @@ export default function MaintenancePage() {
 
       <Tabs defaultValue="board" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="board">Work orders</TabsTrigger>
+          <TabsTrigger value="board">{isAdmin ? 'Work orders' : 'My tasks'}</TabsTrigger>
           <TabsTrigger value="calendar">Calendar</TabsTrigger>
-          <TabsTrigger value="workload">Workload</TabsTrigger>
+          {isAdmin && <TabsTrigger value="workload">Workload</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="board"><BoardTab park={parkParam(park)} onSelect={setDetail} /></TabsContent>
         <TabsContent value="calendar"><CalendarTab park={parkParam(park)} onSelect={setDetail} /></TabsContent>
-        <TabsContent value="workload"><WorkloadTab park={parkParam(park)} /></TabsContent>
+        {isAdmin && <TabsContent value="workload"><WorkloadTab park={parkParam(park)} /></TabsContent>}
       </Tabs>
 
-      {can('officer') && <WorkOrderFormDialog open={creating} onClose={() => setCreating(false)} />}
+      {isAdmin && <WorkOrderFormDialog open={creating} onClose={() => setCreating(false)} />}
       {detail && <WorkOrderSheet key={detail.id} initial={detail} onClose={() => setDetail(null)} />}
     </div>
   );
@@ -149,6 +160,7 @@ export default function MaintenancePage() {
 // ---------------------------------------------------------------------------
 
 function BoardTab({ park, onSelect }: { park?: string; onSelect: (o: WorkOrder) => void }) {
+  const { can } = useAuth();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
@@ -174,7 +186,7 @@ function BoardTab({ park, onSelect }: { park?: string; onSelect: (o: WorkOrder) 
       <QueryState query={stats} skeleton={<SkeletonCards count={4} height="h-24" />}>
         {(data) => (
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <MetricTile label="Total orders" value={data.totals.total} />
+            <MetricTile label={can('admin') ? 'Total orders' : 'Assigned to me'} value={data.totals.total} />
             <MetricTile
               label="In progress"
               value={data.totals.inProgress}
@@ -225,7 +237,7 @@ function BoardTab({ park, onSelect }: { park?: string; onSelect: (o: WorkOrder) 
       <QueryState
         query={query}
         isEmpty={(data) => data.items.length === 0}
-        emptyTitle="No work orders match those filters"
+        emptyTitle={can('admin') ? 'No work orders match those filters' : 'No tasks assigned to you match those filters'}
         emptyIcon="Wrench"
         skeleton={<LoadingState label="Loading work orders…" />}
       >
@@ -593,7 +605,7 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   // Only assets in the chosen park can be the target of the order.
   const { data: assets } = useAssets(selectedPark ? { park: selectedPark, limit: 100 } : { limit: 1 });
-  // Officers, ecologists and administrators — `useUsers` is admin-only.
+  // Active park officers — the only people work is assigned to.
   const staff = useStaff();
 
   const submit = form.handleSubmit(async (values) => {
@@ -709,7 +721,7 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Assign to</Label>
+              <Label>Responsible park officer</Label>
               <Select
                 value={form.watch('assignedTo')}
                 onValueChange={(v) => form.setValue('assignedTo', v)}
@@ -723,7 +735,8 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
                 <SelectContent>
                   {staff.data?.map((member) => (
                     <SelectItem key={member.id} value={member.id}>
-                      {member.name} <span className="capitalize text-muted-foreground">({member.role})</span>
+                      {member.name}
+                      {member.park && <span className="text-muted-foreground"> · {member.park.name}</span>}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -772,7 +785,8 @@ function WorkOrderFormDialog({ open, onClose }: { open: boolean; onClose: () => 
  * refreshes. The clicked row is shown only until the first response arrives.
  */
 function WorkOrderSheet({ initial, onClose }: { initial: WorkOrder; onClose: () => void }) {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const staff = useStaff(can('admin'));
   const query = useWorkOrder(initial.id);
   const updateProgress = useUpdateProgress();
   const updateOrder = useUpdateWorkOrder();
@@ -795,12 +809,17 @@ function WorkOrderSheet({ initial, onClose }: { initial: WorkOrder; onClose: () 
     setNotesDraft(null);
     setCostDraft(null);
     setDateDraft(null);
+    setAssigneeDraft(null);
   }, [order.updatedAt]);
 
   const done = order.status === 'completed';
   const cancelled = order.status === 'cancelled';
   const overdue = order.status === 'overdue';
-  const editable = can('officer') && !done && !cancelled;
+  const isAdmin = can('admin');
+  // The administrator monitors and can update any order; a park officer
+  // updates only the tasks assigned to them.
+  const editable = !done && !cancelled && (isAdmin || (can('officer') && !!user && assigneeId(order) === user.id));
+  const [assigneeDraft, setAssigneeDraft] = useState<string | null>(null);
 
   const progress = progressDraft ?? order.progress;
   const notes = notesDraft ?? order.completionNotes ?? '';
@@ -826,6 +845,15 @@ function WorkOrderSheet({ initial, onClose }: { initial: WorkOrder; onClose: () 
           actualCost: actualCost.trim() ? Number(actualCost) : undefined,
         },
       });
+    } catch {
+      /* toast already shown */
+    }
+  };
+
+  const reassign = async () => {
+    if (!assigneeDraft || assigneeDraft === assigneeId(order)) return;
+    try {
+      await updateOrder.mutateAsync({ id: order.id, body: { assignedTo: assigneeDraft } as Partial<WorkOrder> });
     } catch {
       /* toast already shown */
     }
@@ -976,6 +1004,42 @@ function WorkOrderSheet({ initial, onClose }: { initial: WorkOrder; onClose: () 
                   {updateProgress.isPending ? 'Saving…' : 'Save progress'}
                 </Button>
 
+                {isAdmin && (
+                <div className="space-y-1.5 border-t pt-4">
+                  <Label className="flex items-center gap-1.5 text-xs">
+                    <Users className="h-3.5 w-3.5" />
+                    Responsible park officer
+                  </Label>
+                  <div className="flex gap-2">
+                    <Select
+                      value={assigneeDraft ?? assigneeId(order) ?? undefined}
+                      onValueChange={setAssigneeDraft}
+                      disabled={!staff.data?.length}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder={staff.isPending ? 'Loading officers…' : 'Choose an officer'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {staff.data?.map((member) => (
+                          <SelectItem key={member.id} value={member.id}>
+                            {member.name}
+                            {member.park && <span className="text-muted-foreground"> · {member.park.name}</span>}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      disabled={!assigneeDraft || assigneeDraft === assigneeId(order) || updateOrder.isPending || refreshing}
+                      onClick={() => void reassign()}
+                    >
+                      Assign
+                    </Button>
+                  </div>
+                </div>
+                )}
+
+                {isAdmin && (
                 <div className="space-y-1.5 border-t pt-4">
                   <Label htmlFor="reschedule" className="flex items-center gap-1.5 text-xs">
                     <CalendarClock className="h-3.5 w-3.5" />
@@ -1003,7 +1067,9 @@ function WorkOrderSheet({ initial, onClose }: { initial: WorkOrder; onClose: () 
                     </p>
                   )}
                 </div>
+                )}
 
+                {isAdmin && (
                 <div className="flex gap-2 border-t pt-4">
                   <Button
                     variant="outline"
@@ -1014,16 +1080,21 @@ function WorkOrderSheet({ initial, onClose }: { initial: WorkOrder; onClose: () 
                     <Ban className="mr-2 h-4 w-4" />
                     Cancel work order
                   </Button>
-                  {can('admin') && (
-                    <Button variant="outline" className="text-destructive" onClick={() => setConfirmDelete(true)}>
-                      Delete
-                    </Button>
-                  )}
+                  <Button variant="outline" className="text-destructive" onClick={() => setConfirmDelete(true)}>
+                    Delete
+                  </Button>
                 </div>
+                )}
               </div>
             )}
 
-            {!editable && can('admin') && (
+            {!editable && !done && !cancelled && !isAdmin && (
+              <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+                This task is assigned to someone else, so only they or the administrator can update it.
+              </p>
+            )}
+
+            {!editable && isAdmin && (
               <div className="border-t pt-4">
                 <Button variant="outline" className="w-full text-destructive" onClick={() => setConfirmDelete(true)}>
                   Delete

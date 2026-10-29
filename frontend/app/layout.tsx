@@ -16,7 +16,7 @@ const display = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'GreenPulse — Park Ecosystem Health & Biodiversity Portal',
+  title: 'Park Ecosystem Portal — Health & Biodiversity Monitoring',
   description:
     'Monitoring the ecological health of Bengaluru parks: live air quality and weather, biodiversity from GBIF records, OpenStreetMap asset mapping, image analysis and citizen reporting.',
 };

@@ -55,10 +55,9 @@ type ProfileValues = z.infer<typeof profileSchema>;
 type PasswordValues = z.infer<typeof passwordSchema>;
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  citizen: 'Report issues, log wildlife sightings, and browse public data.',
-  ecologist: 'Everything a citizen can do, plus curating species records and verifying sightings.',
-  officer: 'Operational duties — incidents, work orders, assets and sensors.',
-  admin: 'Full control, including user management and system configuration.',
+  citizen: 'Report issues, log wildlife sightings with photos, and view sensor and park data.',
+  officer: 'Park officer — work the tasks assigned to you, update their progress, and review citizen reports, sightings and AI detections.',
+  admin: 'Full control — assign incidents and work orders to park officers, monitor all progress, manage users and settings.',
 };
 
 export default function SettingsPage() {

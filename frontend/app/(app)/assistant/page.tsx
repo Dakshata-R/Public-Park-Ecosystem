@@ -3,24 +3,26 @@
 /**
  * Module 11 — AI Environmental Assistant.
  *
- * Retrieval-augmented question answering over the live database. The retrieval
- * half is genuinely implemented — TF-IDF weighting with cosine similarity over
- * a corpus rebuilt from the database — while the generation half composes
- * answers from templates rather than an LLM.
+ * One place to ask what would otherwise take a visit to several tabs: "what is
+ * the climate condition of Cubbon Park?", "my high-priority tasks", "how many
+ * reviews are pending?". Answers come from read-only lookups against the live
+ * database, scoped to the signed-in user's role on the server.
  *
- * That is the honest scope for a prototype, and it buys something a language
- * model would not: every figure in an answer is traceable to the record it
- * came from, and the citations panel shows exactly which documents the
- * retrieval step surfaced and how strongly they matched.
+ * Two engines can answer. With a language model configured on the server
+ * (GEMINI_API_KEY — free — or Groq, a local model or Claude), the model reads
+ * the question (and the conversation so far) and calls those lookups as
+ * tools; without one, the built-in engine routes the question by intent and
+ * formats the same lookups itself. Each answer says which engine (and
+ * provider) produced it, and the Sources panel lists the records behind it.
  *
  * The conversation id is kept in localStorage so a reload restores the thread
  * from `/assistant/history`.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
-  ArrowUpRight, Bot, Send, User, Sparkles, Loader2, Database, RotateCcw, RefreshCw,
+  ArrowUpRight, Bot, Send, User, Sparkles, Loader2, Database, RotateCcw, RefreshCw, Cpu,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,8 +32,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { useAuth } from '@/components/providers/auth-provider';
 import { useAssistantHistory, useAssistantSuggestions, useAskAssistant } from '@/lib/hooks/use-api';
-import { cn } from '@/lib/utils';
-import type { ChatMessage, Citation } from '@/lib/types';
+import { cn, llmProviderName } from '@/lib/utils';
+import type { AssistantEngine, ChatMessage, Citation, UserRole } from '@/lib/types';
 
 /**
  * The module that holds each cited entity. Citations link to the module page;
@@ -40,14 +42,33 @@ import type { ChatMessage, Citation } from '@/lib/types';
 const ENTITY_MODULES: Record<string, { href: string; name: string }> = {
   Park: { href: '/map', name: 'Map' },
   Species: { href: '/biodiversity', name: 'Biodiversity' },
+  Observation: { href: '/biodiversity', name: 'Biodiversity' },
   Asset: { href: '/assets', name: 'Assets' },
   Sensor: { href: '/sensors', name: 'Sensors' },
   Incident: { href: '/incidents', name: 'Incidents' },
   CitizenReport: { href: '/citizen', name: 'Citizen portal' },
   WorkOrder: { href: '/maintenance', name: 'Maintenance' },
+  AiDetection: { href: '/ai', name: 'AI monitoring' },
 };
 
 const FALLBACK_MODULE = { href: '/dashboard', name: 'Dashboard' };
+
+/** Plain names for the server's lookups, shown under each answer. */
+const TOOL_LABELS: Record<string, string> = {
+  find_parks: 'parks',
+  get_park_conditions: 'live conditions',
+  get_ecosystem_health: 'ecosystem health',
+  get_biodiversity: 'biodiversity',
+  search_species: 'species',
+  get_sensors: 'sensors',
+  get_alerts: 'alerts',
+  get_incidents: 'incidents',
+  get_maintenance: 'maintenance',
+  get_my_tasks: 'your tasks',
+  get_pending_reviews: 'review queues',
+  get_my_reports: 'your reports',
+  search_records: 'search',
+};
 
 const SESSION_STORAGE_PREFIX = 'greenpulse.assistant.session';
 
@@ -83,19 +104,53 @@ interface Turn {
   intentConfidence?: number;
   citations?: Citation[];
   latencyMs?: number;
+  engine?: AssistantEngine;
+  /** Display name of the language model that answered, e.g. "Gemini". */
+  providerName?: string;
+  toolsUsed?: string[];
   /** When the message was sent or answered. The static welcome has none. */
   at?: Date;
 }
 
-const WELCOME: Turn = {
+/** What the assistant can do for this kind of user, for the opening message. */
+const WELCOME_TEXT: Record<UserRole | 'guest', string> = {
+  guest:
+    'Ask me about the parks instead of opening each tab — for example:\n' +
+    '• Current **weather and air quality** at a park\n' +
+    '• **Ecosystem health**, species and biodiversity\n' +
+    '• Active **alerts** and sensor readings\n\n' +
+    'Sign in to ask about your own reports or tasks.',
+  citizen:
+    'Ask me about the parks instead of opening each tab — for example:\n' +
+    '• Current **weather and air quality** at a park, or at your home park\n' +
+    '• **Ecosystem health**, species and biodiversity\n' +
+    '• The **status of your reports**\n\n' +
+    'Partial park names work: "cubbon", "lalbagh".',
+  officer:
+    'Ask me instead of opening each tab — for example:\n' +
+    '• **Your tasks**: "my high priority tasks", "what is overdue for me?"\n' +
+    '• **Review queues**: "how many reviews are pending?"\n' +
+    '• **Conditions**: "what is the climate condition of Cubbon Park?"\n' +
+    '• Incidents, alerts, maintenance, species and park health',
+  admin:
+    'Ask me instead of opening each tab — for example:\n' +
+    '• **Review queues** and **incidents** across all parks\n' +
+    '• Anyone\'s tasks: "what is assigned to Rahul Patil?"\n' +
+    '• **Conditions**: "what is the climate condition of Cubbon Park?"\n' +
+    '• Maintenance, alerts, species and park health',
+};
+
+const welcomeFor = (role: UserRole | 'guest'): Turn => ({
   id: 'welcome',
   role: 'assistant',
-  content:
-    "I answer questions from the live park database — ecosystem health, air and water quality, " +
-    "biodiversity indices, open incidents, maintenance, assets and sensors.\n\n" +
-    "Every answer is computed from current records, and I show which documents I drew on. " +
-    "Name a park to narrow the scope.",
-};
+  content: WELCOME_TEXT[role] ?? WELCOME_TEXT.guest,
+});
+
+const asEngine = (value: unknown): AssistantEngine | undefined =>
+  value === 'llm' || value === 'claude' || value === 'built-in' ? value : undefined;
+
+/** A language model answered (`claude` is the value on messages stored before providers were pluggable). */
+const isLlmEngine = (engine: AssistantEngine | undefined) => engine === 'llm' || engine === 'claude';
 
 /** A stored message as a thread turn. */
 const toTurn = (message: ChatMessage): Turn => ({
@@ -105,6 +160,9 @@ const toTurn = (message: ChatMessage): Turn => ({
   intent: message.intent || undefined,
   citations: message.citations,
   latencyMs: message.role === 'assistant' ? message.latencyMs : undefined,
+  engine: message.role === 'assistant' ? asEngine(message.engine) : undefined,
+  providerName: message.role === 'assistant' ? llmProviderName(message) : undefined,
+  toolsUsed: message.toolsUsed,
   at: new Date(message.createdAt),
 });
 
@@ -113,54 +171,132 @@ const clock = (date: Date | undefined) =>
     ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null;
 
+// ---------------------------------------------------------------------------
+// Answer rendering
+// ---------------------------------------------------------------------------
+
+/** `**bold**`, `*italic*` and `` `code` `` within one line. */
+function inline(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*)/g).map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      return <code key={i} className="rounded bg-background/70 px-1 py-0.5 font-mono text-[0.8em]">{part.slice(1, -1)}</code>;
+    }
+    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+    return <Fragment key={i}>{part}</Fragment>;
+  });
+}
+
+type Block =
+  | { kind: 'p' | 'heading' | 'warn'; text: string }
+  | { kind: 'ul' | 'ol'; items: string[] };
+
+const BULLET = /^\s*(?:[•\-*·])\s+/;
+const NUMBERED = /^\s*\d+[.)]\s+/;
+
+/** Group lines into paragraphs, headings, warnings and lists. */
+function toBlocks(content: string): Block[] {
+  const blocks: Block[] = [];
+  for (const raw of content.split('\n')) {
+    const line = raw.trimEnd();
+    if (!line.trim()) continue;
+    const last = blocks[blocks.length - 1];
+
+    if (BULLET.test(line)) {
+      const item = line.replace(BULLET, '');
+      if (last?.kind === 'ul') last.items.push(item);
+      else blocks.push({ kind: 'ul', items: [item] });
+    } else if (NUMBERED.test(line)) {
+      const item = line.replace(NUMBERED, '');
+      if (last?.kind === 'ol') last.items.push(item);
+      else blocks.push({ kind: 'ol', items: [item] });
+    } else if (/^#{1,6}\s+/.test(line)) {
+      blocks.push({ kind: 'heading', text: line.replace(/^#{1,6}\s+/, '') });
+    } else if (line.trimStart().startsWith('⚠')) {
+      blocks.push({ kind: 'warn', text: line.trim() });
+    } else {
+      blocks.push({ kind: 'p', text: line.trim() });
+    }
+  }
+  return blocks;
+}
+
 /**
- * Minimal markdown rendering: `**bold**`, bullet lines, and paragraph breaks.
- *
- * A full markdown library would be overkill — the answer templates only ever
- * emit these three constructs, and rendering them inline avoids shipping a
- * parser for a handful of asterisks.
+ * Light markdown rendering — bold, italics, inline code, bullet and numbered
+ * lists, headings and ⚠ warnings — which covers everything either engine is
+ * asked to produce, without shipping a markdown parser.
  */
 function AnswerText({ content }: { content: string }) {
   return (
     <div className="space-y-2 text-sm leading-relaxed">
-      {content.split('\n').map((line, index) => {
-        if (!line.trim()) return null;
-
-        const bold = line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-          part.startsWith('**') && part.endsWith('**') ? (
-            <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>
-          ) : (
-            <span key={i}>{part}</span>
-          )
-        );
-
-        if (line.trimStart().startsWith('•')) {
-          return (
-            <p key={index} className="pl-3 -indent-3">{bold}</p>
-          );
+      {toBlocks(content).map((block, index) => {
+        switch (block.kind) {
+          case 'ul':
+            return (
+              <ul key={index} className="space-y-1 pl-4 [&>li]:relative [&>li]:before:absolute [&>li]:before:-left-3 [&>li]:before:text-muted-foreground [&>li]:before:content-['•']">
+                {block.items.map((item, i) => <li key={i}>{inline(item)}</li>)}
+              </ul>
+            );
+          case 'ol':
+            return (
+              <ol key={index} className="list-decimal space-y-1 pl-5 marker:text-muted-foreground">
+                {block.items.map((item, i) => <li key={i}>{inline(item)}</li>)}
+              </ol>
+            );
+          case 'heading':
+            return <p key={index} className="font-semibold">{inline(block.text)}</p>;
+          case 'warn':
+            return <p key={index} className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-warning">{inline(block.text)}</p>;
+          default:
+            return <p key={index}>{inline(block.text)}</p>;
         }
-        if (line.trimStart().startsWith('⚠')) {
-          return (
-            <p key={index} className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-warning">{bold}</p>
-          );
-        }
-        return <p key={index}>{bold}</p>;
       })}
+    </div>
+  );
+}
+
+/** Which engine answered, and what it looked up. */
+function AnswerMeta({ turn }: { turn: Turn }) {
+  if (!turn.engine) return null;
+  const looked = (turn.toolsUsed ?? []).map((t) => TOOL_LABELS[t] ?? t.replace(/_/g, ' '));
+  const unique = Array.from(new Set(looked));
+  const llm = isLlmEngine(turn.engine);
+  const name = turn.providerName ?? 'AI';
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-1 text-[10px] text-muted-foreground">
+      <Badge
+        variant="outline"
+        className={cn(
+          'gap-1 px-1.5 py-0 text-[9px] font-medium',
+          llm && 'border-primary/40 text-primary'
+        )}
+        title={llm ? `Answered by ${name} using live lookups` : 'Answered by the built-in engine using live lookups'}
+      >
+        {llm ? <Sparkles className="h-2.5 w-2.5" /> : <Cpu className="h-2.5 w-2.5" />}
+        {llm ? name : 'Built-in engine'}
+      </Badge>
+      {unique.length > 0 && <span>Looked up {unique.join(', ')}</span>}
     </div>
   );
 }
 
 export default function AssistantPage() {
   const { user, loading: authLoading } = useAuth();
+  const role: UserRole | 'guest' = user?.role ?? 'guest';
   const storageKey = `${SESSION_STORAGE_PREFIX}.${user?.id ?? 'guest'}`;
+  const welcome = welcomeFor(role);
 
-  const [turns, setTurns] = useState<Turn[]>([WELCOME]);
+  const [turns, setTurns] = useState<Turn[]>([welcome]);
   const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState<string | undefined>();
   /** A stored session whose history has not been loaded into the thread yet. */
   const [restoreId, setRestoreId] = useState<string | null>(null);
 
-  const suggestions = useAssistantSuggestions();
+  const suggestions = useAssistantSuggestions(role);
   const history = useAssistantHistory(restoreId);
   const ask = useAskAssistant();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -172,10 +308,10 @@ export default function AssistantPage() {
     if (authLoading || loadedKey.current === storageKey) return;
     loadedKey.current = storageKey;
     const stored = storage.get(storageKey);
-    setTurns([WELCOME]);
+    setTurns([welcomeFor(role)]);
     setSessionId(stored ?? undefined);
     setRestoreId(stored);
-  }, [authLoading, storageKey]);
+  }, [authLoading, storageKey, role]);
 
   // Replay the stored conversation into the thread.
   useEffect(() => {
@@ -185,10 +321,10 @@ export default function AssistantPage() {
       storage.remove(storageKey);
       setSessionId(undefined);
     } else {
-      setTurns([WELCOME, ...history.data.map(toTurn)]);
+      setTurns([welcomeFor(role), ...history.data.map(toTurn)]);
     }
     setRestoreId(null);
-  }, [history.data, restoreId, storageKey]);
+  }, [history.data, restoreId, storageKey, role]);
 
   const restoring = Boolean(restoreId) && history.isPending;
   const restoreFailed = Boolean(restoreId) && history.isError;
@@ -224,6 +360,9 @@ export default function AssistantPage() {
           intentConfidence: response.intentConfidence,
           citations: response.citations,
           latencyMs: response.latencyMs,
+          engine: asEngine(response.engine),
+          providerName: llmProviderName(response),
+          toolsUsed: response.toolsUsed,
           at: new Date(response.message.createdAt),
         },
       ]);
@@ -247,18 +386,20 @@ export default function AssistantPage() {
 
   const reset = () => {
     storage.remove(storageKey);
-    setTurns([WELCOME]);
+    setTurns([welcomeFor(role)]);
     setSessionId(undefined);
     setRestoreId(null);
   };
 
   const lastAnswer = [...turns].reverse().find((t) => t.role === 'assistant' && t.citations?.length);
+  const engine = suggestions.data?.engine;
+  const providerName = suggestions.data ? llmProviderName(suggestions.data) : 'AI';
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="AI Environmental Assistant"
-        description="Ask about parks, species, air quality, incidents or maintenance in plain language. Answers are computed from live records and cite their sources."
+        description="Ask about park conditions, your tasks, review queues, species, incidents or maintenance in plain language. Answers come from live records, scoped to your role."
         icon="Bot"
         action={
           (turns.length > 1 || sessionId) && (
@@ -299,6 +440,8 @@ export default function AssistantPage() {
                     )}
                   </div>
 
+                  {turn.role === 'assistant' && <AnswerMeta turn={turn} />}
+
                   {clock(turn.at) && (
                     <span className="px-1 text-[10px] tabular-nums text-muted-foreground">{clock(turn.at)}</span>
                   )}
@@ -331,7 +474,7 @@ export default function AssistantPage() {
                 <div className="flex items-center gap-2 rounded-2xl bg-muted px-4 py-3">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">
-                    Retrieving from the park database…
+                    {isLlmEngine(engine) ? `${providerName} is looking that up…` : 'Looking that up in the park database…'}
                   </span>
                 </div>
               </div>
@@ -346,10 +489,15 @@ export default function AssistantPage() {
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="How diverse are the species recorded at Lalbagh?"
+                placeholder={
+                  role === 'officer' || role === 'admin'
+                    ? 'e.g. "my high priority tasks" or "count of pending reviews"'
+                    : 'e.g. "what is the climate condition of Cubbon Park?"'
+                }
                 disabled={ask.isPending || restoring}
+                aria-label="Ask the Eco Assistant"
               />
-              <Button type="submit" size="icon" disabled={ask.isPending || restoring || !input.trim()}>
+              <Button type="submit" size="icon" disabled={ask.isPending || restoring || !input.trim()} aria-label="Send">
                 <Send className="h-4 w-4" />
               </Button>
             </form>
@@ -364,6 +512,21 @@ export default function AssistantPage() {
                 <Sparkles className="h-4 w-4 text-primary" />
                 Try asking
               </CardTitle>
+              {engine && (
+                <CardDescription className="flex items-center gap-1.5 text-xs">
+                  {isLlmEngine(engine) ? (
+                    <>
+                      <Sparkles className="h-3 w-3 text-primary" />
+                      Answers by {providerName}, using live lookups.
+                    </>
+                  ) : (
+                    <>
+                      <Cpu className="h-3 w-3" />
+                      Answers by the built-in engine. A language model takes over once a GEMINI_API_KEY (free) is set on the server.
+                    </>
+                  )}
+                </CardDescription>
+              )}
             </CardHeader>
             <CardContent className="space-y-1.5">
               {suggestions.isPending ? (
@@ -428,9 +591,12 @@ export default function AssistantPage() {
                             <ArrowUpRight className="h-2.5 w-2.5" />
                           </span>
                         </span>
-                        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
-                          {citation.score.toFixed(3)}
-                        </span>
+                        {/* A search match has a relevance score; a direct lookup is exact. */}
+                        {citation.score < 1 && (
+                          <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground" title="Search relevance">
+                            {citation.score.toFixed(3)}
+                          </span>
+                        )}
                       </Link>
                     );
                   })}
@@ -438,7 +604,6 @@ export default function AssistantPage() {
               )}
             </CardContent>
           </Card>
-
         </div>
       </div>
     </div>

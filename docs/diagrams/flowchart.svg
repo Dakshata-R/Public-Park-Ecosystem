@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1290" viewBox="0 0 1800 1290">
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+  </marker>
+  <marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+  </marker>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.08"/>
+  </filter>
+</defs>
+<rect width="1800" height="1290" fill="#ffffff"/>
+<defs><linearGradient id="offadm" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0" stop-color="#fef3c7"/><stop offset="1" stop-color="#ede9fe"/></linearGradient></defs>
+<text x="60" y="52" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="30" font-weight="700" fill="#14532d" text-anchor="start" dominant-baseline="central">Park Ecosystem Portal — Main Workflow</text>
+<text x="60" y="88" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="500" fill="#475569" text-anchor="start" dominant-baseline="central">Citizen report → review → observation or incident → work order → resolution</text>
+<text x="60" y="114" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#64748b" text-anchor="start" dominant-baseline="central">Oval = start / end   ·   Rectangle = process   ·   Diamond = decision</text>
+<rect x="941" y="50" width="22" height="22" rx="6" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+<text x="973" y="61" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="600" fill="#334155" text-anchor="start" dominant-baseline="central">Citizen</text>
+<rect x="1066" y="50" width="22" height="22" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+<text x="1098" y="61" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="600" fill="#334155" text-anchor="start" dominant-baseline="central">Park Officer</text>
+<rect x="1226" y="50" width="22" height="22" rx="6" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+<text x="1258" y="61" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="600" fill="#334155" text-anchor="start" dominant-baseline="central">Admin</text>
+<rect x="1338" y="50" width="22" height="22" rx="6" fill="url(#offadm)" stroke="#a855f7" stroke-width="2"/>
+<text x="1370" y="61" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="600" fill="#334155" text-anchor="start" dominant-baseline="central">Park Officer or Admin</text>
+<rect x="1560" y="50" width="22" height="22" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+<text x="1592" y="61" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="600" fill="#334155" text-anchor="start" dominant-baseline="central">System (automatic)</text>
+<path d="M700,200 L700,243" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M700,327 L700,375" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M550,450 L410,450" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M700,525 L700,575" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M575,640 L410,640" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M260,682 L260,748" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M700,705 L700,752" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M825,640 L970,640" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M1140,682 L1140,735" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M1140,805 L1140,858" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M1140,942 L1140,988" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M1140,1072 L1140,1110" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M1265,1170 L1330,1170 Q1340,1170 1340,1160 L1340,1040 Q1340,1030 1330,1030 L1320,1030" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M1015,1170 L860,1170" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M540,1170 L430,1170" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M1590,567 L1590,608" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<path d="M1590,712 L1590,756" fill="none" stroke="#475569" stroke-width="2.2" marker-end="url(#arrow)"/>
+<rect x="1420" y="420" width="340" height="450" rx="18" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="7 6"/>
+<text x="1590" y="452" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#334155" text-anchor="middle" dominant-baseline="central">AI Monitoring · wildlife</text>
+<rect x="570" y="140" width="260" height="60" rx="30" fill="#e0f2fe" stroke="#0284c7" stroke-width="3" filter="url(#shadow)"/>
+<text x="700" y="170" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#0c4a6e" text-anchor="middle" dominant-baseline="central">Citizen signs in</text>
+<rect x="520" y="243" width="360" height="84" rx="12" fill="#e0f2fe" stroke="#0284c7" stroke-width="2" filter="url(#shadow)"/>
+<text x="700" y="274.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#0c4a6e" text-anchor="middle" dominant-baseline="central">Submit a report</text>
+<text x="700" y="295.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#0c4a6e" text-anchor="middle" dominant-baseline="central">Issue · Wildlife sighting (photo) · Feedback</text>
+<polygon points="700,375 850,450 700,525 550,450" fill="url(#offadm)" stroke="#a855f7" stroke-width="2.2" stroke-linejoin="round" filter="url(#shadow)"/>
+<text x="700" y="429" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#4c1d95" text-anchor="middle" dominant-baseline="central">Review</text>
+<text x="700" y="450" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#4c1d95" text-anchor="middle" dominant-baseline="central">Park Officer / Admin</text>
+<text x="700" y="471" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#4c1d95" text-anchor="middle" dominant-baseline="central">Accept?</text>
+<rect x="110" y="412" width="300" height="76" rx="38" fill="#dcfce7" stroke="#16a34a" stroke-width="3" filter="url(#shadow)"/>
+<text x="260" y="439.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Rejected</text>
+<text x="260" y="460.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">citizen is notified</text>
+<polygon points="700,575 825,640 700,705 575,640" fill="#dcfce7" stroke="#16a34a" stroke-width="2.2" stroke-linejoin="round" filter="url(#shadow)"/>
+<text x="700" y="640" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Report type?</text>
+<rect x="110" y="598" width="300" height="84" rx="12" fill="#dcfce7" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+<text x="260" y="629.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Verified Observation</text>
+<text x="260" y="650.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">created from the sighting</text>
+<rect x="70" y="748" width="380" height="84" rx="42" fill="#dcfce7" stroke="#16a34a" stroke-width="3" filter="url(#shadow)"/>
+<text x="260" y="779.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Biodiversity tab · Citizen sightings</text>
+<text x="260" y="800.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">counted in diversity indices</text>
+<rect x="560" y="752" width="280" height="76" rx="38" fill="#dcfce7" stroke="#16a34a" stroke-width="3" filter="url(#shadow)"/>
+<text x="700" y="779.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Feedback logged</text>
+<text x="700" y="800.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">and acknowledged</text>
+<rect x="970" y="598" width="340" height="84" rx="12" fill="#dcfce7" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+<text x="1140" y="629.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Incident created</text>
+<text x="1140" y="650.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">auto priority / triage score</text>
+<rect x="970" y="735" width="340" height="70" rx="12" fill="#ede9fe" stroke="#7c3aed" stroke-width="2" filter="url(#shadow)"/>
+<text x="1140" y="770" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#4c1d95" text-anchor="middle" dominant-baseline="central">Admin assigns a Park Officer</text>
+<rect x="960" y="858" width="360" height="84" rx="12" fill="#dcfce7" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+<text x="1140" y="889.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Work order created</text>
+<text x="1140" y="910.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">on the officer's list · Maintenance tab</text>
+<rect x="960" y="988" width="360" height="84" rx="12" fill="#fef3c7" stroke="#d97706" stroke-width="2" filter="url(#shadow)"/>
+<text x="1140" y="1019.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#78350f" text-anchor="middle" dominant-baseline="central">Officer updates progress</text>
+<text x="1140" y="1040.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#78350f" text-anchor="middle" dominant-baseline="central">Admin monitors and can also update</text>
+<polygon points="1140,1110 1265,1170 1140,1230 1015,1170" fill="#dcfce7" stroke="#16a34a" stroke-width="2.2" stroke-linejoin="round" filter="url(#shadow)"/>
+<text x="1140" y="1159.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Progress</text>
+<text x="1140" y="1180.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">= 100% ?</text>
+<rect x="540" y="1128" width="320" height="84" rx="12" fill="#dcfce7" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+<text x="700" y="1159.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Work order completed</text>
+<text x="700" y="1180.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">Incident resolved</text>
+<rect x="90" y="1128" width="340" height="84" rx="42" fill="#e0f2fe" stroke="#0284c7" stroke-width="3" filter="url(#shadow)"/>
+<text x="260" y="1159.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#0c4a6e" text-anchor="middle" dominant-baseline="central">Alert cleared</text>
+<text x="260" y="1180.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#0c4a6e" text-anchor="middle" dominant-baseline="central">Citizen sees the status</text>
+<rect x="1445" y="483" width="290" height="84" rx="12" fill="#e0f2fe" stroke="#0284c7" stroke-width="2" filter="url(#shadow)"/>
+<text x="1590" y="514.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#0c4a6e" text-anchor="middle" dominant-baseline="central">Upload a photo — wildlife</text>
+<text x="1590" y="535.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#0c4a6e" text-anchor="middle" dominant-baseline="central">any signed-in user</text>
+<rect x="1445" y="608" width="290" height="104" rx="12" fill="#dcfce7" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+<text x="1590" y="639" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#14532d" text-anchor="middle" dominant-baseline="central">Species identification</text>
+<text x="1590" y="660" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">animal named, group labelled</text>
+<text x="1590" y="681" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#14532d" text-anchor="middle" dominant-baseline="central">MobileNetV2 · LLM*</text>
+<rect x="1445" y="756" width="290" height="84" rx="12" fill="url(#offadm)" stroke="#a855f7" stroke-width="2" filter="url(#shadow)"/>
+<text x="1590" y="787.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#4c1d95" text-anchor="middle" dominant-baseline="central">Human review queue</text>
+<text x="1590" y="808.5" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#4c1d95" text-anchor="middle" dominant-baseline="central">Officer / Admin confirms</text>
+<text x="1590" y="892" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#64748b" text-anchor="middle" dominant-baseline="central">* optional AI vision (Gemini, Groq, Ollama, Claude)</text>
+<rect x="437.5" y="437" width="85" height="26" rx="13" fill="#ffffff" stroke="#fecaca" stroke-width="1.2"/>
+<text x="480" y="450" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#b91c1c" text-anchor="middle" dominant-baseline="central">Rejected</text>
+<rect x="727.5" y="532" width="85" height="26" rx="13" fill="#ffffff" stroke="#bbf7d0" stroke-width="1.2"/>
+<text x="770" y="545" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#15803d" text-anchor="middle" dominant-baseline="central">Accepted</text>
+<rect x="447.5" y="627" width="85" height="26" rx="13" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="490" y="640" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#334155" text-anchor="middle" dominant-baseline="central">Sighting</text>
+<rect x="874.5" y="627" width="61" height="26" rx="13" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="905" y="640" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#334155" text-anchor="middle" dominant-baseline="central">Issue</text>
+<rect x="725.5" y="714" width="85" height="26" rx="13" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="768" y="727" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#334155" text-anchor="middle" dominant-baseline="central">Feedback</text>
+<rect x="917" y="1157" width="46" height="26" rx="13" fill="#ffffff" stroke="#bbf7d0" stroke-width="1.2"/>
+<text x="940" y="1170" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#15803d" text-anchor="middle" dominant-baseline="central">Yes</text>
+<rect x="1321" y="1087" width="38" height="26" rx="13" fill="#ffffff" stroke="#fde68a" stroke-width="1.2"/>
+<text x="1340" y="1100" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#b45309" text-anchor="middle" dominant-baseline="central">No</text>
+</svg>

@@ -56,7 +56,7 @@ const REQUEST_TIMEOUT_MS = 8000;
  * Nominatim's usage policy requires an identifying User-Agent. Sending a
  * generic one is the fastest way to get an IP blocked, so it is set here.
  */
-const USER_AGENT = 'GreenPulse/1.0 (university project; park ecosystem monitoring)';
+const USER_AGENT = 'ParkEcosystemPortal/1.0 (university project; park ecosystem monitoring)';
 
 // ---------------------------------------------------------------------------
 // Cache

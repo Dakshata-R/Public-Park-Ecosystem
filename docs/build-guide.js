@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Generates docs/GreenPulse-Project-Guide.pdf
+ * Generates docs/Park-Ecosystem-Portal-Project-Guide.pdf
  *
  *   node docs/build-guide.js
  *
@@ -56,7 +56,7 @@ function footer() {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   setInk(INK.muted);
-  doc.text('GreenPulse - Project Guide', M.left, PAGE.height - 34);
+  doc.text('Park Ecosystem Portal - Project Guide', M.left, PAGE.height - 34);
   doc.text(String(pageNo), PAGE.width - M.right, PAGE.height - 34, { align: 'right' });
 }
 
@@ -348,7 +348,7 @@ doc.text('SEMESTER PROJECT - COMPLETE WALKTHROUGH', M.left, 92);
 doc.setFont('helvetica', 'bold');
 doc.setFontSize(27);
 doc.setTextColor(255, 255, 255);
-doc.text('GreenPulse', M.left, 132);
+doc.text('Park Ecosystem Portal', M.left, 132);
 
 doc.setFont('helvetica', 'normal');
 doc.setFontSize(13);
@@ -364,7 +364,7 @@ doc.text('Every module, every data source and every formula - and which values a
 
 y = 292;
 para(
-  'GreenPulse monitors the ecological health of six public parks in Bengaluru. It combines live air-quality and ' +
+  'Park Ecosystem Portal monitors the ecological health of six public parks in Bengaluru. It combines live air-quality and ' +
   'weather observations, biodiversity records published through GBIF, park boundaries and assets mapped in ' +
   'OpenStreetMap, and image analysis with a pre-trained neural network. On top of that data it provides incident ' +
   'triage, maintenance planning, citizen reporting, analytics and a retrieval-based assistant.',
@@ -396,7 +396,7 @@ table(
     ['Backend', 'Node.js + Express 4, Mongoose 8, JWT, TensorFlow.js - 18 routers under /api'],
     ['Database', 'MongoDB, 18 collections, GeoJSON with 2dsphere indexes; in-memory for development'],
     ['Open data', 'OpenStreetMap, GBIF, GRIIS India, Open-Meteo (forecast + CAMS air quality) - no API keys'],
-    ['Vision model', 'MobileNetV2 (ImageNet), pre-trained by Google, run on the server - 16/22 on labelled photos'],
+    ['Vision', 'Wildlife recognition: AI vision (Gemini by default, with a free GEMINI_API_KEY) names the species; MobileNetV2 (ImageNet) on the server as evidence and fallback - 3/3 on labelled wildlife photos'],
     ['Code size', 'about 35,000 lines across 171 source files (backend src, scripts, tests; frontend app, components, lib)'],
   ],
   [22, 78]
@@ -451,7 +451,7 @@ h2('Two terminals');
 code([
   '# Terminal 1 - API on http://localhost:5000/api',
   'npm run backend:dev',
-  '#   wait for: GreenPulse API listening on port 5000',
+  '#   wait for: Park Ecosystem Portal API listening on port 5000',
   '',
   '# Terminal 2 - web app on http://localhost:3000',
   'npm run frontend:dev',
@@ -687,7 +687,7 @@ table(
     ['Invasive / introduced flags', 'GRIIS India checklist (Darwin Core archive)', 'Real'],
     ['Air quality (CPCB AQI), temperature, humidity', 'Open-Meteo forecast model and CAMS air quality, fetched live', 'Real "virtual sensors"'],
     ['Noise, soil moisture, water quality', 'Generated: AR(1) process with a daily cycle and noise', 'Simulated, labelled'],
-    ['AI image analysis', 'MobileNetV2 (ImageNet) on the server plus pixel colour analysis', 'Real inference, measured accuracy'],
+    ['AI wildlife recognition', 'AI vision - Gemini by default - with an API key; MobileNetV2 (ImageNet) on the server as evidence and fallback', 'Real inference, measured accuracy'],
     ['Accounts, citizen reports,\nincidents, work orders,\nderived alerts','Seeder (seeded pseudo-random generator)', 'Demo records, demo: true'],
     ['Ecological reports', 'report.service over all of the above', 'Computed'],
   ],
@@ -724,7 +724,7 @@ table(
   [
     ['Assets', '339 OpenStreetMap features, capped per park (60 trees, 25 benches, 20 lamps, 12 paths, 10 water bodies, 12 structures), each with a demo condition'],
     ['Sensors', '33: AQI, temperature and humidity (Open-Meteo) plus noise and soil (simulated) in every park, and water quality (simulated) in the 3 parks with a mapped water body. Virtual sensors are backfilled with 48 hours of real hourly history.'],
-    ['AI detections', '13 real inferences over openly licensed Wikimedia Commons photos, stored without a park, so none opens an incident'],
+    ['AI detections', '3 real wildlife inferences over openly licensed Wikimedia Commons photos, filed against parks in rotation; none opens an incident'],
     ['Demo records', '12 accounts, 36 citizen reports, 30 incidents, 36 work orders, and the alerts derived from them'],
     ['Reports', '6 generated ecological reports, published'],
   ],
@@ -882,26 +882,25 @@ moduleSection({
   title: 'AI Ecosystem Monitoring',
   route: '/ai   -  Module 5  -  public to read; sign-in to analyse  -  sidebar: AI Monitoring',
   purpose:
-    'Image analysis for five tasks - Tree & foliage health, Plant & fungus recognition, Wildlife recognition, Litter ' +
-    'detection and Fire & smoke detection - computed by a pre-trained MobileNetV2 on the server plus pixel colour ' +
-    'statistics. Every finding goes to human review; only fire and smoke can open an incident automatically. The ' +
-    'page states the measured accuracy, including where it fails. Chapter 18 has the full pipeline.',
+    'Wildlife recognition from photos - species named, every finding reviewed by a park officer. With a ' +
+    'language-model key set (GEMINI_API_KEY is free), AI vision names the animal species (common and scientific); a ' +
+    'pre-trained MobileNetV2 always runs as evidence and as the fallback engine. Chapter 18 has the full pipeline.',
   tabs: [
-    ['Analyse', 'Choose a task, upload a JPEG or PNG (up to 6 MB) or give an image URL, optionally choose a park ("needed for auto-escalation"), then Analyse image. The result shows the stored copy, prediction, severity, confidence, Label probabilities, Recommended action, Caveats, Evidence, Top ImageNet classes, timings and the Escalation decision.'],
-    ['Detections', 'The latest 24 detections. Ecologists mark each Correct, or Wrong with the label it should have had.'],
-    ['Model', 'The model card (weights, input size, runtime and backend, measured accuracy) and one card per task with its labels, severities and "N/M correct".'],
-    ['Performance', 'Total detections, Awaiting review, Confirmed, Observed precision (confirmed / reviewed), detections and mean confidence by task, confidence distribution, findings by severity.'],
+    ['Analyse', 'The task is fixed to Wildlife recognition. Upload a JPEG or PNG (up to 6 MB) or give an image URL, optionally choose a park, then Analyse image. The result leads with the species name (scientific name below, wildlife label as a chip) and the Recommended action; then confidence, Label probabilities, Caveats, Evidence, Top ImageNet classes, the engine and timings.'],
+    ['Detections', 'The latest 24 detections, each with its species and engine. Park officers mark each Correct, or Wrong with the label it should have had.'],
+    ['Model', 'Whether AI vision is active (and which provider), the MobileNetV2 model card (weights, input size, runtime and backend, measured accuracy) and the wildlife labels with their severities and "N/M correct".'],
+    ['Performance', 'Total detections, Awaiting review, Confirmed, Observed precision (confirmed / reviewed), detections and mean confidence, confidence distribution, findings by severity.'],
   ],
   powered: [
     ['Page', 'frontend/app/(app)/ai/page.tsx'],
     ['API', 'POST /api/ai/analyze, /ai/:id/review; GET /ai/tasks, /ai/stats, /ai/gallery, /ai/detections, /ai/images/:id'],
-    ['Services', 'vision.service.js (fetch, decode, pixels, network), ai-inference.service.js (task mapping)'],
-    ['Models', 'AiDetection (probabilities, top-5 ImageNet classes, evidence, review), AiImage (stored JPEG, unique SHA-256)'],
+    ['Services', 'vision.service.js (fetch, decode, network), ai-inference.service.js (wildlife label mapping, engine choice), llm-vision.service.js (species identification) and llm-provider.service.js (Gemini, Groq, OpenAI-compatible or Claude)'],
+    ['Models', 'AiDetection (engine, species, probabilities, top-5 ImageNet classes, evidence, review), AiImage (stored JPEG, unique SHA-256)'],
   ],
   viva: [
-    ['Is the AI real? ', 'Yes - genuine inference on the submitted pixels. But the network was not trained or fine-tuned by this project: it is Google\'s ImageNet checkpoint, and each task pools ImageNet classes and colour evidence into its own labels.'],
-    ['How accurate is it? ', '16 of 22 labelled photos (73 %): fire 9/11, foliage 3/3, wildlife 3/3, plants 1/2, litter 0/3. Those photos also calibrated the thresholds, so the figure is optimistic.'],
-    ['Why is a pond heron a "bittern"? ', 'Species are named at ImageNet granularity; most Indian species are not in ImageNet. The task answers "Bird" and reports the closest ImageNet class.'],
+    ['Is the AI real? ', 'Yes - genuine inference on the submitted pixels. AI vision (Gemini by default) identifies the animal species under a strict JSON schema; MobileNetV2 (Google\'s ImageNet checkpoint, not trained by this project) is the evidence and the fallback.'],
+    ['How accurate is it? ', 'Fallback engine: 3 of 3 labelled wildlife photos (pond heron and bee-eater as Bird, plain tiger as Butterfly or moth). Three photos is a smoke test, not an error rate.'],
+    ['Why is a pond heron a "bittern" without a key? ', 'The fallback names species at ImageNet granularity; most Indian species are not in ImageNet. AI vision names it Indian pond heron, Ardeola grayii.'],
   ],
 });
 
@@ -973,7 +972,7 @@ moduleSection({
   tabs: [
     ['Triage queue', 'Open incidents highest score first, each with its live score, priority, status, overdue flag and five factor values; Open, Overdue and Critical tiles.'],
     ['All incidents', 'The full history with filters, including resolved and closed incidents.'],
-    ['Alerts', 'The deduplicated alert stream from sensors, incidents and fire findings: Acknowledge, Resolve, or acknowledge all.'],
+    ['Alerts', 'The deduplicated alert stream from sensors and incidents: Acknowledge, Resolve, or acknowledge all.'],
     ['Statistics', 'Incidents by Type, By Priority Band, and Response Time Against Target.'],
     ['Detail sheet', 'Score breakdown and timeline. Actions: Assign to a member of staff, Raise a work order, Update status & details (severity and people affected re-score it), Resolution notes and Mark resolved. Report an incident creates one by hand.'],
   ],
@@ -1102,7 +1101,10 @@ para(
   'The model is Google\'s MobileNetV2 1.0 / 224 ImageNet classification checkpoint from TensorFlow Hub ' +
   '(imagenet/mobilenet_v2_100_224/classification/2), run by TensorFlow.js on its WebAssembly backend. It is ' +
   'downloaded once (about 14 MB) into backend/.cache/mobilenet-v2/ - at build time on Render - and loaded from ' +
-  'disk after that. Nothing was trained or fine-tuned by this project.'
+  'disk after that. Nothing was trained or fine-tuned by this project. AI Monitoring runs one task, Wildlife ' +
+  'recognition. With a language-model key set (GEMINI_API_KEY is free; Groq, a local model or Claude also work), AI ' +
+  'vision (VISION_MODEL, default gemini-3.5-flash-lite on Gemini) identifies the animal species; MobileNetV2 is then ' +
+  'the evidence shown with the result, and the fallback if the API fails.'
 );
 
 h2('What happens on POST /api/ai/analyze');
@@ -1112,70 +1114,58 @@ code([
   '                 multicast; redirects followed manually (max 3), each re-checked;',
   '                 15 s timeout, 8 MB max.   data URL: base64 decode, 8 MB max',
   'decode           JPEG or PNG only, detected from the bytes, at least 16x16',
-  'describePixels   excess green, green leaf index, HSV foliage bands,',
-  '                 flame and smoke chromaticity',
   'MobileNetV2      bilinear resize to 224x224, scale to [0,1], 1001 logits,',
   '                 softmax, drop "background" -> 1000 ImageNet probabilities',
-  'interpret(task)  pool ImageNet class groups + pixel stats -> task scores',
+  'interpret(task)  pool ImageNet animal class groups -> wildlife label scores',
+  'llm-vision       with a key: stored JPEG -> Gemini (or another provider),',
+  '                 strict JSON schema in the wildlife labels -> species, action',
   'storeImage       <= 640 px JPEG, stored once per SHA-256 in AiImage',
-  'recordDetection  probabilities, top-5 ImageNet classes, evidence, notes',
-  'escalation rule  incident only for fire/smoke >= floor with a park',
+  'recordDetection  engine, species, probabilities, evidence, notes',
+  '                 -> review queue (nothing is dispatched automatically)',
 ]);
 
-h2('Turning ImageNet into park tasks');
+h2('Turning ImageNet into wildlife labels');
 para(
-  'ImageNet has no class for "chlorosis" or "overflowing bin". Each task is therefore built from signals the network ' +
+  'ImageNet has no park-management categories, so the fallback builds the wildlife labels from signals the network ' +
   'does produce. A group\'s evidence is the probability mass on its members, E_g = sum of p_i over the group - the 59 ' +
-  'bird classes become one "bird" signal. Where ImageNet has nothing useful, pixel statistics decide. Scores are ' +
+  'bird classes become one "bird" signal. Scores are ' +
   'normalised into a probability vector, P(k) = s_k / sum(s_j); the prediction is the argmax and the confidence is ' +
   '100 * max P.'
 );
 table(
   ['Task', 'Labels', 'How it is scored'],
   [
-    ['Tree & foliage health', 'Healthy green / Yellowing (chlorosis) / Browning (necrosis or dieback) / No foliage in frame', 'Shares of green, yellow and brown HSV pixels, gated by foliage cover and by strong animal evidence. A colour measurement, not a diagnosis.'],
-    ['Plant & fungus recognition', 'Flowering plant / Fruit, seed or vegetable / Fungus or mushroom / Foliage (outside vocabulary) / No plant', 'ImageNet flower, fruit and fungus groups, with pixel vegetation cover for the remainder.'],
-    ['Wildlife recognition', 'Bird / Butterfly or moth / Other insect or invertebrate / Reptile or amphibian / Wild mammal / Domestic or stray animal / No animal', 'ImageNet animal groups; the closest ImageNet class is reported as the detail.'],
-    ['Litter detection', 'Litter recognised / Waste bin recognised / No litter objects recognised', 'ImageNet bottle, bag, packet, cup and bin classes.'],
-    ['Fire & smoke detection', 'Flames visible (critical) / Smoke visible (high) / No fire or smoke detected', 'ImageNet fire and plume classes, corroborated by strict flame and smoke chromaticity - which only counts when the network itself sees fire, so sunsets and autumn leaves do not.'],
+    ['Wildlife recognition', 'Bird / Butterfly or moth / Other insect or invertebrate / Reptile or amphibian / Wild mammal / Domestic or stray animal / No animal', 'ImageNet animal groups; the closest ImageNet class is the fallback name, AI vision names the species.'],
   ],
   [22, 38, 40]
 );
 
 h2('Measured accuracy (npm run eval:vision)');
 para(
-  'scripts/evaluate-vision.js runs the 22 openly licensed Wikimedia Commons photographs listed in ' +
+  'scripts/evaluate-vision.js runs the 3 openly licensed Wikimedia Commons wildlife photographs listed in ' +
   'src/seed/data/sample-images/attribution.json through the real pipeline and counts a prediction correct when it ' +
   'is one of that photo\'s accepted labels.'
 );
 table(
   ['Task', 'Correct', 'Misses'],
   [
-    ['Fire & smoke (7 fires, 4 negatives)', '9 / 11', 'Smoke plume read as "No fire"; Welsh grass fire read as "No fire". All four sunset and autumn-leaf negatives correct - no false alarms.'],
-    ['Tree & foliage health', '3 / 3', '-'],
-    ['Wildlife', '3 / 3', 'Correct at group level: the Indian pond heron is "Bird", closest ImageNet class "bittern".'],
-    ['Plant & fungus', '1 / 2', 'Flowering tree in Cubbon Park read as "No plant detected".'],
-    ['Litter', '0 / 3', 'Garbage dump, plastic bottle and overflowing bin all "No litter objects recognised".'],
-    ['Overall', '16 / 22 (73 %)', ''],
+    ['Wildlife recognition', '3 / 3', 'Correct at group level: the Indian pond heron is "Bird", closest ImageNet class "bittern"; the plain tiger is "Butterfly or moth".'],
   ],
   [30, 16, 54]
 );
 
 callout(
-  'The calibration caveat - say it before you are asked',
-  'The weights and exponents in the task scoring were calibrated on these same 22 photographs, so 73 % is in-sample ' +
-  'accuracy on a very small set: an optimistic upper bound, not a validated error rate. A real figure needs a ' +
-  'larger held-out labelled set. Litter detection does not work: ImageNet recognises a bottle in a clear shot, not a ' +
-  'heap of mixed waste.',
+  'The sample-size caveat - say it before you are asked',
+  'Three photographs is a smoke test, not a validated error rate. A real figure needs a larger held-out labelled ' +
+  'set, which the review queue collects. npm run eval:vision -- --llm measures AI vision on the same photos.',
   'warn'
 );
 
-h2('Escalation and review');
+h2('Review');
 bullets([
-  ['An incident opens automatically only when all three hold: ', 'the prediction is "Flames visible" or "Smoke visible"; confidence is at or above the floor (Setting.aiAutoIncidentConfidence, default 85 %); and a park was selected, so the incident has a location. Flames open a severity-5 fire incident (priority 60.0, high); smoke a severity-4 one.'],
-  ['Everything else is queued for review, ', 'with the reason returned in escalationRule. A colour-based foliage reading or a litter guess is never trusted to dispatch a crew.'],
-  ['Review builds ground truth. ', 'An ecologist confirms a detection or rejects it with a corrected label from the task\'s own vocabulary. Observed precision = 100 * confirmed / (confirmed + rejected), shown once a review exists.'],
-  ['Demonstration photos: ', 'eval-fire-bonfire.jpg on Fire & smoke with a park selected gives "Flames visible" at high confidence and opens an incident; wildlife-indian-pond-heron.jpg on Wildlife gives "Bird", closest class bittern.'],
+  ['Nothing is dispatched automatically. ', 'Every detection, from either engine, enters the review queue.'],
+  ['Review builds ground truth. ', 'A park officer confirms a detection or rejects it with a corrected label from the task\'s own vocabulary. Observed precision = 100 * confirmed / (confirmed + rejected), shown once a review exists.'],
+  ['Demonstration photo: ', 'wildlife-indian-pond-heron.jpg gives "Bird" - "Bittern" without a key, "Indian pond heron" (Ardeola grayii) with one.'],
 ]);
 
 // ===========================================================================
@@ -1324,7 +1314,7 @@ table(
     ['2 GIS', 'GET /gis/layers, /gis/heatmap, /gis/within', 'public'],
     ['3 Parks & Assets', 'GET /parks, /parks/near, /parks/:id/health; CRUD /assets, /assets/stats, POST /assets/:id/maintenance', 'public read; officer write; admin delete'],
     ['4 Biodiversity', 'GET /biodiversity/indices, /compare, /seasonality, /species, /observations; POST /indices/preview, /observations/:id/verify', 'public read; ecologist curate'],
-    ['5 AI', 'GET /ai/tasks, /stats, /gallery, /images/:id; POST /ai/analyze, /ai/:id/review', 'signed-in analyse; ecologist review'],
+    ['5 AI', 'GET /ai/tasks, /stats, /gallery, /images/:id; POST /ai/analyze, /ai/:id/review', 'signed-in analyse; officer review'],
     ['6 Sensors', 'GET /sensors/live, /:id/readings, /:id/anomalies; POST /sensors/refresh, /:id/readings (device only)', 'public read; officer refresh'],
     ['7 Citizen', 'GET /citizen/reports, /my-reports, /stats; POST /reports, /:id/upvote, /:id/review', 'signed-in submit; officer review'],
     ['8 Incidents & Alerts', 'GET /incidents, /triage, /stats; POST /:id/assign, /:id/resolve, /:id/work-order; /alerts', 'officer (alerts public to read)'],
@@ -1366,7 +1356,7 @@ table(
     ['CitizenReport', 'Public submissions with upvotedBy, linked incident or species; demo flag.'],
     ['Incident / Alert', 'Computed priority, upvotes, embedded timeline, assignee; alerts deduplicated by dedupeKey.'],
     ['WorkOrder', 'Scheduled tasks linked to an asset and optionally an incident; progress and cost.'],
-    ['AiDetection / AiImage', 'Inference results with probabilities, top ImageNet classes, evidence and review; stored JPEGs, unique by SHA-256.'],
+    ['AiDetection / AiImage', 'Wildlife inference results with engine, species, probabilities, top ImageNet classes, evidence and review; stored JPEGs, unique by SHA-256.'],
     ['EcoReport', 'Frozen metric snapshot, findings, recommendations; draft, published or archived.'],
     ['User, AuditLog, Setting', 'Accounts (bcrypt hash, role); append-only change history; singleton settings (weights, thresholds, switches).'],
     ['ChatMessage, Counter', 'Assistant history with citations; atomic reference-code sequences.'],
@@ -1393,7 +1383,7 @@ code([
   'npm test                               # backend unit + integration suites (node:test)',
   'npm run typecheck                      # frontend: tsc --noEmit',
   'npm run build                          # frontend production build',
-  'npm run eval:vision                    # AI accuracy report on 22 labelled photos',
+  'npm run eval:vision                    # AI accuracy report on 3 wildlife photos',
 ]);
 
 h2('Unit suites (backend/test/unit)');
@@ -1491,7 +1481,7 @@ table(
   ['Limitation', 'The honest position'],
   [
     ['No physical sensors', 'AQI, temperature and humidity are real observations from gridded models, so nearby parks can share a cell. Noise, soil and water are simulated - which makes the water and soil sub-indices, and half of the air sub-index, simulated. A device sensor would use the same ingestion path.'],
-    ['General-purpose vision model', 'Pre-trained ImageNet weights, not trained on park imagery. 16/22 on photos the thresholds were calibrated on, so optimistic; litter 0/3; species at ImageNet granularity; foliage health is colour, not diagnosis. Hence human review, and only fire escalates.'],
+    ['Vision without an API key', 'The fallback uses pre-trained ImageNet weights, not trained on park imagery: 3/3 on a small set of wildlife photos; species at ImageNet granularity. With a key, identification depends on an external API and its free-tier quota. Hence officer review of every finding.'],
     ['GBIF counts are not population counts', 'They are records, dominated by eBird and iNaturalist activity. Lalbagh holds about nine in ten; lightly recorded parks look artificially even; recent months are incomplete.'],
     ['Pooled diversity index', 'Mixes units of survey effort across taxa; the per-taxocene indices are the rigorous comparison.'],
     ['Operational records are demo data', 'Accounts, citizen reports, incidents, work orders and asset condition scores are flagged demo: true until the portal is really used.'],
@@ -1514,7 +1504,7 @@ bullets([
   ['Real open data, labelled: ', 'OpenStreetMap parks and assets, GBIF species and records, GRIIS invasive flags, Open-Meteo weather and CAMS air quality. Demo and simulated values carry a badge.'],
   ['AQI is the MAXIMUM sub-index, ', 'computed here from CAMS concentrations with CPCB averaging periods and truncation.'],
   ['The health index ignores missing data ', 'by dividing by the weights actually present; missing is null, never 0.'],
-  ['The AI is real inference with measured limits: ', '16/22 on calibration photos, litter 0/3, only fire and smoke escalate, and only with a park.'],
+  ['The AI is real inference with measured limits: ', 'AI vision (Gemini by default) names wildlife species; the MobileNetV2 fallback scores 3/3 on the labelled wildlife photos; every finding is reviewed by a park officer.'],
   ['GBIF counts are records, not individuals, ', 'and recording effort differs hugely between parks.'],
 ]);
 
@@ -1524,12 +1514,11 @@ table(
   [
     ['Parks / modules', '6 Bengaluru parks / 12 modules'],
     ['Open-data snapshot', '587 species, 4,175 observation rows, 37,182 GBIF records (Jan 2023 - Sep 2026)'],
-    ['Seeded', '339 assets, 33 sensors (18 Open-Meteo, 15 simulated), 13 AI detections, 6 reports; demo: 12 accounts, 36 citizen reports, 30 incidents, 36 work orders'],
+    ['Seeded', '339 assets, 33 sensors (18 Open-Meteo, 15 simulated), 3 AI wildlife detections, 6 reports; demo: 12 accounts, 36 citizen reports, 30 incidents, 36 work orders'],
     ['Collections / routers / page routes', '18 / 18 / 16'],
-    ['Vision model', 'MobileNetV2 1.0 / 224, ~14 MB, ~30-80 ms per image'],
-    ['AI accuracy', '16 / 22 (73 %), in-sample'],
+    ['Vision', 'Wildlife recognition: AI vision (Gemini by default, free GEMINI_API_KEY); MobileNetV2 1.0 / 224, ~14 MB, ~30-80 ms per image, as evidence and fallback'],
+    ['AI accuracy', 'Fallback engine 3 / 3 wildlife photos (a smoke test)'],
     ['Default weights', 'air 0.25, water 0.20, tree 0.20, biodiversity 0.20, soil 0.15'],
-    ['Escalation floor', '85 % confidence, fire or smoke, park selected'],
   ],
   [32, 68]
 );
@@ -1539,16 +1528,16 @@ bullets([
   ['"Is the data real?" ', 'Mostly, and the interface labels which is which (Chapter 5).'],
   ['"Is the AI real?" ', 'Real inference with Google\'s pre-trained weights; not trained by me; accuracy measured and stated, with the calibration caveat.'],
   ['"Why MongoDB?" ', 'Nested documents, first-class GeoJSON with 2dsphere indexes, and a schema that evolved during the build. Heavy spatial joins would justify PostGIS.'],
-  ['"What would you do next?" ', 'Fine-tune the vision tasks on labelled park photos (litter first) and evaluate on a held-out set; real device sensors on the existing endpoint; structured equal-effort biodiversity surveys; embeddings for retrieval; httpOnly cookies.'],
-  ['"Show me it working." ', 'Index Calculator with "100, 1, 1, 1" and "25, 25, 25, 25"; then the bonfire photo on Fire & smoke with a park selected.'],
+  ['"What would you do next?" ', 'Evaluate both vision engines on a held-out set of labelled park photos built from the review queue; real device sensors on the existing endpoint; structured equal-effort biodiversity surveys; embeddings for retrieval; httpOnly cookies.'],
+  ['"Show me it working." ', 'Index Calculator with "100, 1, 1, 1" and "25, 25, 25, 25"; then the pond heron photo on AI Monitoring.'],
 ]);
 
 y += 4;
 callout(
   'The most important advice',
   'Do not claim more than the project does. Every simulated or demonstration value is labelled in the interface, ' +
-  'and the AI page states its own accuracy, including the task that fails. A student who says "real inference, ' +
-  'pre-trained weights, 16 of 22 on photos I also calibrated on, and litter does not work" sounds far more credible ' +
+  'and the AI page states its own accuracy and which engine produced each result. A student who says "real inference, ' +
+  'AI vision names the species, the local fallback names the group and was checked on labelled photos" sounds far more credible ' +
   'than one who claims a working detector and cannot say how it was evaluated.'
 );
 
@@ -1588,7 +1577,7 @@ footer();
 
 // ---------------------------------------------------------------------------
 
-const out = path.join(__dirname, 'GreenPulse-Project-Guide.pdf');
+const out = path.join(__dirname, 'Park-Ecosystem-Portal-Project-Guide.pdf');
 fs.writeFileSync(out, Buffer.from(doc.output('arraybuffer')));
 
 const sizeKb = Math.round(fs.statSync(out).size / 1024);

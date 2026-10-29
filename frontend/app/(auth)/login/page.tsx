@@ -27,7 +27,7 @@ type LoginValues = z.infer<typeof loginSchema>;
 /**
  * The seeded demonstration accounts.
  *
- * Listing them on the sign-in screen lets an assessor try all four permission
+ * Listing them on the sign-in screen lets an assessor try all three permission
  * levels without a separate credentials sheet — but only when the build opts
  * in with `NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS=true` (set in a local `.env.local`).
  * A deployed build leaves it unset, so the credentials are never published.
@@ -37,9 +37,8 @@ const SHOW_DEMO_ACCOUNTS = process.env.NEXT_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true'
 // Folded to empty values at build time when the flag is off, so the
 // credentials do not ship in the bundle either.
 const DEMO_ACCOUNTS = SHOW_DEMO_ACCOUNTS ? [
-  { role: 'Administrator', email: 'admin@greenpulse.gov', detail: 'Full control — users, settings, audit log' },
-  { role: 'Ecologist', email: 'ecologist@greenpulse.gov', detail: 'Curates species records and verifies sightings' },
-  { role: 'Park Officer', email: 'officer@greenpulse.gov', detail: 'Incidents, work orders, assets, sensors' },
+  { role: 'Administrator', email: 'admin@greenpulse.gov', detail: 'Assigns work, monitors progress, manages users' },
+  { role: 'Park Officer', email: 'officer@greenpulse.gov', detail: 'Works assigned tasks, reviews reports' },
   { role: 'Citizen', email: 'citizen@greenpulse.gov', detail: 'Reports issues and logs wildlife sightings' },
 ] : [];
 

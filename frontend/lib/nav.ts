@@ -58,7 +58,6 @@ export const navItems: NavItem[] = [
 /** Role hierarchy, mirroring `ROLE_RANK` in the backend auth middleware. */
 const ROLE_RANK: Record<UserRole, number> = {
   citizen: 1,
-  ecologist: 2,
   officer: 3,
   admin: 4,
 };
@@ -69,9 +68,16 @@ const ROLE_RANK: Record<UserRole, number> = {
  */
 export function navFor(role: UserRole | null): NavItem[] {
   const rank = role ? ROLE_RANK[role] : 0;
-  return navItems.filter((item) => !item.minRole || rank >= ROLE_RANK[item.minRole]);
+  return navItems
+    .filter((item) => !item.minRole || rank >= ROLE_RANK[item.minRole])
+    .map((item) =>
+      // A park officer's maintenance view is their own task list.
+      role === 'officer' && item.href === '/maintenance'
+        ? { ...item, label: 'My Tasks', description: 'Work orders assigned to you — record progress here' }
+        : item
+    );
 }
 
-export const APP_NAME = 'GreenPulse';
-export const APP_TAGLINE = 'Ecosystem & Biodiversity Portal';
+export const APP_NAME = 'Park Ecosystem Portal';
+export const APP_TAGLINE = 'Health & Biodiversity Monitoring';
 export const APP_ICON = Leaf;

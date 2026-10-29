@@ -56,7 +56,7 @@ export interface FeatureCollection<P = Record<string, unknown>> {
 export type Grade = 'excellent' | 'good' | 'moderate' | 'poor' | 'critical';
 export type ConditionStatus = 'excellent' | 'good' | 'fair' | 'poor' | 'critical';
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
-export type UserRole = 'citizen' | 'ecologist' | 'officer' | 'admin';
+export type UserRole = 'citizen' | 'officer' | 'admin';
 
 /** Every document carries these. */
 interface Timestamped {
@@ -320,7 +320,27 @@ export interface BiodiversityAnalysis {
 // Module 5 — AI
 // ---------------------------------------------------------------------------
 
-export type AiTask = 'tree-disease' | 'plant-id' | 'wildlife' | 'waste' | 'fire';
+/** AI Monitoring is wildlife recognition only. */
+export type AiTask = 'wildlife';
+
+/**
+ * llm-vision         — a multimodal language model (Gemini, Groq, a local model
+ *                      or Claude — see `provider`) named the species
+ * claude-vision      — the same, on detections stored before providers were
+ *                      pluggable (always Claude)
+ * mobilenet-fallback — MobileNetV2 (no API key, or the API failed)
+ */
+export type AiEngine = 'llm-vision' | 'claude-vision' | 'mobilenet-fallback';
+
+/** Language-model providers the server can use (see backend llm-provider.service). */
+export type LlmProvider = 'gemini' | 'groq' | 'openai-compatible' | 'anthropic';
+
+/** The animal named in an image; confidence is a percentage. */
+export interface SpeciesId {
+  common: string;
+  scientific: string;
+  confidence: number;
+}
 
 export interface ClassProbability {
   label: string;
@@ -341,25 +361,16 @@ export interface AiTaskInfo {
   task: AiTask;
   title: string;
   method: string;
+  /** The engine the server will use for this task right now. */
+  engine: AiEngine;
+  /** Vision model id when `engine` is llm-vision, e.g. "gemini-3.5-flash-lite". */
+  visionModel: string | null;
+  /** Active provider when `engine` is llm-vision. */
+  visionProvider?: LlmProvider | null;
+  /** Its display name, e.g. "Gemini", "Groq", "Local model", "Claude". */
+  visionProviderLabel?: string | null;
   model: ModelCard;
   classes: { label: string; severity: Severity }[];
-}
-
-/** Pixel statistics measured by the vision service. */
-export interface ImageStats {
-  excessGreen: number;
-  greenLeafIndex: number;
-  healthyGreenFraction: number;
-  chloroticFraction: number;
-  necroticFraction: number;
-  flameFraction: number;
-  strictFlameFraction: number;
-  smokeFraction: number;
-  skyFraction: number;
-  meanValue: number;
-  meanSaturation: number;
-  hueEntropy: number;
-  sampledPixels: number;
 }
 
 export interface AiDetection extends Timestamped {
@@ -370,11 +381,16 @@ export interface AiDetection extends Timestamped {
   /** Author and licence, for openly licensed sample photographs. */
   imageCredit: string;
   park: ParkRef | string | null;
+  /** Absent on detections stored before AI vision existed (treat as the fallback). */
+  engine?: AiEngine;
+  /** The language-model provider for llm-vision detections; empty otherwise. */
+  provider?: LlmProvider | '';
   prediction: string;
-  /** e.g. "Closest ImageNet class: bee eater (77.3 %)". */
+  /** e.g. "Indian pond heron (Ardeola grayii)" or "ImageNet class: bee eater (77.3 %)". */
   detail: string;
   confidence: number;
   probabilities: ClassProbability[];
+  species?: SpeciesId | null;
   /** The network's own top ImageNet classes. */
   imagenet: ClassProbability[];
   /** Named signals the task score was built from. */
@@ -389,40 +405,38 @@ export interface AiDetection extends Timestamped {
   reviewStatus: 'pending' | 'confirmed' | 'rejected';
   reviewedAt: string | null;
   correctedLabel: string;
-  linkedIncident: { id: string; referenceCode: string; priority: string; status?: string } | string | null;
 }
 
 export interface InferenceResult {
   title: string;
   method: string;
+  engine: AiEngine;
+  /** Set when `engine` is llm-vision. */
+  provider?: LlmProvider | null;
+  providerLabel?: string | null;
+  /** The model that made the call, e.g. "Gemini vision" + its id, or MobileNetV2. */
+  engineModel: { name: string; version: string };
   prediction: string;
   detail: string | null;
   confidence: number;
   probabilities: ClassProbability[];
+  species: SpeciesId | null;
   severity: Severity;
   recommendedAction: string;
   evidence: Record<string, number>;
   notes: string[];
   imagenet: ClassProbability[];
-  stats: ImageStats;
   image: { width: number; height: number; format: string; bytes: number };
   model: ModelCard;
-  timings: { fetchMs: number; decodeMs: number; statsMs: number; inferenceMs: number };
+  /** `identifyMs` is the language-model round trip (0 for the fallback). */
+  timings: { fetchMs: number; decodeMs: number; inferenceMs: number; identifyMs: number };
   inferenceMs: number;
 }
 
+/** Every finding waits in the review queue; none opens an incident by itself. */
 export interface AnalyzeResponse {
   detection: AiDetection;
   inference: InferenceResult;
-  escalated: { id: string; referenceCode: string; priority: string } | null;
-  escalationRule: {
-    /** Only fire and smoke findings may open an incident without review. */
-    escalatable: boolean;
-    confident: boolean;
-    confidenceFloor: number;
-    applied: boolean;
-    reason: string;
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -533,6 +547,8 @@ export interface CitizenReport extends Timestamped {
   upvotes: number;
   images: string[];
   species: Species | string | null;
+  /** The citizen's own name for what they saw, when they gave one. */
+  speciesName?: string;
   linkedIncident: { id: string; referenceCode: string; status: string } | string | null;
   officialResponse: string;
   resolvedAt: string | null;
@@ -707,6 +723,8 @@ export interface Kpi {
   unit: string;
   score: number | null;
   icon: string;
+  /** One line of context under the value. */
+  hint?: string;
   source?: SensorSource | null;
 }
 
@@ -817,7 +835,21 @@ export interface ChatMessage extends Timestamped {
   intent: string;
   citations: Citation[];
   latencyMs: number;
+  /** Which engine answered; empty on messages stored before engines were recorded. */
+  engine?: AssistantEngine | '';
+  /** The language-model provider (`llm` answers) and model id. */
+  provider?: LlmProvider | '';
+  model?: string;
+  /** The data lookups the answer was built from. */
+  toolsUsed?: string[];
 }
+
+/**
+ * `llm` when a language model is configured on the server (see `provider`),
+ * otherwise the built-in engine. `claude` appears on messages stored before
+ * providers were pluggable.
+ */
+export type AssistantEngine = 'llm' | 'claude' | 'built-in';
 
 export interface AskResponse {
   sessionId: string;
@@ -826,6 +858,23 @@ export interface AskResponse {
   intentConfidence: number;
   citations: Citation[];
   latencyMs: number;
+  engine: AssistantEngine;
+  provider?: LlmProvider | null;
+  /** e.g. "Gemini"; null on the built-in engine. */
+  providerLabel?: string | null;
+  model?: string | null;
+  toolsUsed: string[];
+}
+
+export interface AssistantSuggestions {
+  suggestions: string[];
+  capabilities: string[];
+  engine: AssistantEngine;
+  provider?: LlmProvider | null;
+  /** e.g. "Gemini"; null on the built-in engine. */
+  providerLabel?: string | null;
+  model?: string | null;
+  role: 'guest' | 'citizen' | 'officer' | 'admin';
 }
 
 // ---------------------------------------------------------------------------
@@ -1050,7 +1099,6 @@ export interface SystemSettings extends Timestamped {
     biodiversity: number;
   };
   anomalyZThreshold: number;
-  aiAutoIncidentConfidence: number;
   enableSensorSimulation: boolean;
   enablePublicReporting: boolean;
   mapDefaultZoom: number;

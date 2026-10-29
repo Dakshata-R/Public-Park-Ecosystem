@@ -177,6 +177,7 @@ export default function DashboardPage() {
                     label={kpi.key === 'airQuality' ? 'Air Quality' : kpi.label}
                     value={kpi.value}
                     unit={kpi.unit}
+                    hint={kpi.hint}
                     icon={kpi.icon}
                     tone={toneFor(kpi.score)}
                     index={index}

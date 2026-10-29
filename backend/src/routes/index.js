@@ -57,7 +57,7 @@ router.get('/', (_req, res) => {
   res.json({
     success: true,
     data: {
-      name: 'GreenPulse API',
+      name: 'Park Ecosystem Portal API',
       description:
         'Public Park Ecosystem Health Monitoring System & Urban Biodiversity Mapping Portal',
       version: '1.0.0',

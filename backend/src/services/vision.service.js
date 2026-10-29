@@ -4,21 +4,14 @@
  * Computer vision back end for Module 5.
  *
  * ---------------------------------------------------------------------------
- * This is real inference. Two independent kinds of evidence are extracted
- * from the actual pixels of the submitted image:
- *
- *   1. A trained convolutional network — MobileNetV2 (width 1.0, 224×224),
- *      the ImageNet checkpoint published by Google, run through TensorFlow.js.
- *      It produces a genuine 1000-way probability distribution over the
- *      ImageNet-1k vocabulary.
- *
- *   2. Colour and texture statistics computed over every pixel — vegetation
- *      indices, HSV occupancy fractions, flame chromaticity, hue entropy.
- *      These are the classical descriptors used in plant phenotyping and in
- *      rule-based fire detection.
- *
- * Neither is a stand-in. Change the image and both change. `ai-inference`
- * maps them onto the task vocabularies.
+ * This is real inference. A trained convolutional network — MobileNetV2
+ * (width 1.0, 224×224), the ImageNet checkpoint published by Google, run
+ * through TensorFlow.js — classifies the actual pixels of the submitted image
+ * and produces a genuine 1000-way probability distribution over the
+ * ImageNet-1k vocabulary. It is not a stand-in: change the image and the
+ * distribution changes. `ai-inference` maps it onto the wildlife labels and
+ * uses it as the evidence layer (and the fallback) for the AI vision engine
+ * (llm-vision.service).
  *
  * ---------------------------------------------------------------------------
  * Runtime
@@ -64,8 +57,6 @@ const INPUT_SIZE = 224;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 15000;
 const MAX_REDIRECTS = 3;
-/** Pixels are sampled on a stride so statistics cost is bounded on huge photos. */
-const MAX_STAT_SAMPLES = 240_000;
 /** Longest side of the copy that is stored and served back to the browser. */
 const STORED_MAX_SIDE = 640;
 
@@ -277,7 +268,7 @@ async function fetchImage(url) {
       res = await fetch(current, {
         signal: controller.signal,
         redirect: 'manual',
-        headers: { 'User-Agent': 'GreenPulse/1.0 (urban ecology monitoring; academic project)' },
+        headers: { 'User-Agent': 'ParkEcosystemPortal/1.0 (urban ecology monitoring; academic project)' },
       });
 
       if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
@@ -420,126 +411,6 @@ function encodeJpeg({ data, width, height }, quality = 82) {
 }
 
 // ---------------------------------------------------------------------------
-// Colour and texture descriptors
-// ---------------------------------------------------------------------------
-
-/** RGB (0–255) → HSV with H in degrees, S and V in [0, 1]. */
-function rgbToHsv(r, g, b) {
-  const rn = r / 255;
-  const gn = g / 255;
-  const bn = b / 255;
-  const max = Math.max(rn, gn, bn);
-  const min = Math.min(rn, gn, bn);
-  const delta = max - min;
-
-  let h = 0;
-  if (delta !== 0) {
-    if (max === rn) h = ((gn - bn) / delta) % 6;
-    else if (max === gn) h = (bn - rn) / delta + 2;
-    else h = (rn - gn) / delta + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-
-  return [h, max === 0 ? 0 : delta / max, max];
-}
-
-/**
- * Per-pixel statistics over the whole frame.
- *
- * Vegetation indices
- *   ExG = 2g − r − b on chromatic coordinates (Woebbecke et al. 1995)
- *   GLI = (2G − R − B) / (2G + R + B)  (Louhaichi et al. 2001)
- * Both rise with green biomass and are the standard cheap proxies for canopy
- * vigour in RGB-only plant phenotyping.
- *
- * Foliage states are disjoint HSV bands — green (healthy), yellow (chlorotic)
- * and brown (necrotic) — so their fractions can be compared directly.
- *
- * Flame chromaticity follows the rule set of Chen, Wu & Chiou (2004):
- * R > G > B with R above a floor, and saturation increasing as R saturates.
- * It is deliberately permissive — orange plumage and sunsets pass it. A
- * stricter variant (bright, saturated, hue ≤ 50°) is reported alongside it,
- * and `ai-inference` uses only that one, and only scaled by the CNN's own
- * fire evidence.
- */
-function describePixels(data, width, height) {
-  const totalPixels = width * height;
-  const stride = Math.max(1, Math.floor(totalPixels / MAX_STAT_SAMPLES));
-
-  let sampled = 0;
-  let exgSum = 0;
-  let gliSum = 0;
-  let valueSum = 0;
-  let satSum = 0;
-  let healthyGreen = 0;
-  let chlorotic = 0;
-  let necrotic = 0;
-  let flame = 0;
-  let strictFlame = 0;
-  let smoke = 0;
-  let sky = 0;
-  const hueHistogram = new Array(36).fill(0);
-
-  for (let i = 0; i < totalPixels; i += stride) {
-    const o = i * 3;
-    const r = data[o];
-    const g = data[o + 1];
-    const b = data[o + 2];
-    if (r === undefined) break;
-
-    sampled += 1;
-
-    const sum = r + g + b || 1;
-    exgSum += (2 * g - r - b) / sum;
-    gliSum += (2 * g - r - b) / (2 * g + r + b || 1);
-
-    const [h, s, v] = rgbToHsv(r, g, b);
-    valueSum += v;
-    satSum += s;
-    hueHistogram[Math.min(35, Math.floor(h / 10))] += 1;
-
-    if (h >= 70 && h <= 165 && s >= 0.18 && v >= 0.12) healthyGreen += 1;
-    else if (h >= 38 && h < 70 && s >= 0.3 && v >= 0.3) chlorotic += 1;
-    else if (h >= 10 && h < 38 && s >= 0.2 && v < 0.55) necrotic += 1;
-
-    if (r > 150 && r > g && g > b && s >= ((255 - r) * 0.2) / 255) flame += 1;
-    if (r > 190 && r >= g && g >= b && h <= 50 && s > 0.45 && v > 0.7) strictFlame += 1;
-    if (s < 0.12 && v > 0.35 && v < 0.88) smoke += 1;
-    if (h >= 185 && h <= 250 && s >= 0.15 && v >= 0.45) sky += 1;
-  }
-
-  const fraction = (count) => Math.round((count / sampled) * 10000) / 10000;
-  const round = (x) => Math.round(x * 1000) / 1000;
-
-  // Shannon entropy over the 36-bin hue histogram. Foliage and sky are
-  // chromatically narrow; scattered litter is not.
-  let hueEntropy = 0;
-  for (const count of hueHistogram) {
-    if (count > 0) {
-      const p = count / sampled;
-      hueEntropy -= p * Math.log2(p);
-    }
-  }
-
-  return {
-    excessGreen: round(exgSum / sampled),
-    greenLeafIndex: round(gliSum / sampled),
-    healthyGreenFraction: fraction(healthyGreen),
-    chloroticFraction: fraction(chlorotic),
-    necroticFraction: fraction(necrotic),
-    flameFraction: fraction(flame),
-    strictFlameFraction: fraction(strictFlame),
-    smokeFraction: fraction(smoke),
-    skyFraction: fraction(sky),
-    meanValue: round(valueSum / sampled),
-    meanSaturation: round(satSum / sampled),
-    hueEntropy: round(hueEntropy),
-    sampledPixels: sampled,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Classification
 // ---------------------------------------------------------------------------
 
@@ -593,7 +464,7 @@ function topClasses(probs, k = 10) {
 }
 
 /**
- * Full analysis of one image: load, decode, CNN, pixel statistics, and a
+ * Full analysis of one image: load, decode, CNN, and a
  * downscaled JPEG copy suitable for storage.
  *
  * @param {string} input An http(s) URL or a `data:image/…;base64,…` upload
@@ -615,9 +486,9 @@ async function describeBuffer(buffer, { fetchMs = 0 } = {}) {
     throw ApiError.badRequest('The image is too small to analyse (minimum 16×16)');
   }
 
-  const statsAt = Date.now();
-  const stats = describePixels(decoded.data, decoded.width, decoded.height);
-  const statsMs = Date.now() - statsAt;
+  // The stored copy doubles as the input to the AI vision engine, when it is
+  // enabled — it works on ≤640 px anyway.
+  const stored = resizeRgb(decoded, STORED_MAX_SIDE);
 
   let model;
   try {
@@ -634,16 +505,13 @@ async function describeBuffer(buffer, { fetchMs = 0 } = {}) {
   const probabilities = await classify(model, decoded);
   const inferenceMs = Date.now() - inferAt;
 
-  const stored = resizeRgb(decoded, STORED_MAX_SIDE);
-
   return {
     probabilities,
     imagenet: topClasses(probabilities),
-    stats,
     image: { width: decoded.width, height: decoded.height, format: decoded.format, bytes: buffer.length },
     stored: { buffer: encodeJpeg(stored), width: stored.width, height: stored.height },
     model: { ...MODEL_CARD, backend: tf.getBackend() },
-    timings: { fetchMs, decodeMs, statsMs, inferenceMs },
+    timings: { fetchMs, decodeMs, inferenceMs },
   };
 }
 
@@ -661,8 +529,6 @@ module.exports = {
   decodeImage,
   resizeRgb,
   encodeJpeg,
-  rgbToHsv,
-  describePixels,
   softmaxOf,
   topClasses,
   INPUT_SIZE,

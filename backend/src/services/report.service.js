@@ -220,7 +220,7 @@ async function generateReport({ type, parkId = null, days = 90, user = null, now
     summary: `${TITLES[type]} for ${scope}, covering ${from.toDateString()} to ${to.toDateString()}. Generated from recorded data; every finding is derived from the metrics stored with this report.`,
     park: park?._id || null,
     author: user?._id || null,
-    authorName: user?.name || 'GreenPulse',
+    authorName: user?.name || 'Park Ecosystem Portal',
     periodStart: from,
     periodEnd: to,
     metrics,

@@ -24,6 +24,11 @@ const { scoreIncident } = require('../services/priority.service');
 const audit = require('../services/audit.service');
 const { nextCode, year } = require('../utils/sequence');
 const { ROLE_RANK } = require('../middleware/auth');
+const vision = require('../services/vision.service');
+const { storeImage } = require('./ai.controller');
+
+/** Longest side of a stored report photo. */
+const PHOTO_MAX_SIDE = 1024;
 
 const generateReportCode = () =>
   nextCode({ model: CitizenReport, field: 'referenceCode', prefix: `CR-${year()}` });
@@ -240,6 +245,25 @@ const review = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * POST /api/citizen/photos
+ * Store a photo for a report before it is submitted: decoded, downscaled to a
+ * ≤1024 px JPEG, deduplicated by hash. Returns the path the report then lists
+ * in `images`, served by the same image route as AI uploads.
+ */
+const uploadPhoto = asyncHandler(async (req, res) => {
+  const bytes = vision.decodeDataUrl(req.body.image);
+  const decoded = vision.decodeImage(bytes);
+  if (decoded.width < 64 || decoded.height < 64) {
+    throw ApiError.badRequest('The photo is too small (minimum 64×64 pixels)');
+  }
+  const resized = vision.resizeRgb(decoded, PHOTO_MAX_SIDE);
+  const stored = { buffer: vision.encodeJpeg(resized, 85), width: resized.width, height: resized.height };
+  const image = await storeImage(stored, { source: 'upload' });
+
+  return created(res, { id: String(image._id), url: `/api/ai/images/${image._id}`, width: stored.width, height: stored.height });
+});
+
 /** GET /api/citizen/my-reports — the signed-in citizen's contribution history. */
 const myReports = asyncHandler(async (req, res) => {
   const reports = await CitizenReport.find({ submittedBy: req.user._id })
@@ -294,4 +318,4 @@ const getStats = asyncHandler(async (_req, res) => {
   });
 });
 
-module.exports = { ...crud, upvote, removeUpvote, myUpvotes, review, myReports, getStats, generateReportCode };
+module.exports = { ...crud, upvote, removeUpvote, myUpvotes, review, uploadPhoto, myReports, getStats, generateReportCode };

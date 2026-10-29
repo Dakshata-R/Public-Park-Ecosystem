@@ -14,14 +14,17 @@ const { ok } = require('../utils/response');
 
 const router = express.Router();
 
-/** GET /api/users/staff — active staff who can be assigned work. */
+/**
+ * GET /api/users/staff — active park officers, the only people work is
+ * assigned to. Administrators assign; they are not assignees.
+ */
 router.get(
   '/staff',
   requireAuth,
   requireRole('officer'),
   asyncHandler(async (_req, res) => {
-    const staff = await User.find({ role: { $in: ['officer', 'ecologist', 'admin'] }, active: true })
-      .sort({ role: 1, name: 1 })
+    const staff = await User.find({ role: 'officer', active: true })
+      .sort({ name: 1 })
       .select('name role park')
       .populate('park', 'name')
       .lean();

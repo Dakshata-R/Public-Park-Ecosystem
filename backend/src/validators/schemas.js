@@ -180,8 +180,9 @@ const citizen = {
     description: z.string().min(10, 'Please describe the issue in at least 10 characters').max(2000),
     park: objectId,
     location: geoPoint,
-    images: z.array(z.string()).max(6).optional(),
+    images: z.array(z.string().max(300)).max(6).optional(),
     species: objectId.optional(),
+    speciesName: z.string().trim().max(160).optional(),
     submittedByName: z.string().optional(),
   }),
 
@@ -192,6 +193,9 @@ const citizen = {
     status: z.enum(['submitted', 'in-review', 'accepted', 'resolved', 'rejected']).optional(),
     officialResponse: z.string().max(2000).optional(),
   }),
+
+  /** A photo attached to a report: a base64 JPEG/PNG data URL. */
+  photo: z.object({ image: z.string().min(32).max(11_500_000) }),
 
   review: z.object({
     decision: z.enum(['accepted', 'rejected', 'in-review']),
@@ -238,7 +242,15 @@ const incidents = {
     assignedTo: objectId.nullable().optional(),
   }),
 
-  assign: z.object({ assignedTo: objectId }),
+  /** The optional fields shape the work order raised for the assignee. */
+  assign: z.object({
+    assignedTo: objectId,
+    scheduledDate: dateish.optional(),
+    type: z.enum(['cleaning', 'tree-trimming', 'repair', 'lake-cleaning', 'inspection', 'planting', 'irrigation']).optional(),
+    assignedTeam: z.string().max(120).optional(),
+    estimatedCost: z.number().min(0).max(100_000_000).optional(),
+    estimatedHours: z.number().min(0).max(10_000).optional(),
+  }),
   resolve: z.object({ resolutionNotes: z.string().max(2000).optional() }),
 
   createWorkOrder: z.object({
@@ -290,7 +302,7 @@ const maintenance = {
 // ---------------------------------------------------------------------------
 const ai = {
   analyze: z.object({
-    task: z.enum(['tree-disease', 'plant-id', 'wildlife', 'waste', 'fire']),
+    task: z.enum(['wildlife']),
     imageUrl: z.string().min(4, '`imageUrl` is required'),
     imageName: z.string().optional(),
     park: objectId.optional(),
@@ -354,7 +366,7 @@ const admin = {
     name: z.string().min(2).max(120),
     email: z.string().email(),
     password: z.string().min(8).max(128),
-    role: z.enum(['citizen', 'ecologist', 'officer', 'admin']),
+    role: z.enum(['citizen', 'officer', 'admin']),
     park: objectId.nullable().optional(),
     phone: z.string().optional(),
     active: z.boolean().optional(),
@@ -364,7 +376,7 @@ const admin = {
     name: z.string().min(2).max(120).optional(),
     email: z.string().email().optional(),
     password: z.string().min(8).max(128).optional(),
-    role: z.enum(['citizen', 'ecologist', 'officer', 'admin']).optional(),
+    role: z.enum(['citizen', 'officer', 'admin']).optional(),
     park: objectId.nullable().optional(),
     phone: z.string().optional(),
     active: z.boolean().optional(),
@@ -386,7 +398,6 @@ const admin = {
       .partial()
       .optional(),
     anomalyZThreshold: z.number().min(1).max(6).optional(),
-    aiAutoIncidentConfidence: z.number().min(0).max(100).optional(),
     enableSensorSimulation: z.boolean().optional(),
     enablePublicReporting: z.boolean().optional(),
     mapDefaultZoom: z.number().int().min(1).max(20).optional(),

@@ -3,7 +3,7 @@
 /**
  * One-click ecosystem report: the server computes the report for the selected
  * park (metrics, findings, recommendations) and the browser renders it as a
- * PDF. Shown to roles that may generate reports (ecologist and above).
+ * PDF. Shown to roles that may generate reports (park officer and above).
  */
 
 import { FileDown, Loader2 } from 'lucide-react';
@@ -51,7 +51,7 @@ export function ParkReportButton({ park, parkLabel }: { park?: string; parkLabel
   const generate = useGenerateReport();
   const { data: publicSettings } = usePublicSettings();
 
-  if (!can('ecologist')) return null;
+  if (!can('officer')) return null;
 
   const download = async (report: EcoReport) => {
     const { jsPDF } = await import('jspdf'); // loaded only when a report is downloaded
@@ -77,7 +77,7 @@ export function ParkReportButton({ park, parkLabel }: { park?: string; parkLabel
     };
 
     const organisation = publicSettings?.organisationName?.trim();
-    write(`GreenPulse — Ecosystem Report${organisation ? ` · ${organisation}` : ''}`, 10, 'normal', 2);
+    write(`Park Ecosystem Portal — Ecosystem Report${organisation ? ` · ${organisation}` : ''}`, 10, 'normal', 2);
     write(parkLabel, 18, 'bold');
     write(`Period: ${dateOnly(report.periodStart)} — ${dateOnly(report.periodEnd)} · Generated ${dateOnly(new Date().toISOString())}`, 9);
 
@@ -100,7 +100,7 @@ export function ParkReportButton({ park, parkLabel }: { park?: string; parkLabel
     }
 
     write('Data: GBIF.org · Open-Meteo.com (CAMS) · © OpenStreetMap contributors.', 8);
-    doc.save(`greenpulse-report-${parkLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`);
+    doc.save(`park-ecosystem-report-${parkLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`);
   };
 
   const onClick = () => {

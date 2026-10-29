@@ -10,8 +10,8 @@
 import { api, buildQuery, downloadFile, type Paginated, type QueryValue } from './client';
 import type {
   Alert, AnalyzeResponse, AskResponse, Asset, AssetStats, AuditEntry, AuthResponse,
-  BiodiversityAnalysis, ChatMessage, CitizenReport, DashboardOverview, ActivityEvent,
-  AiDetection, AiTask, AiTaskInfo, EcoReport, EcoReportType, HeatPoint, Incident, LiveSensorsResponse, MapLayers,
+  AssistantSuggestions, BiodiversityAnalysis, ChatMessage, CitizenReport, DashboardOverview, ActivityEvent,
+  AiDetection, AiEngine, AiTask, AiTaskInfo, EcoReport, EcoReportType, HeatPoint, Incident, LiveSensorsResponse, MapLayers,
   Observation, Park, RawIndices, SensorSeries, Sensor, Species, SystemSettings, SystemStats,
   TrendPoint, TriagedIncident, User, WorkOrder, SensorRefreshResult, StaffMember, PublicSettings,
   HealthSubIndices, HealthContribution, Grade, GeoPoint,
@@ -191,6 +191,7 @@ export const aiApi = {
     api.get<{
       byTask: { task: AiTask; count: number; avgConfidence: number }[];
       bySeverity: { severity: string; count: number }[];
+      byEngine: { engine: AiEngine; count: number }[];
       confidenceDistribution: { band: string; count: number }[];
       review: { pending: number; confirmed: number; rejected: number; precision: number | null };
       total: number;
@@ -234,6 +235,9 @@ export const citizenApi = {
     api.delete<{ id: string; upvotes: number; upvoted: boolean }>(`/citizen/reports/${id}/upvote`),
   /** Ids of the reports the signed-in account has upvoted. */
   myUpvotes: () => api.get<string[]>('/citizen/my-upvotes'),
+  /** Store a photo (base64 data URL) for a report; returns the path to list in `images`. */
+  uploadPhoto: (image: string) =>
+    api.post<{ id: string; url: string; width: number; height: number }>('/citizen/photos', { image }),
 
   review: (
     id: string,
@@ -281,7 +285,9 @@ export const incidentApi = {
   update: (id: string, body: Partial<Incident> & { statusNote?: string }) =>
     api.patch<Incident>(`/incidents/${id}`, body),
   remove: (id: string) => api.delete<void>(`/incidents/${id}`),
-  assign: (id: string, assignedTo: string) => api.post<Incident>(`/incidents/${id}/assign`, { assignedTo }),
+  /** Admin only. The estimate is set on the work order raised for the officer. */
+  assign: (id: string, body: { assignedTo: string; estimatedCost?: number; estimatedHours?: number }) =>
+    api.post<Incident>(`/incidents/${id}/assign`, body),
   resolve: (id: string, resolutionNotes?: string) =>
     api.post<Incident>(`/incidents/${id}/resolve`, { resolutionNotes }),
   createWorkOrder: (id: string, body: Partial<WorkOrder>) =>
@@ -390,7 +396,7 @@ export const analyticsApi = {
 
   /** CSV download. The export needs an officer's token, so it is fetched, not linked. */
   exportCsv: (dataset: ExportDataset, park?: string) =>
-    downloadFile('/analytics/export', { dataset, format: 'csv', park }, `greenpulse-${dataset}.csv`),
+    downloadFile('/analytics/export', { dataset, format: 'csv', park }, `park-ecosystem-${dataset}.csv`),
 
   listReports: (params?: Query) => api.list<EcoReport>(`/analytics/reports${buildQuery(params)}`),
   getReport: (id: string) => api.get<EcoReport>(`/analytics/reports/${id}`),
@@ -409,7 +415,7 @@ export const analyticsApi = {
 export const assistantApi = {
   ask: (question: string, sessionId?: string) => api.post<AskResponse>('/assistant/ask', { question, sessionId }),
   history: (sessionId: string) => api.get<ChatMessage[]>(`/assistant/history/${sessionId}`),
-  suggestions: () => api.get<{ suggestions: string[]; capabilities: string[] }>('/assistant/suggestions'),
+  suggestions: () => api.get<AssistantSuggestions>('/assistant/suggestions'),
   search: (query: string, k = 8) =>
     api.post<{ entity: string; id: string; label: string; score: number }[]>('/assistant/search', { query, k }),
 };
@@ -476,7 +482,7 @@ export const adminApi = {
 // ---------------------------------------------------------------------------
 
 export const userApi = {
-  /** Active officers, ecologists and administrators — for assignee pickers (officer+). */
+  /** Active park officers — for assignee pickers (officer+). */
   staff: () => api.get<StaffMember[]>('/users/staff'),
 };
 
