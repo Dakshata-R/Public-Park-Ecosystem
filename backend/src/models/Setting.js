@@ -17,7 +17,7 @@ const settingSchema = new mongoose.Schema(
     key: { type: String, required: true, unique: true, default: 'system' },
 
     /** Shown in the interface header and on exported reports. Set by the administrator. */
-    organisationName: { type: String, default: 'GreenPulse Park Monitoring' },
+    organisationName: { type: String, default: 'Park Ecosystem Portal' },
     city: { type: String, default: 'Bengaluru' },
     /** Empty until an administrator provides a real address. */
     contactEmail: { type: String, default: '' },
@@ -36,9 +36,6 @@ const settingSchema = new mongoose.Schema(
 
     /** Standard deviations from the mean before a reading is an anomaly. */
     anomalyZThreshold: { type: Number, default: 3, min: 1, max: 6 },
-
-    /** Minimum confidence (%) before an AI detection may auto-open an incident. */
-    aiAutoIncidentConfidence: { type: Number, default: 85, min: 0, max: 100 },
 
     enableSensorSimulation: { type: Boolean, default: true },
     enablePublicReporting: { type: Boolean, default: true },

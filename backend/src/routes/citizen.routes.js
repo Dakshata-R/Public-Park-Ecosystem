@@ -21,6 +21,7 @@ router.get('/reports/:id', validate({ params: idParam }), controller.getOne);
  * here: attributing a report to a person is what makes the contribution
  * history and the acceptance-rate metric meaningful.
  */
+router.post('/photos', requireAuth, validate({ body: citizen.photo }), controller.uploadPhoto);
 router.post('/reports', requireAuth, validate({ body: citizen.create }), controller.create);
 router.post('/reports/:id/upvote', requireAuth, validate({ params: idParam }), controller.upvote);
 router.delete('/reports/:id/upvote', requireAuth, validate({ params: idParam }), controller.removeUpvote);

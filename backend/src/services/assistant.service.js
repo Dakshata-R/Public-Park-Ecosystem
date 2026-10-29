@@ -47,6 +47,7 @@
 const { Park, Species, Incident, Asset, Sensor, CitizenReport, WorkOrder } = require('../models');
 const { computeEcosystemHealth } = require('./ecosystem-score.service');
 const { analyseBiodiversity } = require('./biodiversity.service');
+const tools = require('./assistant-tools.service');
 
 /** Words carrying no retrieval signal. */
 const STOPWORDS = new Set(
@@ -267,6 +268,47 @@ const INTENTS = {
 };
 
 /**
+ * Questions that are about the asker or a specific view of the data — "my
+ * tasks", "pending reviews", "the weather at Cubbon" — are recognised by
+ * phrase before the keyword lexicons run, because their meaning lies in word
+ * combinations the bag-of-words scoring cannot see ("assigned to me").
+ */
+const SELF = /\b(me|my|mine|i|i'm|myself)\b/;
+const TASK_WORDS = /\b(tasks?|work ?orders?|assign(ed|ments?)|jobs?|to-?dos?|duties|workload)\b/;
+const REVIEW_QUEUE = /\b(review|verification|moderation|approval) (queue|backlog)s?\b|\bpending (reviews?|verifications?|approvals?)\b|\b(awaiting|waiting for|needs?|need to be|to be|pending|yet to be) (review|reviewed|verif\w*|approv\w*|moderat\w*)\b/;
+const PENDING_THINGS = /\b(pending|awaiting|waiting|unreviewed|unverified|outstanding)\b.*\b(reports?|sightings?|detections?|submissions?|observations?)\b/;
+const MY_REPORTS = /\bmy (own )?(citizen )?(reports?|submissions?|complaints?|sightings?)\b|\breports? (i|that i|which i) (have )?(submitted|filed|made|sent|raised|reported)\b/;
+const CLIMATE = /\b(climate|weather|temperature|temp|humidity|humid|rain|raining|rainfall|forecast|wind|windy|hot|cold|sunny|uv|feels like)\b|\b(current|live|environmental|weather|climatic) conditions?\b|\bconditions? (at|in|of|for|near)\b/;
+
+function detectPersonalIntent(question) {
+  const lower = String(question || '').toLowerCase();
+  if (!lower.trim()) return null;
+
+  if (MY_REPORTS.test(lower)) return 'myReports';
+  // "tell me…" / "show me…" are phrasing, not a reference to the asker.
+  const selfText = lower.replace(/\b(tell|show|give|let|get|find|help|remind|list) me\b/g, ' ');
+  if (SELF.test(selfText) && (TASK_WORDS.test(selfText) || /\bmy (incidents?|queue|work)\b/.test(selfText) || /\bwhat should i (work on|do)\b/.test(selfText))) {
+    return 'myTasks';
+  }
+  if ((REVIEW_QUEUE.test(lower) || PENDING_THINGS.test(lower)) && !/\b(work ?orders?|maintenance|tasks?|incidents?)\b/.test(lower)) {
+    return 'pendingReviews';
+  }
+  if (/\balerts?\b/.test(lower) && !/\bincidents?\b/.test(lower)) return 'alerts';
+  if (CLIMATE.test(lower) && !/\b(sensors?|trees?|assets?|benches|bench|paths?)\b/.test(lower)) return 'climate';
+  return null;
+}
+
+/** "high priority" → high and above; "critical" → critical only. */
+function priorityFromText(question) {
+  const lower = String(question || '').toLowerCase();
+  if (/\bcritical\b/.test(lower)) return { minPriority: 'critical' };
+  if (/\b(high|urgent|top|important)\b/.test(lower)) return { minPriority: 'high' };
+  if (/\bmedium\b/.test(lower)) return { priority: 'medium' };
+  if (/\blow[- ]priority\b/.test(lower)) return { priority: 'low' };
+  return {};
+}
+
+/**
  * Classify the question's intent.
  *
  * Matches are weighted rather than counted. A word that *names* an intent —
@@ -282,6 +324,9 @@ const INTENTS = {
  * @returns {{intent: string, confidence: number}}
  */
 function classifyIntent(tokens, question = '') {
+  const special = detectPersonalIntent(question);
+  if (special) return { intent: special, confidence: 1 };
+
   const tokenSet = new Set(tokens);
   const lower = String(question).toLowerCase();
   let best = { intent: 'general', score: 0, hits: 0 };
@@ -345,26 +390,175 @@ const percent = (v) => (v === null || v === undefined ? 'not measured' : `${Math
 const round2 = (v) => Math.round(v * 100) / 100;
 const outOf100 = (v) => (v === null || v === undefined ? 'not measured' : `${percent(v)}/100`);
 
-/** Locate a park mentioned in the question, if any. */
-async function resolveMentionedPark(question) {
-  const parks = await Park.find({ active: true }).select('name slug').lean();
-  const lower = question.toLowerCase();
-  return (
-    parks.find((p) => lower.includes(p.name.toLowerCase())) ||
-    parks.find((p) => lower.includes(p.name.split(' ')[0].toLowerCase())) ||
-    null
-  );
+// ---------------------------------------------------------------------------
+// Formatting for the built-in engine's answers
+// ---------------------------------------------------------------------------
+
+const IST = { timeZone: 'Asia/Kolkata' };
+const fmtTime = (d) =>
+  d ? new Date(d).toLocaleString('en-IN', { ...IST, hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' }) : null;
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { ...IST, day: 'numeric', month: 'short' }) : 'unscheduled');
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+const SENSOR_LABELS = {
+  aqi: 'Air quality (AQI)',
+  temperature: 'Temperature',
+  humidity: 'Humidity',
+  noise: 'Noise',
+  soil: 'Soil moisture',
+  water: 'Water quality',
+};
+
+/** "[HIGH] Clear the drains — Lalbagh, **overdue**" / "…, due 8 Nov (in-progress, 54%)". */
+function workOrderLine(o) {
+  const when = o.overdue ? `**overdue** since ${fmtDate(o.scheduledDate)}` : `due ${fmtDate(o.scheduledDate)}`;
+  const state = [o.status !== 'overdue' && o.status !== 'scheduled' ? o.status : null, o.progress ? `${o.progress}%` : null].filter(Boolean);
+  return `[${o.priority.toUpperCase()}] ${o.title} — ${o.park}, ${when}${state.length ? ` (${state.join(', ')})` : ''}`;
+}
+
+/** Run a tool for the built-in engine; a refusal becomes the answer itself. */
+async function lookup(name, input, ctx, used) {
+  used.push(name);
+  return tools.runTool(name, input, ctx);
 }
 
 /**
  * Compose the answer for a classified intent using retrieved records.
  * Every branch reports figures pulled from the database, never invented.
+ *
+ * @returns {Promise<{text:string, citations?:object[]}>|string}
  */
-async function compose(intent, question, hits) {
-  const park = await resolveMentionedPark(question);
+async function compose(intent, question, hits, ctx = { access: 'guest', user: null, homePark: null }, used = []) {
+  const park = await tools.findParkInText(question, ctx);
   const scope = park ? `at ${park.name}` : 'across all monitored parks';
+  const parkArg = park ? park.name : undefined;
 
   switch (intent) {
+    case 'climate': {
+      const r = await lookup('get_park_conditions', { park: parkArg }, ctx, used);
+      if (!r.ok) return r.error;
+      const { weather: w, airQuality: a, parkSensors, offlineSensors, location } = r.data;
+      const lines = [];
+      if (w && !w.unavailable) {
+        lines.push(
+          `• **Weather:** ${w.condition}, **${w.temperatureC} °C** (feels like ${w.feelsLikeC} °C), humidity ${w.humidityPercent}%, wind ${w.windKmh} km/h` +
+            (w.uvIndexMax != null ? `, UV index up to ${w.uvIndexMax}` : '')
+        );
+      }
+      if (a && a.aqi != null) {
+        lines.push(`• **Air quality:** AQI **${a.aqi}** — ${a.category}${a.mainPollutant ? ` (main pollutant ${a.mainPollutant})` : ''}`);
+      }
+      const shown = parkSensors.filter((s) => !(w && !w.unavailable && ['temperature', 'humidity'].includes(s.type)) && s.type !== 'aqi');
+      if (w?.unavailable) {
+        // Live weather is unreachable: fall back to the stored sensor channels.
+        for (const s of parkSensors.filter((x) => ['temperature', 'humidity'].includes(x.type))) {
+          lines.push(`• **${SENSOR_LABELS[s.type]}:** ${s.value} ${s.unit} (latest reading, ${fmtTime(s.readAt)})`);
+        }
+      }
+      if (shown.length) {
+        lines.push(
+          `• **Park sensors:** ${shown
+            .map((s) => `${SENSOR_LABELS[s.type] || s.type} ${s.value} ${s.unit}${s.status === 'warning' ? ' ⚠' : ''}`)
+            .join(' · ')}`
+        );
+      }
+      if (!lines.length) return `No current readings are available for ${location}.`;
+      const when = w?.observedAt || a?.observedAt;
+      return (
+        `**Current conditions — ${location}**\n\n${lines.join('\n')}` +
+        (a?.advice ? `\n\n${a.advice}` : '') +
+        `\n\n${when ? `Observed ${fmtTime(when)} IST. ` : ''}Weather and air quality from Open-Meteo${offlineSensors ? `; ${plural(offlineSensors, 'sensor')} offline` : ''}.`
+      );
+    }
+
+    case 'myTasks': {
+      const filter = priorityFromText(question);
+      const r = await lookup('get_my_tasks', filter, ctx, used);
+      if (!r.ok) return r.error;
+      const { workOrders, incidents, total, filter: label } = r.data;
+      const what = label ? ` of ${label}` : '';
+      if (!total) {
+        if (!label) return 'You have no open tasks assigned to you right now.';
+        // Say what *is* on their list, so "none" is not a dead end.
+        const all = await lookup('get_my_tasks', {}, ctx, used);
+        const rest = all.ok ? all.data.total : 0;
+        return `You have no open tasks${what} assigned to you right now.` +
+          (rest ? ` You do have ${plural(rest, 'open task')} at a lower priority — ask "what are my tasks?" to see them.` : '');
+      }
+
+      const parts = [`**You have ${plural(total, 'open task')}${what}** assigned to you${workOrders.overdue ? ` — ${workOrders.overdue} overdue` : ''}.`];
+      if (workOrders.count) {
+        parts.push(
+          `**Work orders (${workOrders.count})**\n` +
+            workOrders.items
+              .slice(0, 6)
+              .map((o) => `• ${workOrderLine(o)}`)
+              .join('\n') +
+            (workOrders.count > 6 ? `\n• …and ${workOrders.count - 6} more on the Maintenance page` : '')
+        );
+      }
+      if (incidents.count) {
+        parts.push(
+          `**Incidents (${incidents.count})**\n` +
+            incidents.items
+              .slice(0, 5)
+              .map((i) => `• [${i.priority.toUpperCase()} ${i.priorityScore}/100] ${i.title} — ${i.park}, ${i.status}, ${plural(i.ageDays, 'day')} old`)
+              .join('\n') +
+            (incidents.count > 5 ? `\n• …and ${incidents.count - 5} more on the Incidents page` : '')
+        );
+      }
+      return { text: parts.join('\n\n'), citations: r.citations };
+    }
+
+    case 'pendingReviews': {
+      const r = await lookup('get_pending_reviews', { park: parkArg }, ctx, used);
+      if (!r.ok) return r.error;
+      const { total, citizenReports: c, wildlifeSightings: s, aiDetections: d } = r.data;
+      if (!total) return `Nothing is waiting for review ${scope}. The queues are clear.`;
+      const oldest = [...c.oldest.map((x) => ({ what: `report "${x.title}"`, park: x.park, days: x.waitingDays }))]
+        .concat(s.oldest.map((x) => ({ what: `${x.species} sighting`, park: x.park, days: x.waitingDays })))
+        .sort((a, b) => b.days - a.days)[0];
+      return {
+        text:
+          `**${plural(total, 'item')} ${total === 1 ? 'is' : 'are'} awaiting review** ${scope}:\n\n` +
+          `• Citizen reports: **${c.awaitingReview}** (${c.submitted} new, ${c.inReview} in review)\n` +
+          `• Wildlife sightings to verify: **${s.awaitingVerification}**\n` +
+          `• AI detections to confirm: **${d.awaitingReview}**` +
+          (oldest ? `\n\nLongest waiting: the ${oldest.what} at ${oldest.park}, ${plural(oldest.days, 'day')}.` : ''),
+        citations: r.citations,
+      };
+    }
+
+    case 'myReports': {
+      const r = await lookup('get_my_reports', {}, ctx, used);
+      if (!r.ok) return r.error;
+      const { total, byStatus, reports } = r.data;
+      if (!total) return 'You have not submitted any reports yet. You can file one from the Citizen Portal.';
+      const summary = Object.entries(byStatus).map(([k, v]) => `${v} ${k}`).join(', ');
+      return {
+        text:
+          `**You have submitted ${plural(total, 'report')}** (${summary}):\n\n` +
+          reports
+            .slice(0, 6)
+            .map((x) => `• ${x.reference} · ${x.title} — ${x.park}, **${x.status}**${x.officialResponse ? `. Response: "${x.officialResponse.slice(0, 120)}"` : ''}`)
+            .join('\n'),
+        citations: r.citations,
+      };
+    }
+
+    case 'alerts': {
+      const r = await lookup('get_alerts', { park: parkArg }, ctx, used);
+      if (!r.ok) return r.error;
+      const { activeAlerts, bySeverity, latest } = r.data;
+      if (!activeAlerts) return `There are no active alerts ${scope}.`;
+      const counts = ['critical', 'high', 'medium', 'low'].filter((k) => bySeverity[k]).map((k) => `${bySeverity[k]} ${k}`).join(', ');
+      return (
+        `**${plural(activeAlerts, 'active alert')}** ${scope} (${counts}). Most recent:\n\n` +
+        latest.slice(0, 5).map((a) => `• [${a.severity.toUpperCase()}] ${a.title}${a.park ? ` — ${a.park}` : ''}, ${fmtTime(a.raisedAt)}`).join('\n')
+      );
+    }
+
     case 'health': {
       const health = await computeEcosystemHealth(park?._id || null);
       const s = health.subIndices;
@@ -420,38 +614,49 @@ async function compose(intent, question, hits) {
     }
 
     case 'incidents': {
-      const filter = park ? { park: park._id } : {};
-      const open = await Incident.find({ ...filter, status: { $nin: ['resolved', 'closed'] } })
-        .sort({ priorityScore: -1 })
-        .limit(5)
-        .populate('park', 'name')
-        .lean();
-
-      if (!open.length) return `There are no open incidents ${scope} right now.`;
-
-      const lines = open
-        .map((i) => `• [${i.priority.toUpperCase()} ${i.priorityScore}/100] ${i.title} — ${i.park?.name}, status ${i.status}`)
-        .join('\n');
-      return `There ${open.length === 1 ? 'is 1 open incident' : `are ${open.length} open incidents`} ${scope}, highest priority first:\n\n${lines}\n\nPriority is computed from hazard type, severity, people affected, age against the response target, and community upvotes.`;
+      const filter = priorityFromText(question);
+      const r = await lookup('get_incidents', { park: parkArg, ...filter, limit: 5 }, ctx, used);
+      if (!r.ok) return r.error;
+      const { openIncidents, byPriority, incidents, filter: label } = r.data;
+      const what = label ? ` of ${label}` : '';
+      if (!openIncidents) return `There are no open incidents${what} ${scope} right now.`;
+      const levels = ['critical', 'high', 'medium', 'low'].filter((k) => byPriority[k]);
+      const counts = levels.length > 1 ? ` (${levels.map((k) => `${byPriority[k]} ${k}`).join(', ')})` : '';
+      const head = `**${plural(openIncidents, 'open incident')}${what}** ${scope}${counts}.`;
+      if (!incidents) return `${head}\n\nIncident details are visible to park staff only. You can follow your own reports from the Citizen Portal.`;
+      return {
+        text:
+          `${head} Highest priority first:\n\n` +
+          incidents
+            .map((i) => `• [${i.priority.toUpperCase()} ${i.priorityScore}/100] ${i.title} — ${i.park}, ${i.status}${i.assignedToYou ? ' · **assigned to you**' : i.assignee ? ` · ${i.assignee}` : i.assigned === false || i.assignee === null ? ' · unassigned' : ''}`)
+            .join('\n') +
+          (openIncidents > incidents.length ? `\n\nThe full queue is on the Incidents page.` : ''),
+        citations: r.citations,
+      };
     }
 
     case 'maintenance': {
-      const filter = park ? { park: park._id } : {};
-      const [pending, overdue] = await Promise.all([
-        WorkOrder.countDocuments({ ...filter, status: { $in: ['scheduled', 'in-progress'] } }),
-        WorkOrder.countDocuments({ ...filter, status: 'overdue' }),
-      ]);
-      const upcoming = await WorkOrder.find({ ...filter, status: { $in: ['scheduled', 'in-progress'] } })
-        .sort({ scheduledDate: 1 })
-        .limit(4)
-        .populate('park', 'name')
-        .lean();
-
-      const lines = upcoming
-        .map((w) => `• ${w.title} — ${w.park?.name}, ${new Date(w.scheduledDate).toDateString()} (${w.status}, ${w.progress}%)`)
-        .join('\n');
-
-      return `${pending} work order${pending === 1 ? '' : 's'} ${scope} ${pending === 1 ? 'is' : 'are'} pending${overdue ? `, and ${overdue} ${overdue === 1 ? 'is' : 'are'} overdue` : ''}.\n\n${lines || 'Nothing scheduled.'}`;
+      const filter = priorityFromText(question);
+      const overdueOnly = /\b(overdue|late|behind)\b/.test(question.toLowerCase());
+      const r = await lookup('get_maintenance', { park: parkArg, ...filter, overdueOnly }, ctx, used);
+      if (!r.ok) return r.error;
+      const { open, overdue, workOrders, filter: label, listScope } = r.data;
+      const what = label ? ` of ${label}` : '';
+      const head = `**${plural(open, 'open work order')}${what}** ${scope}${overdue ? `, **${overdue} overdue**` : ''}.`;
+      if (!workOrders) return `${head}\n\nWork-order details are visible to park staff only.`;
+      const mine = listScope === 'work orders assigned to you';
+      if (!workOrders.length) {
+        return `${head}\n\n${mine ? `None of ${overdueOnly ? 'the overdue ones' : 'them'} are assigned to you.` : overdueOnly ? 'Nothing is overdue.' : 'Nothing is scheduled.'}`;
+      }
+      return {
+        text:
+          `${head}${overdueOnly ? ' Overdue' : ' Next up'}${mine ? ' on your list' : ''}:\n\n` +
+          workOrders
+            .slice(0, 5)
+            .map((w) => `• ${workOrderLine(w)}${w.assignedToYou && !mine ? ' · **yours**' : ''}`)
+            .join('\n'),
+        citations: r.citations,
+      };
     }
 
     case 'assets': {
@@ -523,9 +728,11 @@ async function compose(intent, question, hits) {
       if (!hits.length) {
         return (
           `I could not find anything in the park database matching that question.\n\n` +
-          `I can answer questions about: ecosystem health scores, air and water quality, ` +
-          `biodiversity and species records, open incidents, maintenance work orders, ` +
-          `park assets, sensor readings, and park information. Try naming a specific park.`
+          `I can answer questions about: current weather and air quality at a park, ` +
+          `ecosystem health scores, biodiversity and species records, alerts, incidents, ` +
+          `maintenance work, sensor readings and park information` +
+          (tools.can(ctx, 'officer') ? ', plus your assigned tasks and the review queues' : ctx?.user ? ', plus the status of your own reports' : '') +
+          `. Try naming a specific park.`
         );
       }
       const lines = hits
@@ -540,50 +747,106 @@ async function compose(intent, question, hits) {
 /**
  * Answer a question.
  *
+ * The asker decides what the answer may contain: the same access rules as
+ * the language-model engine apply, through the shared tool layer.
+ *
  * @param {string} question
+ * @param {object} [options]
+ * @param {object|null} [options.user] the signed-in User document, or null for a guest
+ * @param {object} [options.context] a pre-built tool context (see assistant-tools `buildContext`)
  * @returns {Promise<{answer:string, intent:string, intentConfidence:number,
  *   citations:Array<{label:string,entity:string,entityId:string,score:number}>,
- *   latencyMs:number}>}
+ *   toolsUsed:string[], latencyMs:number}>}
  */
-async function ask(question) {
+async function ask(question, { user = null, context } = {}) {
   const startedAt = Date.now();
+  const ctx = context || (await tools.buildContext(user));
   const tokens = tokenise(question);
   const { intent, confidence } = classifyIntent(tokens, question);
 
-  const hits = await retrieve(question, { k: 5 });
-  const answer = await compose(intent, question, hits);
+  const hits = await retrieve(question, { k: 5, entities: tools.searchableEntities(ctx) });
+  const used = [];
+  const composed = await compose(intent, question, hits, ctx, used);
+  const answer = typeof composed === 'string' ? composed : composed.text;
+
+  // A lookup's own records are better sources than loose keyword matches.
+  const fromTools = typeof composed === 'string' ? [] : composed.citations || [];
+  const citations = fromTools.length
+    ? fromTools.slice(0, 8)
+    : hits.map((h) => ({ label: h.label, entity: h.entity, entityId: h.id, score: h.score }));
 
   return {
     answer,
     intent,
     intentConfidence: Math.round(confidence * 100) / 100,
-    citations: hits.map((h) => ({
-      label: h.label,
-      entity: h.entity,
-      entityId: h.id,
-      score: h.score,
-    })),
+    citations,
+    toolsUsed: used,
     latencyMs: Date.now() - startedAt,
   };
 }
 
-/** Suggested prompts shown in the empty chat state. */
+/** Suggested prompts shown in the empty chat state, for anyone. */
 const SUGGESTED_QUESTIONS = [
-  'What is the ecosystem health score right now?',
-  'How is the air quality at Cubbon Park?',
-  'How diverse are the species recorded at Lalbagh?',
-  'Show me the open incidents by priority',
-  'What maintenance work is scheduled?',
+  'What is the climate condition of Cubbon Park?',
+  'How is the air quality at Lalbagh right now?',
+  'Which park has the best ecosystem health?',
+  'Which birds are recorded at Sankey Tank?',
+  'Are there any active alerts?',
   'How can we improve the weakest indicator?',
 ];
+
+/**
+ * Suggestions for the asker's role, so the empty state shows questions the
+ * assistant will actually answer for them.
+ *
+ * @param {{access:string, homePark?:{name:string}|null}} ctx
+ */
+function suggestionsFor(ctx) {
+  const home = ctx?.homePark?.name;
+  switch (ctx?.access) {
+    case 'admin':
+      return [
+        'Tell me the count of pending reviews',
+        'Show the critical incidents across all parks',
+        'What maintenance work is overdue?',
+        'What is the climate condition of Cubbon Park?',
+        'Which park has the worst ecosystem health?',
+        'Are there any active alerts?',
+      ];
+    case 'officer':
+      return [
+        'Tell me the high priority tasks assigned to me',
+        'Tell me the count of pending reviews',
+        home ? `What is the climate condition of ${home}?` : 'What is the climate condition of Cubbon Park?',
+        home ? `Show the open incidents at ${home}` : 'Show the open incidents by priority',
+        'What maintenance work is overdue?',
+        'Are there any active alerts?',
+      ];
+    case 'citizen':
+      return [
+        'What is the status of my reports?',
+        home ? `What is the weather at ${home} right now?` : 'What is the climate condition of Cubbon Park?',
+        'How is the air quality at Lalbagh right now?',
+        'Which park has the best ecosystem health?',
+        'Which birds are recorded at Sankey Tank?',
+        'How can I help protect the parks?',
+      ];
+    default:
+      return SUGGESTED_QUESTIONS;
+  }
+}
 
 module.exports = {
   ask,
   retrieve,
   tokenise,
   classifyIntent,
+  detectPersonalIntent,
+  priorityFromText,
+  compose,
   getCorpus,
   buildCorpus,
+  suggestionsFor,
   SUGGESTED_QUESTIONS,
   INTENTS,
 };

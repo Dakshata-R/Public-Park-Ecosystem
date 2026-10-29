@@ -2,18 +2,42 @@
 
 /**
  * Module 9 — Maintenance Management.
+ *
+ * Administrators see and manage every work order. A park officer sees only
+ * the orders assigned to them — their task list — and can record progress on
+ * those alone. The scoping is applied here, server-side, on every read.
  */
 
-const { WorkOrder, Asset } = require('../models');
+const { WorkOrder, Asset, User } = require('../models');
 const { createCrudController, normaliseId } = require('./crud.factory');
 const asyncHandler = require('../middleware/asyncHandler');
 const { ok } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
-const { nextCode, year } = require('../utils/sequence');
+const audit = require('../services/audit.service');
 const { queryObjectId } = require('../utils/objectId');
+const { generateOrderCode, onWorkOrderChanged } = require('../services/workflow.service');
 
-const generateOrderCode = () =>
-  nextCode({ model: WorkOrder, field: 'orderCode', prefix: `WO-${year()}` });
+/** Officers are scoped to their own tasks; administrators see everything. */
+const isScoped = (req) => req.user?.role !== 'admin';
+
+/** The extra filter a caller's reads are restricted by. */
+const scopeFilter = (req) => (isScoped(req) ? { assignedTo: req.user._id } : {});
+
+/** Throw unless the caller may see (and work) this order. */
+function assertCanAccess(req, order) {
+  if (isScoped(req) && String(order.assignedTo?._id || order.assignedTo) !== String(req.user._id)) {
+    throw ApiError.forbidden('This work order is not assigned to you');
+  }
+}
+
+/** Work is only ever assigned to park officers. */
+async function assertAssignable(assignedTo) {
+  if (!assignedTo) return;
+  const user = await User.findById(assignedTo).select('role active').lean();
+  if (!user || !user.active || user.role !== 'officer') {
+    throw ApiError.badRequest('Work orders can only be assigned to park officers');
+  }
+}
 
 /**
  * A scheduled order becomes overdue the moment its date passes, not the next
@@ -43,12 +67,20 @@ const crud = createCrudController({
   ],
   defaultSort: { scheduledDate: 1 },
 
-  beforeCreate: async (body) => ({
-    ...body,
-    orderCode: body.orderCode || (await generateOrderCode()),
-  }),
+  beforeCreate: async (body) => {
+    await assertAssignable(body.assignedTo);
+    return { ...body, orderCode: body.orderCode || (await generateOrderCode()) };
+  },
 
-  afterUpdate: async (doc) => {
+  beforeUpdate: async (body, doc) => {
+    if (body.assignedTo !== undefined && String(body.assignedTo) !== String(doc.assignedTo)) {
+      await assertAssignable(body.assignedTo);
+    }
+    return body;
+  },
+
+  afterUpdate: async (doc, _previous, req) => {
+    await onWorkOrderChanged(doc, req.user);
     // Completing a work order is what actually restores an asset's condition,
     // so the inventory and the maintenance log cannot drift apart.
     if (doc.status === 'completed' && doc.asset) {
@@ -87,7 +119,7 @@ const getCalendar = asyncHandler(async (req, res) => {
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 1));
 
-  const filter = { scheduledDate: { $gte: start, $lt: end } };
+  const filter = { scheduledDate: { $gte: start, $lt: end }, ...scopeFilter(req) };
   if (req.query.park) filter.park = queryObjectId(req.query.park, 'park');
 
   await markOverdueOrders();
@@ -109,7 +141,7 @@ const getCalendar = asyncHandler(async (req, res) => {
 
 /** GET /api/maintenance/stats */
 const getStats = asyncHandler(async (req, res) => {
-  const match = {};
+  const match = { ...scopeFilter(req) };
   const park = queryObjectId(req.query.park, 'park');
   if (park) match.park = park;
 
@@ -172,6 +204,10 @@ const updateProgress = asyncHandler(async (req, res) => {
 
   const order = await WorkOrder.findById(req.params.id);
   if (!order) throw ApiError.notFound('Work order');
+  assertCanAccess(req, order);
+  if (['completed', 'cancelled'].includes(order.status)) {
+    throw ApiError.badRequest(`${order.orderCode} is already ${order.status}`);
+  }
 
   order.progress = progress;
   if (req.body.completionNotes) order.completionNotes = req.body.completionNotes;
@@ -193,13 +229,39 @@ const updateProgress = asyncHandler(async (req, res) => {
     }
   }
 
-  return ok(res, order);
+  await onWorkOrderChanged(order, req.user);
+  await audit.record({
+    action: 'update',
+    entity: 'WorkOrder',
+    entityId: order._id,
+    entityLabel: order.orderCode,
+    changes: { progress: { from: null, to: progress } },
+    req,
+  });
+
+  return ok(res, await order.populate([
+    { path: 'park', select: 'name slug' },
+    { path: 'assignedTo', select: 'name email role' },
+    { path: 'sourceIncident', select: 'referenceCode priority status' },
+  ]));
 });
 
-/** GET /api/maintenance — sweeps overdue orders first, so the list is current. */
+/**
+ * GET /api/maintenance — sweeps overdue orders first, so the list is current.
+ * An officer's list is their own tasks, whatever `assignedTo` they ask for.
+ */
 const list = asyncHandler(async (req, res, next) => {
   await markOverdueOrders();
+  if (isScoped(req)) req.query.assignedTo = String(req.user._id);
   return crud.list(req, res, next);
 });
 
-module.exports = { ...crud, list, getCalendar, getStats, updateProgress, generateOrderCode, markOverdueOrders };
+/** GET /api/maintenance/:id */
+const getOne = asyncHandler(async (req, res, next) => {
+  const order = await WorkOrder.findById(req.params.id).select('assignedTo').lean();
+  if (!order) throw ApiError.notFound('Work order');
+  assertCanAccess(req, order);
+  return crud.getOne(req, res, next);
+});
+
+module.exports = { ...crud, list, getOne, getCalendar, getStats, updateProgress, generateOrderCode, markOverdueOrders };

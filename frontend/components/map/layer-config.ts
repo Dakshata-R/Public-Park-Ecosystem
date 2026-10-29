@@ -37,7 +37,7 @@ export const LAYERS: LayerDefinition[] = [
     description: 'Park centres and boundaries (OpenStreetMap)',
     defaultOn: true,
     provenance: 'osm',
-    provenanceNote: 'Boundary and area from OpenStreetMap. Scores are computed by GreenPulse.',
+    provenanceNote: 'Boundary and area from OpenStreetMap. Scores are computed by Park Ecosystem Portal.',
   },
   {
     key: 'trees',
@@ -81,7 +81,7 @@ export const LAYERS: LayerDefinition[] = [
     description: 'Open pollution and dumping incidents, sized by priority',
     defaultOn: true,
     provenance: 'demo',
-    provenanceNote: 'Incident record from the GreenPulse incident register.',
+    provenanceNote: 'Incident record from the Park Ecosystem Portal incident register.',
   },
   {
     key: 'trails',

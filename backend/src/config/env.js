@@ -42,9 +42,19 @@ const env = {
   autoSeed: toBool(process.env.AUTO_SEED, true),
   sensorIntervalMs: toInt(process.env.SENSOR_SIMULATION_INTERVAL_MS, 60000),
 
-  // Eco Assistant language model. Blank key → the built-in retrieval engine answers.
+  // Language model for the Eco Assistant and AI Monitoring (services/llm-provider.service.js).
+  // LLM_PROVIDER picks one explicitly (gemini | groq | openai-compatible | ollama |
+  // openrouter | anthropic | none); blank → the first key present below. No key at
+  // all → the built-in assistant engine and the MobileNetV2 vision fallback answer.
+  llmProvider: (process.env.LLM_PROVIDER || '').trim().toLowerCase(),
+  geminiApiKey: (process.env.GEMINI_API_KEY || '').trim(),
+  groqApiKey: (process.env.GROQ_API_KEY || '').trim(),
+  llmBaseUrl: (process.env.LLM_BASE_URL || '').trim().replace(/\/+$/, ''),
+  llmApiKey: (process.env.LLM_API_KEY || '').trim(),
   anthropicApiKey: (process.env.ANTHROPIC_API_KEY || '').trim(),
-  assistantModel: (process.env.ASSISTANT_MODEL || 'claude-opus-5-5').trim(),
+  // Model overrides for whichever provider is active; blank → that provider's default.
+  assistantModel: (process.env.ASSISTANT_MODEL || '').trim(),
+  visionModel: (process.env.VISION_MODEL || '').trim(),
 };
 
 env.isProduction = env.nodeEnv === 'production';

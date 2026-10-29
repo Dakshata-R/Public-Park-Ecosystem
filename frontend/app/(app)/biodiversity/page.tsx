@@ -3,7 +3,8 @@
 /**
  * Module 4 — Biodiversity Management.
  *
- * Species catalogue, observation records and a park-by-park comparison.
+ * Species catalogue, verified citizen sightings with their photographs,
+ * observation records and a park-by-park comparison.
  */
 
 import { useState } from 'react';
@@ -12,7 +13,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  Bird, CheckCircle2, Sparkles, TriangleAlert, Globe2, Info, ShieldQuestion, ExternalLink,
+  Bird, CheckCircle2, Sparkles, TriangleAlert, Globe2, Info, ShieldQuestion, ExternalLink, Camera, MapPin,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ import {
   useObservations,
 } from '@/lib/hooks/use-api';
 import { cn } from '@/lib/utils';
+import { mediaUrl } from '@/lib/api/client';
 import { THREATENED_STATUSES } from '@/lib/types';
 import type { ConservationStatus, Observation, Species, SpeciesClass } from '@/lib/types';
 
@@ -119,14 +121,19 @@ export default function BiodiversityPage() {
       />
 
       <Tabs defaultValue="catalogue" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 sm:w-auto">
+        <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-4">
           <TabsTrigger value="catalogue">Catalogue</TabsTrigger>
+          <TabsTrigger value="sightings">Citizen sightings</TabsTrigger>
           <TabsTrigger value="observations">Observations</TabsTrigger>
           <TabsTrigger value="compare">Compare</TabsTrigger>
         </TabsList>
 
         <TabsContent value="catalogue" className="space-y-4">
           <CatalogueTab park={parkParam(park)} onSelect={setSelected} />
+        </TabsContent>
+
+        <TabsContent value="sightings" className="space-y-4">
+          <SightingsTab park={parkParam(park)} />
         </TabsContent>
 
         <TabsContent value="observations" className="space-y-4">
@@ -265,6 +272,95 @@ function CatalogueTab({ park, onSelect }: { park?: string; onSelect: (s: Species
 }
 
 // ---------------------------------------------------------------------------
+// Citizen sightings
+// ---------------------------------------------------------------------------
+
+/**
+ * Wildlife and plant sightings that citizens reported and a park officer
+ * verified, with the photographs they uploaded. Reaching this gallery is the
+ * end of the citizen-sighting flow: report -> review -> verified record.
+ */
+function SightingsTab({ park }: { park?: string }) {
+  const [page, setPage] = useState(1);
+
+  const [lastPark, setLastPark] = useState(park);
+  if (lastPark !== park) {
+    setLastPark(park);
+    setPage(1);
+  }
+
+  const query = useObservations({ page, limit: 12, park, source: 'citizen-report', verified: 'true' });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-2.5 rounded-lg border border-success/20 bg-success/5 p-3">
+        <Camera className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+        <p className="text-xs">
+          Sightings reported through the <strong>Citizen Portal</strong> appear here once a park officer
+          has verified the species. Verified sightings also count towards the diversity indices.
+        </p>
+      </div>
+
+      <QueryState
+        query={query}
+        isEmpty={(data) => data.items.length === 0}
+        emptyTitle="No verified citizen sightings yet"
+        emptyIcon="Bird"
+        skeleton={<LoadingState label="Loading sightings…" />}
+      >
+        {(data) => (
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {data.items.map((observation) => {
+                const species = typeof observation.species === 'object' ? observation.species : null;
+                const uploaded = observation.images[0] ? mediaUrl(observation.images[0]) : null;
+                const photo = uploaded ?? species?.images[0];
+                return (
+                  <Card key={observation.id} className="overflow-hidden">
+                    <div className="relative h-44 bg-muted">
+                      {photo ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- API-served uploads
+                        <img src={photo} alt={species ? displayName(species) : 'Sighting'} className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="flex h-full items-center justify-center">
+                          <Bird className="h-8 w-8 text-muted-foreground" />
+                        </div>
+                      )}
+                      <Badge variant="outline" className="absolute left-2 top-2 gap-1 border-success/30 bg-success/90 text-[10px] text-white">
+                        <CheckCircle2 className="h-3 w-3" /> Verified
+                      </Badge>
+                      {!uploaded && photo && (
+                        <span className="absolute bottom-2 right-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+                          Catalogue photo
+                        </span>
+                      )}
+                    </div>
+                    <CardContent className="space-y-1.5 p-4">
+                      <p className="font-medium leading-tight">{species ? displayName(species) : 'Unknown species'}</p>
+                      {species?.commonName?.trim() && (
+                        <p className="text-xs italic text-muted-foreground">{species.scientificName}</p>
+                      )}
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <MapPin className="h-3 w-3" />
+                        {typeof observation.park === 'object' ? observation.park.name : '—'} ·{' '}
+                        {new Date(observation.observedAt).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Reported by {observation.observerName}</p>
+                      {observation.notes && <p className="line-clamp-2 text-xs">{observation.notes}</p>}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+            <Pagination meta={data.meta} onPageChange={setPage} />
+          </>
+        )}
+      </QueryState>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Observations
 // ---------------------------------------------------------------------------
 
@@ -347,6 +443,10 @@ function ObservationsTab({ park }: { park?: string }) {
                 return (
                   <Card key={observation.id}>
                     <CardContent className="flex flex-wrap items-center gap-4 p-4">
+                      {observation.images[0] && (
+                        // eslint-disable-next-line @next/next/no-img-element -- API-served uploads
+                        <img src={mediaUrl(observation.images[0])} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-medium">{species ? displayName(species) : 'Unknown species'}</p>
@@ -374,7 +474,7 @@ function ObservationsTab({ park }: { park?: string }) {
                         </p>
                       </div>
 
-                      {can('ecologist') && (
+                      {can('officer') && (
                         <Button
                           size="sm"
                           variant={observation.verified ? 'outline' : 'default'}

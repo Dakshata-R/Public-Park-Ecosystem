@@ -10,6 +10,8 @@ interface KpiCardProps {
   /** null / undefined = no data. Rendered as "No data", never as 0. */
   value: number | string | null | undefined;
   unit?: string;
+  /** One line of context under the value. */
+  hint?: string;
   icon: string;
   tone?: 'success' | 'warning' | 'destructive' | 'info' | 'primary';
   /** Where the value came from, shown as a small provenance badge. */
@@ -32,6 +34,7 @@ export function KpiCard({
   label,
   value,
   unit,
+  hint,
   icon,
   tone = 'primary',
   source,
@@ -45,8 +48,9 @@ export function KpiCard({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: index * 0.05 }}
+      className="h-full"
     >
-      <Card className="relative overflow-hidden p-5 hover:shadow-md transition-shadow">
+      <Card className="relative h-full overflow-hidden p-5 hover:shadow-md transition-shadow">
         <div className="flex items-start justify-between">
           <div className="min-w-0 space-y-1">
             <div className="flex items-center gap-1.5">
@@ -64,6 +68,7 @@ export function KpiCard({
                 )}
               </div>
             )}
+            {hint && !missing && <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p>}
             {source && <SourceBadge source={source} className="text-[10px]" />}
           </div>
           <div

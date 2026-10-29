@@ -20,7 +20,10 @@ export function HealthGauge({ value, label, size = 180 }: HealthGaugeProps) {
   const circumference = 2 * Math.PI * radius;
   const missing = value === null || !Number.isFinite(value);
   const clamped = missing ? 0 : Math.max(0, Math.min(100, value as number));
-  const offset = circumference - (clamped / 100) * circumference * 0.75;
+  // The track is a 270° arc (¾ of the circle); hide the unfilled share of
+  // that arc, so 70/100 fills 70 % of the track.
+  const arc = circumference * 0.75;
+  const offset = arc * (1 - clamped / 100);
 
   return (
     <div className="flex flex-col items-center">
@@ -47,7 +50,7 @@ export function HealthGauge({ value, label, size = 180 }: HealthGaugeProps) {
               strokeWidth={12}
               strokeDasharray={`${circumference * 0.75} ${circumference}`}
               strokeLinecap="round"
-              initial={{ strokeDashoffset: circumference * 0.75 }}
+              initial={{ strokeDashoffset: arc }}
               animate={{ strokeDashoffset: offset }}
               transition={{ duration: 1.2, ease: 'easeOut' }}
             />

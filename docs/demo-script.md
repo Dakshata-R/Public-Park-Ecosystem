@@ -30,7 +30,7 @@ puts one-click sign-in buttons on the login page.
 ```bash
 # Terminal 1 — API on http://localhost:5000/api
 npm run backend:dev
-# wait for "GreenPulse API listening on port 5000"
+# wait for "Park Ecosystem Portal API listening on port 5000"
 # and "Vision model ready in … ms (disk cache | downloaded from TensorFlow Hub …)"
 
 # Terminal 2 — web app on http://localhost:3000
@@ -52,7 +52,7 @@ Terminal 2: `npm run build`, then `npm run frontend`.
 - `/dashboard` shows a health score and **Live Conditions** shows a real
   temperature and an AQI. If it says **Live data unavailable**, you are offline
   — see [Offline](#offline) below.
-- `/ai` → **Detections** shows the 13 sample photographs. If none are there,
+- `/ai` → **Detections** shows the 8 sample photographs. If none are there,
   the model was not available when the database was seeded (see Fallbacks).
 - The login page lists four **Demonstration accounts**. All use `greenpulse123`.
 
@@ -66,7 +66,7 @@ the demo.
 
 > "Parks are still managed by periodic walk-throughs, so tree loss, pollution
 > and hazards are noticed late, biodiversity isn't recorded systematically, and
-> the public has no channel to report problems. GreenPulse monitors six real
+> the public has no channel to report problems. Park Ecosystem Portal monitors six real
 > Bengaluru parks. Before I show it: the park boundaries, species records, air
 > quality and weather are real open data; the incidents, work orders and
 > citizen reports are demonstration records; three sensor types are simulated.
@@ -218,48 +218,38 @@ model are gridded; one cell can cover several nearby parks.
 
 ---
 
-## 6 · AI — real inference, honest accuracy (90 s)
+## 6 · AI — wildlife recognition, real inference (60 s)
 
-Open `/ai` (**AI Monitoring**). Point at the blue notice.
+Open `/ai` (**AI Monitoring**). Point at the notice at the top — it says which
+engine is active.
 
-> "This is real inference: Google's pre-trained MobileNetV2 runs on the server
-> with TensorFlow.js. It was not trained on park imagery, so each task pools
-> ImageNet classes — all 59 bird classes into 'bird' — and adds pixel colour
-> statistics. The measured accuracy is on the page: 16 of 22 labelled photos
-> overall, and **litter 0 of 3**. Those 22 are the same photos the thresholds
-> were calibrated on, so treat it as optimistic."
+> "AI Monitoring does one thing: wildlife recognition from photos. This is
+> real inference. With a language-model key on the server — a free Gemini key
+> is enough — AI vision names the species, common and scientific name.
+> MobileNetV2 always runs alongside it on the server with TensorFlow.js: that
+> is the evidence shown under every result, and the fallback engine if there is
+> no key or the API fails. Each result says which engine produced it."
 
-**Fire.** On **Analyse**, pick **Fire & smoke detection**. **Upload a photo** →
-`backend/src/seed/data/sample-images/eval-fire-bonfire.jpg`. Under **Park
-(needed for auto-escalation)** choose **Cubbon Park**. Click **Analyse image**.
+**Wildlife.** On **Analyse** (the task is fixed to **Wildlife recognition**),
+**Upload a photo** → `backend/src/seed/data/sample-images/wildlife-indian-pond-heron.jpg`,
+choose **Cubbon Park**, click **Analyse image**.
 
-Point at the result: **Flames visible**, critical, a confidence in the high 90s
-at the time of writing, the **Label probabilities**, **Evidence** and **Top
-ImageNet classes**.
+> "The animal's name is the headline and the group — 'Bird' — is the chip
+> under it. With Gemini it is 'Indian pond heron, *Ardeola grayii*'. Without a
+> key it says 'Bittern', the closest ImageNet class, and the caveat says so."
 
-Scroll to **Escalation decision** — all three checks ticked, and the red box
-**Incident INC-… opened at high priority**.
+Point at the **Recommended action**, the probability vector over the seven
+wildlife labels, and the top ImageNet classes.
 
-> "Only fire or smoke can open an incident by itself, only at or above the 85 %
-> confidence floor, and only with a park so the crew has a location. Every other
-> finding waits for a human."
+Point at the line under the result: nothing is dispatched automatically —
+every finding waits in the review queue for a park officer.
 
-**Wildlife.** Pick **Wildlife recognition**, upload
-`wildlife-indian-pond-heron.jpg`, leave the park as **Not specified**, analyse.
-
-> "It says **Bird**, and the detail line says the closest ImageNet class is a
-> **bittern**. That's the limit of an ImageNet model: most Indian species aren't
-> in its vocabulary, so species are named at ImageNet granularity."
-
-Point at **Escalation decision**: not escalatable, queued for review.
-
-**If asked "so what about litter?"** — open **Model**: the litter task shows
-**0/3 correct**. ImageNet recognises a bottle or a bag, not a heap of mixed
-waste. It is never allowed to open an incident; fixing it needs training on
-labelled litter photos.
+**If asked "what does it cost?"** — one language-model call per analysed image (free on Gemini's tier), on the
+≤640 px stored copy; analyses are rate-limited to 20 per account per minute, and
+seeding never calls the API.
 
 **If asked "how would you measure accuracy properly?"** — a held-out labelled
-set, much larger than 22 images. The review queue (**Detections** → **Correct**
+set, much larger than the 3 sample photos. The review queue (**Detections** → **Correct**
 / **Wrong**) is how those labels would be collected; **Performance** turns
 reviews into observed precision.
 
@@ -271,8 +261,10 @@ change the result and a different image does.
 
 ## 7 · Incidents — triage, assign, work order, resolve (60 s)
 
-Still signed in as **Park Officer**, open `/incidents`. **Triage queue** is the
-default tab; the incident the fire photo just opened is in it.
+Sign in as **Administrator** and open `/incidents`. **Triage queue** is the
+default tab. Open an incident, pick a park officer, enter the **estimated cost**
+and hours, and press **Assign** — the work order appears on that officer's
+**My Tasks** list.
 
 > "Incidents are ordered by a computed score — hazard, severity, exposure,
 > urgency and community signal — not by arrival time and not by whoever typed
@@ -326,7 +318,7 @@ sighting writes a verified observation into the biodiversity indices.
 
 ## 9 · Analytics — a report computed from data (45 s)
 
-Sign in as **Ecologist**. Open `/analytics` → **Reports** tab.
+Sign in as **Park Officer**. Open `/analytics` → **Reports** tab.
 
 Click **Generate report** → type **Ecosystem health assessment**, **All
 monitored parks**, **Last 90 days** → **Generate draft**.
@@ -338,7 +330,7 @@ monitored parks**, **Last 90 days** → **Generate draft**.
 
 Click **Publish**. Optionally **Export PDF**.
 
-> "Drafts are visible only to ecologists and above; once published, anyone can
+> "Drafts are visible only to park officers and above; once published, anyone can
 > read it."
 
 ---
@@ -364,11 +356,10 @@ name sets the scope; it does not override a more specific intent.
 
 Sign in as **Administrator**. Open `/admin` → **Settings**.
 
-Point at **Ecosystem Health Index Weights** and **AI auto-escalation confidence
-floor**.
+Point at **Ecosystem Health Index Weights**.
 
 > "Weights must sum to 1.00 before they can be saved, and saving re-scores every
-> park at once. The escalation floor is the 85 % we saw on the fire photo."
+> park at once."
 
 Switch to **System**: **Public API Integrations** (Reachable badges), and
 **Maintenance Actions**.
@@ -443,8 +434,9 @@ in the citizen report form.
    maximum operator, Shannon and evenness on GBIF records, a weighted composite
    that ignores missing data, a two-of-three anomaly vote, bounded ageing in
    triage.
-3. **Real inference, measured** — MobileNetV2 on the server; 16/22 on
-   calibration photos, litter 0/3; only fire escalates.
+3. **Real inference, measured** — AI vision (Gemini by default) names wildlife
+   species; MobileNetV2 is the evidence and fallback (3/3 on the labelled
+   sample photos); every finding reviewed by a park officer.
 4. **Records are not individuals** — and effort differs hugely between parks.
 5. **It runs anywhere** — no database install, no API keys; offline except for
    live conditions once the model is cached.

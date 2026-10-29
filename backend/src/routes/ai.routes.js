@@ -19,10 +19,11 @@ router.get('/detections', validate({ query: listQuery }), controller.list);
 router.get('/detections/:id', validate({ params: idParam }), controller.getOne);
 
 /**
- * Inference needs an account: every analysis stores an image, can open an
- * incident and raise an alert, and makes the server fetch a remote URL, so
- * it must be attributable. A per-user limit keeps one account from turning
- * the CPU-bound model into a denial of service.
+ * Inference needs an account: every analysis stores an image, may call the
+ * language-model vision API (with its quota or bill), and makes the server
+ * fetch a remote URL, so it must be attributable. A per-user limit keeps one
+ * account from turning the CPU-bound model (or the API quota) into a denial
+ * of service.
  */
 router.post(
   '/analyze',
@@ -39,8 +40,8 @@ router.post(
   controller.analyze
 );
 
-// Only staff may confirm or overturn a model's call.
-router.post('/:id/review', requireAuth, requireRole('ecologist'), validate({ params: idParam, body: ai.review }), controller.review);
+// Only park officers (and admins) may confirm or overturn a model's call.
+router.post('/:id/review', requireAuth, requireRole('officer'), validate({ params: idParam, body: ai.review }), controller.review);
 router.delete('/detections/:id', requireAuth, requireRole('admin'), validate({ params: idParam }), controller.remove);
 
 module.exports = router;

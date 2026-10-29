@@ -21,7 +21,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
   Megaphone, Plus, ThumbsUp, MessageSquare, Bird, Lightbulb, TriangleAlert,
-  CheckCircle2, XCircle, MapPin, Loader2, Trophy, LogIn, Ban,
+  CheckCircle2, XCircle, MapPin, Loader2, Trophy, LogIn, Ban, Camera, X,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -51,7 +51,7 @@ import {
 } from '@/lib/hooks/use-api';
 import { makePoint } from '@/lib/api/geo';
 import { ApiError, mediaUrl } from '@/lib/api/client';
-import { integrationApi } from '@/lib/api/endpoints';
+import { citizenApi, integrationApi } from '@/lib/api/endpoints';
 import { cn } from '@/lib/utils';
 import type { CitizenReport, ReportCategory, Species } from '@/lib/types';
 
@@ -83,11 +83,15 @@ const reportSchema = z
     lat: z.coerce.number().min(-90).max(90),
     lng: z.coerce.number().min(-180).max(180),
     species: z.string().optional(),
+    speciesName: z.string().max(160).optional(),
   })
   // The API rejects [0, 0]; say so before the request rather than after.
   .refine((v) => !(v.lat === 0 && v.lng === 0), { message: 'Pick a location — choose a park to use its centre', path: ['lat'] });
 
 type ReportValues = z.infer<typeof reportSchema>;
+
+/** Photos per report — the API accepts up to six. */
+const MAX_PHOTOS = 4;
 
 type PortalTab = 'reports' | 'mine' | 'impact';
 const PORTAL_TABS: PortalTab[] = ['reports', 'mine', 'impact'];
@@ -348,6 +352,15 @@ function ReportsTab({ onReview }: { onReview?: (report: CitizenReport) => void }
                       </div>
 
                       <p className="line-clamp-2 text-sm text-muted-foreground">{report.description}</p>
+
+                      {report.category === 'wildlife-sighting' && (report.speciesName || typeof report.species === 'object') && (
+                        <p className="flex items-center gap-1.5 text-xs">
+                          <Bird className="h-3.5 w-3.5 text-success" />
+                          <span className="font-medium">
+                            {report.species && typeof report.species === 'object' ? speciesLabel(report.species) : report.speciesName}
+                          </span>
+                        </p>
+                      )}
 
                       {report.images[0] && (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -745,11 +758,45 @@ function ReportFormDialog({
 
   const [address, setAddress] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const form = useForm<ReportValues>({
     resolver: zodResolver(reportSchema),
-    defaultValues: { category: 'issue', title: '', description: '', park: '', lat: 0, lng: 0, species: '' },
+    defaultValues: { category: 'issue', title: '', description: '', park: '', lat: 0, lng: 0, species: '', speciesName: '' },
   });
+
+  /** Upload each chosen photo straight away, so submitting only sends paths. */
+  const addPhotos = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setPhotoError(null);
+    setUploading(true);
+    try {
+      for (const file of Array.from(files).slice(0, MAX_PHOTOS - photos.length)) {
+        if (!/^image\/(jpeg|png)$/.test(file.type)) {
+          setPhotoError('Only JPEG and PNG photos can be attached.');
+          continue;
+        }
+        if (file.size > 8 * 1024 * 1024) {
+          setPhotoError(`${file.name} is larger than 8 MB.`);
+          continue;
+        }
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        const stored = await citizenApi.uploadPhoto(dataUrl);
+        setPhotos((current) => [...current, stored.url]);
+      }
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : 'The photo could not be uploaded.');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const category = form.watch('category');
   const selectedPark = form.watch('park');
@@ -806,9 +853,12 @@ function ReportFormDialog({
         park: values.park,
         location: makePoint(values.lat, values.lng),
         species: values.category === 'wildlife-sighting' ? values.species || undefined : undefined,
+        speciesName: values.category === 'wildlife-sighting' ? values.speciesName?.trim() || undefined : undefined,
+        images: photos,
       });
       form.reset();
       setAddress(null);
+      setPhotos([]);
       onClose();
     } catch (err) {
       // Toast already shown. A 403 means the portal was closed meanwhile —
@@ -900,19 +950,74 @@ function ReportFormDialog({
           </div>
 
           {category === 'wildlife-sighting' && (
-            <div className="space-y-1.5">
-              <Label>Species (if you know it)</Label>
-              <SpeciesPicker
-                value={form.watch('species') ?? ''}
-                onChange={(id) => form.setValue('species', id)}
-                placeholder="Optional — an ecologist can identify it"
-              />
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="speciesName">What did you see? (animal, bird or tree)</Label>
+                <Input
+                  id="speciesName"
+                  placeholder="e.g. Indian pond heron, rain tree, common rose butterfly"
+                  {...form.register('speciesName')}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Match it to the park catalogue (optional)</Label>
+                <SpeciesPicker
+                  value={form.watch('species') ?? ''}
+                  onChange={(id) => form.setValue('species', id)}
+                  placeholder="Optional — a park officer can identify it"
+                />
+              </div>
               <p className="text-[11px] text-muted-foreground">
-                A sighting can only be accepted once a species is identified — that is what admits
-                it into the diversity indices.
+                Add a photo below. Once a park officer verifies the species, the sighting appears in the
+                Biodiversity tab under <strong>Citizen sightings</strong>.
               </p>
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1.5">
+              <Camera className="h-3.5 w-3.5" />
+              Photos {category === 'wildlife-sighting' ? '(recommended)' : '(optional)'}
+            </Label>
+            <div className="flex flex-wrap gap-2">
+              {photos.map((src) => (
+                <div key={src} className="relative h-20 w-20 overflow-hidden rounded-lg border">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- API-served upload */}
+                  <img src={mediaUrl(src)} alt="Attached photo" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    aria-label="Remove photo"
+                    onClick={() => setPhotos((current) => current.filter((p) => p !== src))}
+                    className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+              {photos.length < MAX_PHOTOS && (
+                <label
+                  className={cn(
+                    'flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-[11px] text-muted-foreground transition-colors hover:bg-muted',
+                    uploading && 'pointer-events-none opacity-60'
+                  )}
+                >
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                  {uploading ? 'Uploading' : 'Add photo'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    multiple
+                    className="sr-only"
+                    onChange={(e) => {
+                      void addPhotos(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+            {photoError && <p className="text-xs text-destructive">{photoError}</p>}
+          </div>
 
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -950,7 +1055,7 @@ function ReportFormDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={createReport.isPending || reportingClosed}>
+            <Button type="submit" disabled={createReport.isPending || reportingClosed || uploading}>
               {createReport.isPending ? 'Submitting…' : 'Submit report'}
             </Button>
           </DialogFooter>
@@ -1039,6 +1144,24 @@ function ReviewDialog({ report, onClose }: { report: CitizenReport | null; onClo
 
         <div className="space-y-4">
           <p className="rounded-lg bg-muted p-3 text-sm">{report?.description}</p>
+
+          {isSighting && report?.speciesName && (
+            <p className="text-sm">
+              <span className="text-muted-foreground">Citizen&apos;s identification:</span>{' '}
+              <strong>{report.speciesName}</strong>
+            </p>
+          )}
+
+          {!!report?.images.length && (
+            <div className="flex flex-wrap gap-2">
+              {report.images.map((src) => (
+                <a key={src} href={mediaUrl(src)} target="_blank" rel="noreferrer" className="block h-24 w-24 overflow-hidden rounded-lg border">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- API-served upload */}
+                  <img src={mediaUrl(src)} alt="Reported photo" className="h-full w-full object-cover" />
+                </a>
+              ))}
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Decision</Label>

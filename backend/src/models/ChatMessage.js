@@ -34,6 +34,18 @@ const chatMessageSchema = new mongoose.Schema(
     intent: { type: String, default: '' },
     citations: { type: [citationSchema], default: [] },
     latencyMs: { type: Number, default: 0 },
+
+    /**
+     * Which engine answered: a language model (`llm`, with `provider` naming
+     * it), or the built-in retrieval engine. `claude` is the value stored
+     * before providers were pluggable and is still read back.
+     */
+    engine: { type: String, enum: ['llm', 'claude', 'built-in', ''], default: '' },
+    /** The language-model provider (gemini, groq, openai-compatible, anthropic) and model id. */
+    provider: { type: String, default: '' },
+    model: { type: String, default: '' },
+    /** The data lookups the answer was built from, in call order. */
+    toolsUsed: { type: [String], default: [] },
   },
   { timestamps: true }
 );

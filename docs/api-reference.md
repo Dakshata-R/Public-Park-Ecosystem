@@ -28,7 +28,7 @@ JSON in the envelope.
 `JWT_EXPIRES_IN` (default `7d`). The user is reloaded on every request, so a
 deactivated account is refused immediately.
 
-**Roles** form a hierarchy: `citizen (1) → ecologist (2) → officer (3) → admin (4)`.
+**Roles** form a hierarchy: `citizen (1) → officer (3) → admin (4)` (officer = park officer).
 A route marked *officer* also admits admins. *public* needs no token; *signed-in*
 means any active account; *optional* personalises the response when a token is
 present but never rejects.
@@ -179,15 +179,15 @@ Asset types: `tree`, `plant`, `bench`, `lake`, `path`, `light`, `structure`.
 | `GET` | `/biodiversity/species` | public | **list** · filters `class`, `conservationStatus`, `isInvasive`, `isIntroduced`, `isIndicator`, `parks` · search commonName, scientificName, habitat, family · default sort `commonName` |
 | `GET` | `/biodiversity/species/:id` | public | Species with `gbifKey`, `order`, `images`, `imageCredit`, `parks` |
 | `GET` | `/biodiversity/species/:id/observations` | public | Paginated `{ species, observations, verifiedIndividuals }` |
-| `POST` | `/biodiversity/species` | ecologist | `{ commonName, scientificName, class, family?, conservationStatus?, habitat?, description?, isInvasive?, isIndicator?, seasonality?, images? }` → `201` |
-| `PATCH` | `/biodiversity/species/:id` | ecologist | Any subset |
+| `POST` | `/biodiversity/species` | officer | `{ commonName, scientificName, class, family?, conservationStatus?, habitat?, description?, isInvasive?, isIndicator?, seasonality?, images? }` → `201` |
+| `PATCH` | `/biodiversity/species/:id` | officer | Any subset |
 | `DELETE` | `/biodiversity/species/:id` | admin | Hard delete |
 | `GET` | `/biodiversity/observations` | public | **list** · filters `species`, `park`, `source`, `verified` · search notes, locationName, observerName · default sort `-observedAt` |
 | `GET` | `/biodiversity/observations/:id` | public | |
-| `POST` | `/biodiversity/observations` | signed-in | `{ species, park, location, observedAt?, count? (default 1), locationName?, observerName?, source?, notes?, images? }` → `201`. Records by ecologists, officers and admins are `verified: true`; citizens' are not |
-| `PATCH` | `/biodiversity/observations/:id` | ecologist | Any subset |
-| `DELETE` | `/biodiversity/observations/:id` | ecologist | Hard delete |
-| `POST` | `/biodiversity/observations/:id/verify` | ecologist | `{ verified?: boolean }` (default true) — **admits the record into the indices** |
+| `POST` | `/biodiversity/observations` | signed-in | `{ species, park, location, observedAt?, count? (default 1), locationName?, observerName?, source?, notes?, images? }` → `201`. Records by park officers and admins are `verified: true`; citizens' are not |
+| `PATCH` | `/biodiversity/observations/:id` | officer | Any subset |
+| `DELETE` | `/biodiversity/observations/:id` | officer | Hard delete |
+| `POST` | `/biodiversity/observations/:id/verify` | officer | `{ verified?: boolean }` (default true) — **admits the record into the indices** |
 
 Classes: `bird`, `mammal`, `butterfly`, `reptile`, `amphibian`, `tree`, `plant`,
 `insect`. Conservation statuses: `Not Evaluated`, `Data Deficient`,
@@ -210,40 +210,40 @@ curl -X POST localhost:5000/api/biodiversity/indices/preview \
 
 | Method | Path | Role | Notes |
 |---|---|---|---|
-| `GET` | `/ai/tasks` | public | `[{ task, title, method, model, classes: [{ label, severity }] }]` |
-| `GET` | `/ai/stats` | public | `{ byTask: [{ task, count, avgConfidence }], bySeverity, confidenceDistribution: [5 bands <50 · 50–70 · 70–85 · 85–95 · 95–100], review: { pending, confirmed, rejected, precision }, total }`. `precision` = 100 · confirmed / (confirmed + rejected), `null` until a review exists |
-| `GET` | `/ai/gallery?task=` | public | 24 most recent detections, park and linked incident populated |
+| `GET` | `/ai/tasks` | public | `[{ task, title, method, engine: 'llm-vision' | 'mobilenet-fallback', visionModel, visionProvider, visionProviderLabel, model, classes: [{ label, severity }] }]` — `engine` is what the server will use now; stored detections may also carry the legacy `claude-vision` |
+| `GET` | `/ai/stats` | public | `{ byTask: [{ task, count, avgConfidence }], bySeverity, byEngine: [{ engine, count }], confidenceDistribution: [5 bands <50 · 50–70 · 70–85 · 85–95 · 95–100], review: { pending, confirmed, rejected, precision }, total }`. `precision` = 100 · confirmed / (confirmed + rejected), `null` until a review exists |
+| `GET` | `/ai/gallery?task=` | public | 24 most recent detections, park populated |
 | `GET` | `/ai/images/:id` | public | The stored JPEG (`Content-Type: image/jpeg`, immutable cache, `ETag` = SHA-256, `X-Image-Credit` for sample photos) |
-| `GET` | `/ai/detections` | public | **list** · filters `task`, `severity`, `reviewStatus`, `park` · search prediction, imageName |
+| `GET` | `/ai/detections` | public | **list** · filters `task`, `severity`, `reviewStatus`, `park`, `engine` · search prediction, imageName, species names |
 | `GET` | `/ai/detections/:id` | public | |
 | `POST` | `/ai/analyze` | signed-in | Run one image through a task — see below. Rate limited to 20 per account per minute |
-| `POST` | `/ai/:id/review` | ecologist | `{ verdict: 'confirmed' \| 'rejected', correctedLabel? }` → detection. A `correctedLabel` must be one of the task's class labels and must differ from the prediction (`400` otherwise) |
+| `POST` | `/ai/:id/review` | officer | `{ verdict: 'confirmed' \| 'rejected', correctedLabel? }` → detection. A `correctedLabel` must be one of the task's class labels and must differ from the prediction (`400` otherwise) |
 | `DELETE` | `/ai/detections/:id` | admin | |
 
-Tasks: `tree-disease`, `plant-id`, `wildlife`, `waste`, `fire`.
+Tasks: `wildlife` (Wildlife recognition) only — any other task is rejected with `422`. With a language-model key set (`GEMINI_API_KEY` — free — or `GROQ_API_KEY`, `LLM_BASE_URL`, `ANTHROPIC_API_KEY`), AI vision names the animal species (`engine: 'llm-vision'`, with `provider` and `engineModel` recorded); otherwise (or if the API fails) the MobileNetV2 fallback answers — see docs/algorithms.md §6.
 
 **`POST /ai/analyze`**
 
 ```jsonc
 // request
-{ "task": "fire",
+{ "task": "wildlife",
   "imageUrl": "https://… (public http/https URL)" | "data:image/jpeg;base64,…",
   "imageName": "optional.jpg",
-  "park": "<parkId, optional — required for auto-escalation>",
+  "park": "<parkId, optional>",
   "location": { "type": "Point", "coordinates": [lng, lat] } }
 
 // 201 response
 {
-  "detection": { id, task, imageUrl: "/api/ai/images/<id>", image, imageName, park, prediction, detail,
-                 confidence, probabilities: [{ label, probability }], imagenet, evidence, notes,
-                 severity, recommendedAction, modelName, modelVersion, inferenceMs,
-                 submittedBy, reviewStatus: "pending", linkedIncident, createdAt },
-  "inference": { title, method, prediction, detail, confidence, probabilities, severity,
-                 recommendedAction, evidence, notes, imagenet: [top 5], stats, image: { width, height, format, bytes },
-                 model: { name, version, inputSize, source, backend }, timings: { fetchMs, decodeMs, statsMs, inferenceMs },
-                 inferenceMs },
-  "escalated": { id, referenceCode, priority } | null,
-  "escalationRule": { escalatable, confident, confidenceFloor, applied, reason }
+  "detection": { id, task, engine, imageUrl: "/api/ai/images/<id>", image, imageName, park, prediction, detail,
+                 confidence, probabilities: [{ label, probability }],
+                 species: { common, scientific, confidence } | undefined,
+                 imagenet, evidence, notes, severity, recommendedAction, modelName, modelVersion, inferenceMs,
+                 submittedBy, reviewStatus: "pending", createdAt },
+  "inference": { title, method, engine, engineModel: { name, version }, prediction, detail, confidence,
+                 probabilities, species, severity, recommendedAction, evidence, notes,
+                 imagenet: [top 5], image: { width, height, format, bytes },
+                 model: { name, version, inputSize, source, backend },
+                 timings: { fetchMs, decodeMs, inferenceMs, identifyMs }, inferenceMs }
 }
 ```
 
@@ -256,9 +256,8 @@ the download times out after 15 s. Failures are `400` with a reason; an unknown
 `task` is `422`; a model that cannot be loaded is `503`.
 
 Every analysed image is re-encoded as a ≤640 px JPEG and stored once per
-SHA-256 in `AiImage`. Only a **"Flames visible"** or **"Smoke visible"** result
-at or above `Setting.aiAutoIncidentConfidence` (default 85 %) with a `park`
-opens an incident; everything else is queued for review.
+SHA-256 in `AiImage`. No result opens an incident or alert: every detection is
+queued for a park officer to review.
 
 ---
 
@@ -343,7 +342,7 @@ the dashboard and analytics aggregates instead.
 | `GET` | `/incidents/:id` | officer | With `timeline` |
 | `POST` | `/incidents` | officer | `{ type, title, park, location, description?, severity? (1–5), affectedPeople?, source?, images?, reportedAt? }` → `201`. Reference code `INC-YYYY-NNNN`; high/critical raises an alert |
 | `PATCH` | `/incidents/:id` | officer | `{ title?, description?, type?, severity?, affectedPeople?, status?, statusNote?, resolutionNotes?, assignedTo? }`. A status change appends a timeline entry; reopening a resolved incident clears `resolvedAt` and `resolutionMinutes` |
-| `POST` | `/incidents/:id/assign` | officer | `{ assignedTo }` — must be an officer, ecologist or admin; `reported` → `assigned` |
+| `POST` | `/incidents/:id/assign` | officer | `{ assignedTo }` — **admin only**; must be a park officer; `reported` → `assigned`, and the incident's open work order is handed to the officer (or one is raised for them) |
 | `POST` | `/incidents/:id/resolve` | officer | `{ resolutionNotes? }` → incident; stamps `resolvedAt`, `resolutionMinutes`, resolves its alert |
 | `POST` | `/incidents/:id/work-order` | officer | `{ type?, title?, description?, scheduledDate?, assignedTo?, assignedTeam?, estimatedCost? }` → `201` work order carrying the incident's priority. `409` if an open work order already exists for the incident |
 | `DELETE` | `/incidents/:id` | admin | |
@@ -401,11 +400,11 @@ The trend endpoints accept `park=` and a window: `from=&to=` (ISO dates) or
 | `GET` | `/analytics/engagement` | public | `[{ month, total, upvotes, issue?, wildlife-sighting?, feedback?, suggestion? }]` |
 | `GET` | `/analytics/park-comparison` | public | `[{ parkId, park, areaAcres, weeklyVisitors, ecosystemHealth, grade, airQuality, waterQuality, soilHealth, treeHealth, biodiversity, speciesRichness, shannon, openIncidents, assetCount, avgAssetCondition }]` |
 | `GET` | `/analytics/export?dataset=&format=json\|csv&park=` | officer | Row-level export, up to 5 000 rows. JSON: rows with `meta { dataset, rows }`; CSV: attachment with a header row |
-| `GET` | `/analytics/reports` | optional | **list** · filters `type`, `status`, `park` · search title, summary. Below ecologist, only `published` reports are listed |
-| `GET` | `/analytics/reports/:id` | optional | Below ecologist, a non-published report is `404` |
-| `POST` | `/analytics/reports/generate` | ecologist | `{ type, park?, days? (7–730, default 90) }` → `201` **draft** report whose `metrics`, `findings` and `recommendations` are computed from the data |
-| `POST` | `/analytics/reports` | ecologist | `{ title, type, summary?, park?, periodStart?, periodEnd?, metrics?, findings?, recommendations?, status?, authorName? }` → `201` |
-| `PATCH` | `/analytics/reports/:id` | ecologist | Any subset — e.g. `{ "status": "published" }` (stamps `publishedAt`) |
+| `GET` | `/analytics/reports` | optional | **list** · filters `type`, `status`, `park` · search title, summary. Below officer, only `published` reports are listed |
+| `GET` | `/analytics/reports/:id` | optional | Below officer, a non-published report is `404` |
+| `POST` | `/analytics/reports/generate` | officer | `{ type, park?, days? (7–730, default 90) }` → `201` **draft** report whose `metrics`, `findings` and `recommendations` are computed from the data |
+| `POST` | `/analytics/reports` | officer | `{ title, type, summary?, park?, periodStart?, periodEnd?, metrics?, findings?, recommendations?, status?, authorName? }` → `201` |
+| `PATCH` | `/analytics/reports/:id` | officer | Any subset — e.g. `{ "status": "published" }` (stamps `publishedAt`) |
 | `DELETE` | `/analytics/reports/:id` | admin | |
 
 Export datasets: `incidents`, `assets`, `observations`, `citizen-reports`,
@@ -446,7 +445,7 @@ All `/admin` routes require **admin**.
 | `PATCH` | `/admin/users/:id` | Any subset. `400` when changing your own role |
 | `DELETE` | `/admin/users/:id` | Soft delete (deactivates). `400` for your own account |
 | `GET` | `/admin/settings` | The settings singleton |
-| `PATCH` | `/admin/settings` | `{ organisationName?, city?, contactEmail?, healthIndexWeights?: { air, water, soil, tree, biodiversity }, anomalyZThreshold? (1–6), aiAutoIncidentConfidence? (0–100), enableSensorSimulation?, enablePublicReporting?, mapDefaultZoom? }`. Weights must sum to 1.00 ± 0.01; saving them recomputes every park's scores |
+| `PATCH` | `/admin/settings` | `{ organisationName?, city?, contactEmail?, healthIndexWeights?: { air, water, soil, tree, biodiversity }, anomalyZThreshold? (1–6), enableSensorSimulation?, enablePublicReporting?, mapDefaultZoom? }`. Weights must sum to 1.00 ± 0.01; saving them recomputes every park's scores |
 | `GET` | `/admin/audit-log` | **list** · filters `action`, `entity`, `actor`, `actorRole` · search entityLabel, actorName |
 | `GET` | `/admin/stats` | `{ counts, usersByRole, database: { name, state, collections }, runtime: { node, uptimeSeconds, memoryMb, environment } }` |
 | `POST` | `/admin/recompute-scores` | `{ parks, results: [{ park, ecosystemHealth }] }` |
@@ -459,7 +458,7 @@ All `/admin` routes require **admin**.
 
 | Method | Path | Role | Response |
 |---|---|---|---|
-| `GET` | `/users/staff` | officer | `[{ id, name, role, park: { id, name } \| null }]` — active officers, ecologists and admins, for assignment pickers |
+| `GET` | `/users/staff` | officer | `[{ id, name, role, park: { id, name } \| null }]` — active park officers, for assignment pickers |
 | `GET` | `/settings/public` | public | `{ organisationName, city, contactEmail, enablePublicReporting, enableSensorSimulation, mapDefaultZoom }` |
 
 ---

@@ -42,7 +42,7 @@ archive published on GBIF
 
 ## Wikimedia Commons — `../sample-images/`
 
-The photographs used for the AI module's seeded detections and its accuracy
+The wildlife photographs used for the AI module's seeded detections and its accuracy
 evaluation. Author, licence and source page for each file are listed in
 `../sample-images/attribution.json`. Images were downscaled to at most 640 px.
 

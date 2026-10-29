@@ -11,7 +11,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const toJSONPlugin = require('./plugins/toJSON');
 
-const ROLES = ['citizen', 'ecologist', 'officer', 'admin'];
+const ROLES = ['citizen', 'officer', 'admin'];
 
 const userSchema = new mongoose.Schema(
   {
@@ -32,7 +32,7 @@ const userSchema = new mongoose.Schema(
     },
     role: { type: String, enum: ROLES, default: 'citizen', index: true },
 
-    /** Home park — the park an officer/ecologist is primarily responsible for. */
+    /** Home park — the park a park officer is primarily responsible for. */
     park: { type: mongoose.Schema.Types.ObjectId, ref: 'Park', default: null },
 
     phone: { type: String, trim: true, default: '' },

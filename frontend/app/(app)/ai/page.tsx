@@ -1,14 +1,14 @@
 'use client';
 
 /**
- * Module 5 — AI Ecosystem Monitoring.
+ * Module 5 — AI Ecosystem Monitoring: wildlife recognition.
  *
- * Every result on this page is real inference: a trained MobileNetV2
- * (ImageNet-1k) runs on the server through TensorFlow.js, alongside colour
- * statistics measured over the image's pixels. A general ImageNet network was
- * not trained on park-management categories, so each task pools ImageNet class
- * groups and colour evidence into its own labels — and the page says where
- * that works (fire, foliage colour, wildlife) and where it does not (litter).
+ * Every result on this page is real inference. When the server has a
+ * language-model key (GEMINI_API_KEY — free — or Groq, a local model or
+ * Claude), AI vision names the animal species (common and scientific); a
+ * trained MobileNetV2 (ImageNet-1k) always runs alongside it as evidence, and
+ * answers on its own when no model is available. Each result says which
+ * engine (and provider) produced it.
  *
  * The full probability vector, the evidence and the network's own top classes
  * are shown, not just the winning label: a finding that is 88% sure is a
@@ -22,15 +22,14 @@ import {
   Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  ScanEye, Upload, CheckCircle2, XCircle, Cpu, ImageIcon, Info, Siren, Leaf, Flower2,
-  Bird, Trash2, Flame, LogIn, TriangleAlert, Link2,
+  Upload, CheckCircle2, XCircle, Cpu, ImageIcon, Info,
+  Bird, LogIn, TriangleAlert, Sparkles, ClipboardCheck,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PageHeader } from '@/components/shared/page-header';
@@ -45,31 +44,20 @@ import {
   useAiTasks, useAiGallery, useAiStats, useAnalyzeImage, useReviewDetection,
 } from '@/lib/hooks/use-api';
 import { mediaUrl } from '@/lib/api/client';
-import { cn } from '@/lib/utils';
-import type { AiDetection, AiTask, AiTaskInfo, AnalyzeResponse } from '@/lib/types';
+import { cn, llmProviderName } from '@/lib/utils';
+import type {
+  AiDetection, AiEngine, AiTask, AiTaskInfo, AnalyzeResponse, SpeciesId,
+} from '@/lib/types';
 
-/** Presentation only — titles, methods and classes come from `GET /ai/tasks`. */
-const TASK_ICON: Record<AiTask, typeof ScanEye> = {
-  'tree-disease': Leaf,
-  'plant-id': Flower2,
-  wildlife: Bird,
-  waste: Trash2,
-  fire: Flame,
-};
+/** The one task AI Monitoring runs. Its title, method and labels come from `GET /ai/tasks`. */
+const TASK: AiTask = 'wildlife';
 
 /**
- * Measured by `npm run eval:vision` over 22 labelled, openly licensed
- * photographs — the same set the task thresholds were calibrated on, so these
- * are optimistic. Update them when the evaluation is re-run.
+ * Measured by `npm run eval:vision` (MobileNetV2 fallback engine) over the
+ * labelled, openly licensed wildlife photographs. Update it when the
+ * evaluation is re-run.
  */
-const MEASURED_ACCURACY: Record<AiTask, { correct: number; total: number }> = {
-  fire: { correct: 9, total: 11 },
-  'tree-disease': { correct: 3, total: 3 },
-  wildlife: { correct: 3, total: 3 },
-  'plant-id': { correct: 1, total: 2 },
-  waste: { correct: 0, total: 3 },
-};
-const MEASURED_OVERALL = { correct: 16, total: 22 };
+const MEASURED_ACCURACY = { correct: 3, total: 3 };
 
 const SEVERITY_TONE: Record<string, string> = {
   low: 'bg-success/15 text-success border-success/30',
@@ -77,6 +65,69 @@ const SEVERITY_TONE: Record<string, string> = {
   high: 'bg-destructive/15 text-destructive border-destructive/30',
   critical: 'bg-destructive/25 text-destructive border-destructive/50',
 };
+
+/** True for a language-model result (including legacy `claude-vision` detections). */
+const isLlmEngine = (engine: AiEngine | undefined) => engine === 'llm-vision' || engine === 'claude-vision';
+
+/** Which engine (and provider) produced a result; detections stored before AI vision report none. */
+function EngineBadge({
+  engine, provider, providerLabel, className,
+}: {
+  engine: AiEngine | undefined;
+  provider?: string | null;
+  providerLabel?: string | null;
+  className?: string;
+}) {
+  const llm = isLlmEngine(engine);
+  const name = llmProviderName({ provider, providerLabel, engine });
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'gap-1 text-[10px] font-medium',
+        llm ? 'border-primary/30 bg-primary/10 text-primary' : 'text-muted-foreground',
+        className
+      )}
+      title={llm ? `Species named by ${name} vision` : 'MobileNetV2 — names animals only at ImageNet granularity'}
+    >
+      {llm ? <Sparkles className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
+      {llm ? `${name} vision` : 'MobileNetV2 fallback'}
+    </Badge>
+  );
+}
+
+/**
+ * The name of what is in the picture, as the headline: the species when one
+ * was named, otherwise the task label. The label becomes a secondary chip.
+ */
+function SubjectHeadline({
+  species, prediction, engine, size = 'lg',
+}: {
+  species: SpeciesId | null | undefined;
+  prediction: string;
+  engine: AiEngine | undefined;
+  size?: 'lg' | 'sm';
+}) {
+  const fromImagenet = species && !isLlmEngine(engine);
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className={cn('font-bold leading-tight tracking-tight', size === 'lg' ? 'text-2xl' : 'text-base')}>
+        {species?.common ?? prediction}
+      </p>
+      {species?.scientific && (
+        <p className={cn('italic text-muted-foreground', size === 'lg' ? 'text-sm' : 'text-xs')}>{species.scientific}</p>
+      )}
+      {species && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="secondary" className="text-[10px] font-medium">{prediction}</Badge>
+          <span className="text-[11px] tabular-nums text-muted-foreground">
+            {fromImagenet ? 'Closest ImageNet class' : 'Species'} · {species.confidence}% confidence
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Confidence bands from `GET /ai/stats`, coloured by label rather than position. */
 const BAND_COLOUR: Record<string, string> = {
@@ -102,13 +153,13 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
-/** `fireEvidence` → "Fire evidence". */
+/** `damageRatio` → "Damage ratio". */
 function humanise(key: string) {
   const words = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** Probability masses and pixel fractions read best as percentages; indices do not. */
+/** Probability masses read best as percentages; indices do not. */
 function formatEvidence(key: string, value: number) {
   if (!Number.isFinite(value)) return '—';
   if (!/index/i.test(key) && value >= 0 && value <= 1) return `${(value * 100).toFixed(1)}%`;
@@ -126,37 +177,9 @@ export default function AiPage() {
     <div className="space-y-6">
       <PageHeader
         title="AI Ecosystem Monitoring"
-        description="Image analysis for foliage health, plants and fungi, wildlife, litter and fire — computed by a trained ImageNet network on the server. Every finding goes to human review; only fire and smoke can open an incident automatically."
+        description="Wildlife recognition from photos — species named, every finding reviewed by a park officer."
         icon="ScanEye"
       />
-
-      <Alert className="border-info/20 bg-info/5">
-        <Cpu className="h-4 w-4 text-info" />
-        <AlertDescription className="space-y-1.5 text-xs leading-relaxed">
-          <p>
-            <strong>Real inference, with known limits.</strong> Each image is run through
-            MobileNetV2 (ImageNet-1k, published by Google via TensorFlow Hub) on the server with
-            TensorFlow.js, and its pixel colour statistics are measured. Each task pools groups of
-            ImageNet classes and/or colour evidence into its own labels, so a result is a finding for
-            a person to review, not a verdict. Only fire and smoke findings can open an incident
-            automatically.
-          </p>
-          <p>
-            <strong>Measured accuracy</strong> on {MEASURED_OVERALL.total} labelled photographs:{' '}
-            {MEASURED_OVERALL.correct}/{MEASURED_OVERALL.total} (
-            {Math.round((100 * MEASURED_OVERALL.correct) / MEASURED_OVERALL.total)}%) overall — fire
-            &amp; smoke {MEASURED_ACCURACY.fire.correct}/{MEASURED_ACCURACY.fire.total}, tree &amp;
-            foliage health {MEASURED_ACCURACY['tree-disease'].correct}/{MEASURED_ACCURACY['tree-disease'].total},
-            wildlife {MEASURED_ACCURACY.wildlife.correct}/{MEASURED_ACCURACY.wildlife.total}, plants{' '}
-            {MEASURED_ACCURACY['plant-id'].correct}/{MEASURED_ACCURACY['plant-id'].total}, litter{' '}
-            {MEASURED_ACCURACY.waste.correct}/{MEASURED_ACCURACY.waste.total}. These are the same
-            photographs the thresholds were calibrated on, so treat the figures as optimistic. Litter detection is weak
-            because ImageNet does not recognise litter scenes. Tree health is a colour measurement,
-            not a disease diagnosis, and species are named at ImageNet granularity, which does not
-            include most Indian species.
-          </p>
-        </AlertDescription>
-      </Alert>
 
       <Tabs defaultValue="analyze" className="space-y-4">
         <TabsList>
@@ -189,7 +212,6 @@ function AnalyzeTab() {
   const { signedIn, loading: authLoading } = useAuth();
   const tasks = useAiTasks();
 
-  const [task, setTask] = useState<AiTask>('tree-disease');
   const [upload, setUpload] = useState<UploadedImage | null>(null);
   const [imageUrl, setImageUrl] = useState('');
   const [fileError, setFileError] = useState<string | null>(null);
@@ -207,7 +229,7 @@ function AnalyzeTab() {
     if (!hasImage) return;
     try {
       const response = await analyze.mutateAsync({
-        task,
+        task: TASK,
         imageUrl: upload ? upload.dataUrl : trimmedUrl,
         imageName: upload ? upload.name : trimmedUrl.split('/').pop()?.split('?')[0] || undefined,
         park: parkParam(park),
@@ -255,38 +277,22 @@ function AnalyzeTab() {
       <Card className="lg:col-span-2">
         <CardHeader>
           <CardTitle className="text-lg">Submit an image</CardTitle>
-          <CardDescription>Choose the task, then upload a photo or give an image URL</CardDescription>
+          <CardDescription>Upload a photo of an animal, or give an image URL</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>Task</Label>
             {tasks.isPending ? (
-              <LoadingState label="Loading tasks…" className="py-6" />
+              <LoadingState label="Loading task…" className="py-6" />
             ) : tasks.isError ? (
               <ErrorState error={tasks.error} onRetry={() => tasks.refetch()} />
             ) : (
-              <div className="grid grid-cols-1 gap-1.5">
-                {tasks.data.map((info) => {
-                  const Icon = TASK_ICON[info.task] ?? ScanEye;
-                  const active = task === info.task;
-                  return (
-                    <button
-                      key={info.task}
-                      type="button"
-                      onClick={() => setTask(info.task)}
-                      className={cn(
-                        'flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors',
-                        active ? 'border-primary bg-primary/5' : 'hover:bg-muted'
-                      )}
-                    >
-                      <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{info.title}</p>
-                        <p className="text-[11px] text-muted-foreground">{info.method}</p>
-                      </div>
-                    </button>
-                  );
-                })}
+              <div className="flex items-start gap-2.5 rounded-lg border border-primary bg-primary/5 px-3 py-2">
+                <Bird className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{tasks.data[0]?.title ?? 'Wildlife recognition'}</p>
+                  <p className="text-[11px] text-muted-foreground">{tasks.data[0]?.method}</p>
+                </div>
               </div>
             )}
           </div>
@@ -340,8 +346,7 @@ function AnalyzeTab() {
             <Label>Park</Label>
             <ParkFilter value={park} onChange={setPark} allLabel="Select a park" className="w-full" />
             <p className="text-[11px] text-muted-foreground">
-              Without a park an incident has no location, so even a confident fire or smoke finding
-              is queued for human review instead of opened automatically.
+              The finding is filed against this park so its officers see it in their review queue.
             </p>
           </div>
 
@@ -352,8 +357,8 @@ function AnalyzeTab() {
           ) : !signedIn ? (
             <div className="space-y-2 rounded-lg border border-dashed p-3 text-center">
               <p className="text-xs text-muted-foreground">
-                Analysis requires an account: every result stores the image and can open an incident,
-                so it must be attributable.
+                Analysis requires an account: every result stores the image and enters the review
+                queue, so it must be attributable.
               </p>
               <Button asChild className="w-full">
                 <Link href="/login?next=/ai"><LogIn className="mr-2 h-4 w-4" />Sign in to analyse</Link>
@@ -383,7 +388,7 @@ function AnalyzeTab() {
             <CardContent>
               <EmptyState
                 title="No analysis yet"
-                description="Choose a task and submit an image. The full probability vector over the task's labels, the evidence behind it and the network's own top ImageNet classes are shown, not just the winning label."
+                description="Submit a photo of an animal. The species comes first, followed by the full probability vector over the wildlife labels and the evidence behind it."
                 icon="ScanEye"
               />
             </CardContent>
@@ -397,204 +402,174 @@ function AnalyzeTab() {
 }
 
 function ResultPanel({ result }: { result: AnalyzeResponse }) {
-  const { inference, detection, escalationRule, escalated } = result;
+  const { inference, detection } = result;
   const evidence = Object.entries(inference.evidence ?? {});
+  const llm = isLlmEngine(inference.engine);
+  const providerName = llmProviderName(inference);
 
   return (
-    <>
-      <Card className="overflow-hidden">
-        {detection.imageUrl && (
-          <div className="relative h-64 bg-muted">
-            {/* eslint-disable-next-line @next/next/no-img-element -- served by the API host */}
-            <img src={mediaUrl(detection.imageUrl)} alt={inference.prediction} className="h-full w-full object-contain" />
-            <span className="absolute bottom-2 left-2 rounded bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              Stored copy · {inference.image.width}×{inference.image.height} {inference.image.format.toUpperCase()} ·{' '}
-              {formatBytes(inference.image.bytes)}
+    <Card className="overflow-hidden">
+      {detection.imageUrl && (
+        <div className="relative h-64 bg-muted">
+          {/* eslint-disable-next-line @next/next/no-img-element -- served by the API host */}
+          <img
+            src={mediaUrl(detection.imageUrl)}
+            alt={inference.species?.common ?? inference.prediction}
+            className="h-full w-full object-contain"
+          />
+          <span className="absolute bottom-2 left-2 rounded bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            Stored copy · {inference.image.width}×{inference.image.height} {inference.image.format.toUpperCase()} ·{' '}
+            {formatBytes(inference.image.bytes)}
+          </span>
+        </div>
+      )}
+
+      <CardHeader className="space-y-3 pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">{inference.title}</p>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <EngineBadge engine={inference.engine} provider={inference.provider} providerLabel={inference.providerLabel} />
+            <Badge variant="outline" className={cn('capitalize', SEVERITY_TONE[inference.severity])}>
+              {inference.severity}
+            </Badge>
+          </div>
+        </div>
+
+        <SubjectHeadline species={inference.species} prediction={inference.prediction} engine={inference.engine} />
+      </CardHeader>
+
+      <CardContent className="space-y-5">
+        <div className="rounded-lg bg-primary/5 p-3">
+          <p className="text-xs font-medium">Recommended action</p>
+          <p className="mt-1 text-sm leading-relaxed">{inference.recommendedAction}</p>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-baseline justify-between gap-2">
+            <span className="text-sm text-muted-foreground">
+              Confidence in &ldquo;{inference.prediction}&rdquo;
             </span>
+            <span className="text-2xl font-bold tabular-nums">{inference.confidence}%</span>
+          </div>
+          <div className="h-2.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn(
+                'h-full rounded-full transition-all duration-700',
+                inference.confidence >= 85 ? 'bg-success'
+                : inference.confidence >= 60 ? 'bg-warning'
+                : 'bg-destructive'
+              )}
+              style={{ width: `${inference.confidence}%` }}
+            />
+          </div>
+        </div>
+
+        {/* The full probability vector over the task's labels. */}
+        <div>
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-medium">
+            Label probabilities
+            <span className="text-[11px] font-normal text-muted-foreground">
+              ({llm ? `${providerName}'s stated probabilities` : 'normalised task scores'} — sum to 1)
+            </span>
+          </p>
+          <div className="space-y-1.5">
+            {inference.probabilities.map((entry, index) => (
+              <div key={entry.label} className="flex items-center gap-2">
+                <span className={cn('min-w-0 flex-1 truncate text-xs', index === 0 && 'font-medium')} title={entry.label}>
+                  {entry.label}
+                </span>
+                <div className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={cn('h-full rounded-full', index === 0 ? 'bg-primary' : 'bg-muted-foreground/40')}
+                    style={{ width: `${entry.probability * 100}%` }}
+                  />
+                </div>
+                <span className="w-12 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                  {pct(entry.probability)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {inference.notes.length > 0 && (
+          <div className="space-y-1.5 rounded-lg border border-warning/30 bg-warning/5 p-3">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-warning">
+              <TriangleAlert className="h-3.5 w-3.5" />
+              Caveats
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed">
+              {inference.notes.map((note) => <li key={note}>{note}</li>)}
+            </ul>
           </div>
         )}
 
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">{inference.title}</p>
-              <CardTitle className="text-lg">{inference.prediction}</CardTitle>
-              {inference.detail && <CardDescription>{inference.detail}</CardDescription>}
-            </div>
-            <div className="flex shrink-0 flex-col items-end gap-1">
-              <Badge variant="outline" className={cn('capitalize', SEVERITY_TONE[inference.severity])}>
-                {inference.severity}
-              </Badge>
-              <SourceBadge source="model" />
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardContent className="space-y-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <div className="mb-1.5 flex items-baseline justify-between">
-              <span className="text-sm text-muted-foreground">Confidence</span>
-              <span className="text-2xl font-bold tabular-nums">{inference.confidence}%</span>
-            </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-muted">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-all duration-700',
-                  inference.confidence >= 85 ? 'bg-success'
-                  : inference.confidence >= 60 ? 'bg-warning'
-                  : 'bg-destructive'
-                )}
-                style={{ width: `${inference.confidence}%` }}
-              />
-            </div>
-          </div>
-
-          {/* The full probability vector over the task's labels. */}
-          <div>
-            <p className="mb-2 flex items-center gap-1.5 text-sm font-medium">
-              Label probabilities
-              <span className="text-[11px] font-normal text-muted-foreground">(normalised task scores — sum to 1)</span>
+            <p className="mb-1 text-sm font-medium">Evidence</p>
+            <p className="mb-2 text-[11px] text-muted-foreground">
+              Measured locally: probability mass on ImageNet animal class groups
             </p>
-            <div className="space-y-1.5">
-              {inference.probabilities.map((entry, index) => (
-                <div key={entry.label} className="flex items-center gap-2">
-                  <span className={cn('min-w-0 flex-1 truncate text-xs', index === 0 && 'font-medium')} title={entry.label}>
-                    {entry.label}
-                  </span>
-                  <div className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={cn('h-full rounded-full', index === 0 ? 'bg-primary' : 'bg-muted-foreground/40')}
-                      style={{ width: `${entry.probability * 100}%` }}
-                    />
-                  </div>
-                  <span className="w-12 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
-                    {pct(entry.probability)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-lg bg-primary/5 p-3">
-            <p className="text-xs font-medium">Recommended action</p>
-            <p className="mt-1 text-sm leading-relaxed">{inference.recommendedAction}</p>
-          </div>
-
-          {inference.notes.length > 0 && (
-            <div className="space-y-1.5 rounded-lg border border-warning/30 bg-warning/5 p-3">
-              <p className="flex items-center gap-1.5 text-xs font-medium text-warning">
-                <TriangleAlert className="h-3.5 w-3.5" />
-                Caveats
-              </p>
-              <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed">
-                {inference.notes.map((note) => <li key={note}>{note}</li>)}
-              </ul>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <p className="mb-1 text-sm font-medium">Evidence</p>
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                Signals the task score was built from: probability mass on ImageNet class groups, or
-                pixel fractions
-              </p>
-              {evidence.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No evidence reported.</p>
-              ) : (
-                <table className="w-full text-xs">
-                  <tbody>
-                    {evidence.map(([key, value]) => (
-                      <tr key={key} className="border-b last:border-0">
-                        <td className="py-1.5 text-muted-foreground">{humanise(key)}</td>
-                        <td className="py-1.5 text-right font-medium tabular-nums">{formatEvidence(key, value)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div>
-              <p className="mb-1 text-sm font-medium">Top ImageNet classes</p>
-              <p className="mb-2 text-[11px] text-muted-foreground">What the network itself saw, before task pooling</p>
+            {evidence.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No evidence reported.</p>
+            ) : (
               <table className="w-full text-xs">
                 <tbody>
-                  {inference.imagenet.map((entry) => (
-                    <tr key={entry.label} className="border-b last:border-0">
-                      <td className="max-w-0 truncate py-1.5 pr-2" title={entry.label}>{imagenetName(entry.label)}</td>
-                      <td className="py-1.5 text-right tabular-nums text-muted-foreground">{pct(entry.probability)}</td>
+                  {evidence.map(([key, value]) => (
+                    <tr key={key} className="border-b last:border-0">
+                      <td className="py-1.5 text-muted-foreground">{humanise(key)}</td>
+                      <td className="py-1.5 text-right font-medium tabular-nums">{formatEvidence(key, value)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            )}
           </div>
 
-          <div className="rounded-lg border p-3 text-[11px] text-muted-foreground">
+          <div>
+            <p className="mb-1 text-sm font-medium">Top ImageNet classes</p>
+            <p className="mb-2 text-[11px] text-muted-foreground">What MobileNetV2 itself saw, before task pooling</p>
+            <table className="w-full text-xs">
+              <tbody>
+                {inference.imagenet.map((entry) => (
+                  <tr key={entry.label} className="border-b last:border-0">
+                    <td className="max-w-0 truncate py-1.5 pr-2" title={entry.label}>{imagenetName(entry.label)}</td>
+                    <td className="py-1.5 text-right tabular-nums text-muted-foreground">{pct(entry.probability)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="space-y-0.5 rounded-lg border p-3 text-[11px] text-muted-foreground">
+          {llm && (
             <p>
-              <span className="font-medium text-foreground">{inference.model.name}</span> ·{' '}
-              <span className="font-mono">{inference.model.version}</span>
+              <span className="font-medium text-foreground">{inference.engineModel.name}</span> ·{' '}
+              <span className="font-mono">{inference.engineModel.version}</span> · {inference.timings.identifyMs} ms
             </p>
-            <p className="mt-0.5">
-              {inference.model.source} · {inference.model.inputSize}×{inference.model.inputSize} input · TensorFlow.js
-              backend: {inference.model.backend ?? 'not reported'}
-            </p>
-            <p className="mt-0.5 tabular-nums">
-              Fetch {inference.timings.fetchMs} ms · decode {inference.timings.decodeMs} ms · colour statistics{' '}
-              {inference.timings.statsMs} ms · inference {inference.timings.inferenceMs} ms
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* --- The escalation decision, explained --- */}
-      <Card className={cn(escalated && 'border-destructive/40')}>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Siren className={cn('h-4 w-4', escalated ? 'text-destructive' : 'text-muted-foreground')} />
-            Escalation decision
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm">{escalationRule.reason}</p>
-
-          <div className="grid grid-cols-3 gap-2 text-center">
-            {[
-              { label: 'Fire or smoke finding', value: escalationRule.escalatable },
-              { label: `Confident (≥ ${escalationRule.confidenceFloor}%)`, value: escalationRule.confident },
-              { label: 'Incident opened', value: escalationRule.applied },
-            ].map((check) => (
-              <div key={check.label} className="rounded-lg border p-2.5">
-                {check.value ? (
-                  <CheckCircle2 className="mx-auto h-4 w-4 text-success" />
-                ) : (
-                  <XCircle className="mx-auto h-4 w-4 text-muted-foreground" />
-                )}
-                <p className="mt-1 text-[11px] text-muted-foreground">{check.label}</p>
-              </div>
-            ))}
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Only a fire or smoke finding at or above {escalationRule.confidenceFloor}% confidence, with a
-            park selected, opens an incident without review. Every other finding waits in the review
-            queue for a person to confirm or correct it.
-          </p>
-
-          {escalated && (
-            <div className="rounded-lg bg-destructive/10 p-3">
-              <p className="text-sm font-medium text-destructive">
-                Incident {escalated.referenceCode} opened at {escalated.priority} priority
-              </p>
-              <Link href="/incidents" className="text-xs text-destructive underline-offset-2 hover:underline">
-                View incidents
-              </Link>
-            </div>
           )}
-        </CardContent>
-      </Card>
-    </>
+          <p>
+            <span className="font-medium text-foreground">{inference.model.name}</span> ·{' '}
+            <span className="font-mono">{inference.model.version}</span>
+          </p>
+          <p>
+            {inference.model.source} · {inference.model.inputSize}×{inference.model.inputSize} input · TensorFlow.js
+            backend: {inference.model.backend ?? 'not reported'}
+          </p>
+          <p className="tabular-nums">
+            Fetch {inference.timings.fetchMs} ms · decode {inference.timings.decodeMs} ms · inference{' '}
+            {inference.timings.inferenceMs} ms
+          </p>
+        </div>
+
+        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+          <ClipboardCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          This finding is now in the review queue under Detections. A park officer confirms it or
+          records the correct label; nothing is dispatched automatically.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -604,30 +579,19 @@ function ResultPanel({ result }: { result: AnalyzeResponse }) {
 
 function GalleryTab() {
   const { can } = useAuth();
-  const [task, setTask] = useState<string>('all');
   const tasks = useAiTasks();
-  const gallery = useAiGallery(task === 'all' ? undefined : (task as AiTask));
+  const gallery = useAiGallery();
 
   const taskInfo = (key: AiTask): AiTaskInfo | undefined => tasks.data?.find((t) => t.task === key);
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Select value={task} onValueChange={setTask}>
-          <SelectTrigger className="w-[220px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All tasks</SelectItem>
-            {tasks.data?.map((info) => (
-              <SelectItem key={info.task} value={info.task}>{info.title}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
+      <div>
         <p className="text-xs text-muted-foreground">
           The latest 24 detections.{' '}
-          {can('ecologist')
+          {can('officer')
             ? 'Confirm a correct call, or mark it wrong and record the label it should have had — reviews produce the observed precision under Performance.'
-            : 'Staff review each finding; the reviews produce the observed precision under Performance.'}
+            : 'Park officers review each finding; the reviews produce the observed precision under Performance.'}
         </p>
       </div>
 
@@ -645,7 +609,7 @@ function GalleryTab() {
                 key={detection.id}
                 detection={detection}
                 info={taskInfo(detection.task)}
-                canReview={can('ecologist')}
+                canReview={can('officer')}
               />
             ))}
           </div>
@@ -670,14 +634,22 @@ function DetectionCard({
       : detection.imageCredit
       ? 'Sample photograph, not from a monitored park'
       : 'No park specified';
-  const incident = typeof detection.linkedIncident === 'object' ? detection.linkedIncident : null;
+  // Detections stored before species were recorded carry the name in `detail`
+  // only ("Closest ImageNet class: tiger (89.5 %)") — lift it into the headline.
+  const legacyMatch = !detection.species && detection.detail
+    ? /Closest ImageNet class:\s*([^(]+?)\s*\(([\d.]+)\s*%\)/.exec(detection.detail)
+    : null;
+  const subject: SpeciesId | null | undefined = legacyMatch
+    ? { common: legacyMatch[1].replace(/^\w/, (c) => c.toUpperCase()), scientific: '', confidence: Number(legacyMatch[2]) }
+    : detection.species;
+  const legacyDetail = !subject && detection.detail ? detection.detail : null;
 
   return (
     <Card className="flex flex-col overflow-hidden">
       <div className="relative h-40 bg-muted">
         {detection.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- served by the API host
-          <img src={mediaUrl(detection.imageUrl)} alt={detection.prediction} className="h-full w-full object-cover" />
+          <img src={mediaUrl(detection.imageUrl)} alt={detection.species?.common ?? detection.prediction} className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full items-center justify-center">
             <ImageIcon className="h-8 w-8 text-muted-foreground" />
@@ -699,24 +671,16 @@ function DetectionCard({
           <p className="text-[10px] leading-snug text-muted-foreground">Photo: {detection.imageCredit}</p>
         )}
 
-        <div>
-          <p className="text-sm font-medium leading-snug">{detection.prediction}</p>
-          {detection.detail && <p className="text-xs text-muted-foreground">{detection.detail}</p>}
-          <p className="mt-0.5 text-xs text-muted-foreground">
+        <div className="space-y-1.5">
+          <SubjectHeadline species={subject} prediction={detection.prediction} engine={detection.engine} size="sm" />
+          {legacyDetail && <p className="text-xs text-muted-foreground">{legacyDetail}</p>}
+          <p className="text-xs text-muted-foreground">
             {detection.confidence}% confidence · {parkLabel}
           </p>
+          <EngineBadge engine={detection.engine} provider={detection.provider} />
         </div>
 
         <p className="line-clamp-2 text-xs text-muted-foreground">{detection.recommendedAction}</p>
-
-        {detection.linkedIncident && (
-          <Link href="/incidents" className="flex items-center gap-1.5 text-xs text-destructive hover:underline">
-            <Link2 className="h-3 w-3" />
-            {incident
-              ? `Incident ${incident.referenceCode} · ${incident.priority} priority${incident.status ? ` · ${incident.status}` : ''}`
-              : 'Linked incident'}
-          </Link>
-        )}
 
         <div className="mt-auto space-y-2 border-t pt-2.5">
           <div className="flex items-center justify-between gap-2">
@@ -746,7 +710,7 @@ function DetectionCard({
   );
 }
 
-/** Confirm a call, or reject it with the label it should have had. Staff only. */
+/** Confirm a call, or reject it with the label it should have had. Park officers and admins only. */
 function ReviewControls({ detection, info }: { detection: AiDetection; info: AiTaskInfo | undefined }) {
   const review = useReviewDetection();
   const [rejecting, setRejecting] = useState(false);
@@ -832,13 +796,61 @@ function ModelsTab() {
     <QueryState query={tasks} isEmpty={(data) => data.length === 0} emptyTitle="No tasks reported" skeleton={<LoadingState label="Loading model card…" />}>
       {(data) => {
         const model = data[0].model;
+        const llm = isLlmEngine(data[0].engine);
+        const providerName = llmProviderName({ provider: data[0].visionProvider, providerLabel: data[0].visionProviderLabel });
         return (
           <div className="space-y-4">
+            <Card className={cn(llm && 'border-primary/30')}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      {llm ? `${providerName} vision` : 'AI vision'}
+                    </CardTitle>
+                    <CardDescription className="break-all font-mono text-[11px]">
+                      {llm ? data[0].visionModel : 'Not configured'}
+                    </CardDescription>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn('shrink-0', llm ? 'border-success/30 bg-success/10 text-success' : 'text-muted-foreground')}
+                  >
+                    {llm ? 'Active' : 'Inactive — fallback in use'}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-1.5 text-xs text-muted-foreground">
+                <p>
+                  <strong className="text-foreground">Species identification.</strong> The stored
+                  ≤640 px copy of the image, with a summary of the MobileNetV2 evidence, is sent to
+                  {llm ? ` ${providerName}` : ' a multimodal language model (Gemini, Groq, a local model or Claude)'}. Its
+                  answer is constrained to a JSON schema, and checked on the server: a probability for each wildlife
+                  label, the species (common and scientific name, with a confidence), a severity and an action
+                  for the park team.
+                </p>
+                <p>
+                  {llm ? (
+                    'If the API times out, is rate-limited or declines, the MobileNetV2 fallback answers instead and the result says so.'
+                  ) : (
+                    <>
+                      Set <code className="rounded bg-muted px-1">GEMINI_API_KEY</code> on the server to enable it — free
+                      at{' '}
+                      <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                        aistudio.google.com/apikey
+                      </a>
+                      . Until then the MobileNetV2 engine below answers on its own.
+                    </>
+                  )}
+                </p>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <CardTitle className="text-base">{model.name}</CardTitle>
+                    <CardTitle className="text-base">{model.name} · evidence and fallback</CardTitle>
                     <CardDescription className="break-all font-mono text-[11px]">{model.version}</CardDescription>
                   </div>
                   <SourceBadge source="model" />
@@ -851,8 +863,8 @@ function ModelsTab() {
                   <MetricTile label="Runtime" value="TensorFlow.js" hint={model.backend ? `${model.backend} backend` : 'On the API server'} />
                   <MetricTile
                     label="Measured accuracy"
-                    value={`${MEASURED_OVERALL.correct}/${MEASURED_OVERALL.total}`}
-                    hint="Labelled photographs, all tasks"
+                    value={`${MEASURED_ACCURACY.correct}/${MEASURED_ACCURACY.total}`}
+                    hint="Fallback engine, labelled wildlife photographs"
                   />
                 </div>
                 <div className="flex items-start gap-2.5 rounded-lg border border-dashed p-3">
@@ -861,31 +873,29 @@ function ModelsTab() {
                     <p>
                       <strong className="text-foreground">Pipeline.</strong> Decode the JPEG or PNG → resize
                       to {model.inputSize}×{model.inputSize} → MobileNetV2 forward pass → a probability
-                      distribution over the 1,000 ImageNet classes. In parallel, colour statistics are
-                      measured over the pixels (green, yellow and brown foliage fractions, flame and smoke
-                      chromaticity).
+                      distribution over the 1,000 ImageNet classes.
                     </p>
                     <p>
-                      The network was not trained on park-management categories. Each task below pools
-                      ImageNet class groups (for example, all bird classes into one &ldquo;bird&rdquo; signal)
-                      and/or colour evidence into scores for its own labels, then normalises them into a
-                      probability vector. The weights are fixed, so results are findings for review.
+                      The network was not trained on park-management categories. The wildlife labels below
+                      pool ImageNet animal class groups (for example, all bird classes into one
+                      &ldquo;bird&rdquo; signal), and the scores are normalised into a probability vector.
+                      This engine names species only at ImageNet granularity (&ldquo;tiger&rdquo;, not
+                      &ldquo;Bengal tiger&rdquo;).
                     </p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4">
               {data.map((entry) => {
-                const Icon = TASK_ICON[entry.task] ?? ScanEye;
-                const accuracy = MEASURED_ACCURACY[entry.task];
+                const accuracy = entry.task === TASK ? MEASURED_ACCURACY : null;
                 return (
                   <Card key={entry.task}>
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex min-w-0 items-start gap-2">
-                          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                          <Bird className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                           <div className="min-w-0">
                             <CardTitle className="text-base">{entry.title}</CardTitle>
                             <CardDescription>{entry.method}</CardDescription>
@@ -906,8 +916,7 @@ function ModelsTab() {
                     </CardHeader>
                     <CardContent>
                       <p className="mb-2 text-xs font-medium text-muted-foreground">
-                        Labels ({entry.classes.length})
-                        {entry.task === 'fire' && ' · can open an incident automatically'}
+                        Labels ({entry.classes.length}) · shared by both engines, so reviews work the same
                       </p>
                       <div className="space-y-1">
                         {entry.classes.map((cls) => (
@@ -945,7 +954,11 @@ function PerformanceTab() {
       {(data) => (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <MetricTile label="Total detections" value={data.total} />
+            <MetricTile
+              label="Total detections"
+              value={data.total}
+              hint={`${data.byEngine.filter((e) => isLlmEngine(e.engine)).reduce((sum, e) => sum + e.count, 0)} by AI vision`}
+            />
             <MetricTile label="Awaiting review" value={data.review.pending} tone={data.review.pending > 0 ? 'warning' : undefined} />
             <MetricTile label="Confirmed" value={data.review.confirmed} hint={`${data.review.rejected} marked wrong`} tone="success" />
             <MetricTile

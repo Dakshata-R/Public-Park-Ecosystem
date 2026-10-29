@@ -1,5 +1,5 @@
 /**
- * Typed HTTP client for the GreenPulse API.
+ * Typed HTTP client for the Park Ecosystem Portal API.
  *
  * Every backend handler answers in one envelope —
  *   success: { success: true, data, meta? }
@@ -241,7 +241,7 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
     throw new ApiError(
       0,
       process.env.NODE_ENV === 'production'
-        ? 'Cannot reach the GreenPulse server. Check your connection and try again.'
+        ? 'Cannot reach the Park Ecosystem Portal server. Check your connection and try again.'
         : `Cannot reach the API at ${API_BASE_URL}. Is the backend running? (cd backend && npm run dev)`
     );
   } finally {

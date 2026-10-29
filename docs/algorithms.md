@@ -499,7 +499,22 @@ returns exactly this.)*
 ## 6. AI Inference
 
 **`backend/src/services/vision.service.js`** (pixels and network) ·
-**`backend/src/services/ai-inference.service.js`** (task mapping)
+**`backend/src/services/ai-inference.service.js`** (task mapping, engine choice) ·
+**`backend/src/services/llm-vision.service.js`** (species identification) ·
+**`backend/src/services/llm-provider.service.js`** (Gemini / Groq / OpenAI-compatible / Claude)
+
+One task: **Wildlife recognition** (`wildlife`). Two engines answer it in the
+same label vocabulary:
+
+| Engine | When | Names species? |
+|---|---|---|
+| `llm-vision` | a language-model key set (`GEMINI_API_KEY`, free; or Groq, `LLM_BASE_URL`, Anthropic) and the API answers | yes — common + scientific, with confidence, a severity and an action |
+| `mobilenet-fallback` | no key, or the API failed, timed out or declined | ImageNet class only ("tiger") |
+
+MobileNetV2 (§6.1–6.3) always runs: it is the fallback and the evidence shown
+next to an AI vision result. Every detection records its `engine` and, for
+`llm-vision`, its `provider` and model (detections stored before providers were
+pluggable carry `claude-vision`).
 
 ### 6.1 The network
 
@@ -512,8 +527,8 @@ returns exactly this.)*
 
 The weights are Google's pre-trained checkpoint, run with TensorFlow.js on the
 WebAssembly backend (CPU fallback). **Nothing was trained or fine-tuned by this
-project.** ImageNet has no class for "chlorosis" or "overflowing bin", so each
-task is built from signals the network does produce, plus pixel statistics.
+project.** ImageNet has no park-management categories, so the wildlife labels
+are built from the animal classes the network does produce.
 
 ### 6.2 Softmax (numerically stable)
 
@@ -543,101 +558,55 @@ A group's evidence is the probability mass the network put on its members:
 | wildMammal | 101–106, 147–150, 269–280, 286–299, 330–338, 340, 342–344, 347, 349–353, 355–388 |
 | domesticAnimal | 151–268, 281–285, 339, 341, 345, 346, 348, 354 |
 | fish | 0–6, 389–397 |
-| flower | 984, 985, 986, 989 |
-| fruitOrSeed | 936–946, 948–957, 987, 988, 990, 998 |
-| fungus | 947, 991–997 |
-| fire | 980 volcano, 556 fire screen, 862 torch, 470 candle, 644 matchstick, 626 lighter |
-| smoke | 974 geyser, 820 steam locomotive |
-| litter | 440, 737, 898, 907, 720, 728, 692, 478, 700, 999, 968, 899 (bottles, plastic bag, packet, carton, paper towel, toilet tissue, cup, jug) |
-| bin | 412 ashcan, 569 garbage truck |
 
 A unit test checks that groups do not overlap and stay inside the 1000 classes.
-"Animal" below means the sum over bird, amphibian, reptile, insect, butterfly,
-invertebrate, wildMammal, domesticAnimal and fish.
 
-### 6.4 Pixel statistics
+### 6.4 Fallback scoring
 
-Computed over every pixel, sampled on a stride of `max(1, ⌊W·H / 240 000⌋)`:
-
-```
-  ExG = mean( (2G − R − B) / (R + G + B) )          excess green (Woebbecke et al. 1995)
-  GLI = mean( (2G − R − B) / (2G + R + B) )         green leaf index (Louhaichi et al. 2001)
-  hue entropy = − Σ_b p_b log₂ p_b                   over 36 hue bins of 10°
-```
-
-Disjoint HSV bands (H in degrees, S and V in [0, 1]) give occupancy fractions:
-
-| Fraction | Rule |
-|---|---|
-| healthy green *g* | 70 ≤ H ≤ 165, S ≥ 0.18, V ≥ 0.12 |
-| chlorotic (yellow) *y* | 38 ≤ H < 70, S ≥ 0.30, V ≥ 0.30 |
-| necrotic (brown) *b* | 10 ≤ H < 38, S ≥ 0.20, V < 0.55 |
-| flame (Chen, Wu & Chiou 2004, permissive) | R > 150, R > G > B, S ≥ 0.2·(255 − R)/255 |
-| strict flame *f_flame* | R > 190, R ≥ G ≥ B, H ≤ 50, S > 0.45, V > 0.7 |
-| smoke *f_smoke* | S < 0.12, 0.35 < V < 0.88 |
-| sky | 185 ≤ H ≤ 250, S ≥ 0.15, V ≥ 0.45 |
-
-Only the strict flame fraction is used for scoring, and only scaled by the
-network's own fire evidence (§6.5), because orange plumage, sunsets and autumn
-leaves all pass the permissive rule.
-
-### 6.5 Task scoring
-
-Each task produces one non-negative score *s_k* per class. `clamp01(x)` is
-`min(1, max(0, x))`.
-
-**Tree & foliage health** (`tree-disease`)
-
-```
-  V        = g + y + b                                     vegetation cover
-  A        = E_animal
-  gate     = clamp01((A − 0.4) / 0.5)
-  presence = clamp01(V / 0.25) · (1 − 0.8 · gate)
-  s = [ presence·g/V,  presence·y/V,  presence·b/V,  1 − presence ]
-      Healthy green   Yellowing       Browning         No foliage in frame
-```
-
-Foliage must fill a quarter of the frame to saturate `presence`; the animal gate
-only engages above 40 % animal evidence, because dense canopy texture alone pulls
-substantial mass onto the monkey classes.
-
-**Plant & fungus recognition** (`plant-id`)
-
-```
-  cover = clamp01((g + y) / 0.4)
-  u     = 1 − (E_flower + E_fruitOrSeed + E_fungus)
-  s = [ E_flower, E_fruitOrSeed, E_fungus, u·cover, u·(1 − cover) ]
-        Flowering  Fruit/seed    Fungus    Foliage (outside vocabulary)  No plant
-```
-
-**Wildlife recognition** (`wildlife`)
+One non-negative score *s_k* per wildlife label:
 
 ```
   s = [ E_bird, E_butterfly, E_insect + E_invertebrate, E_reptile + E_amphibian,
         E_wildMammal, E_domesticAnimal, max(0, 1 − (all of those + E_fish)) ]
+        Bird      Butterfly   Other insect or           Reptile or
+                  or moth     invertebrate              amphibian
+        Wild mammal   Domestic or stray animal   No animal detected
 ```
 
-For the winning class the most probable ImageNet member of its groups is
-reported as `detail` ("Closest ImageNet class: bee eater (…%)").
+The most probable ImageNet member of the winning group becomes the fallback's
+`species.common` ("Tiger", "Bee eater"), flagged as ImageNet granularity.
 
-**Litter detection** (`waste`)
+### 6.5 AI vision (language model)
+
+The provider is chosen by `LLM_PROVIDER`, else from the first key present —
+`GEMINI_API_KEY` → `GROQ_API_KEY` → `LLM_BASE_URL` → `ANTHROPIC_API_KEY`.
+Gemini, Groq and local servers are called over the OpenAI-compatible Chat
+Completions API with plain `fetch`; Claude through the Anthropic SDK.
+
+When enabled, the stored ≤640 px JPEG (a base64 `data:` URL) and a one-line
+summary of §6.3 (the top ImageNet classes — "use only as a hint") are sent to
+`VISION_MODEL` (default `gemini-3.5-flash-lite` on Gemini; 25 s per request, one
+retry on 429 / 5xx / timeout, 55 s overall). The reply is constrained by a
+strict `json_schema` response format (JSON mode with the schema in the prompt
+for servers that reject schemas):
 
 ```
-  s = [ E_litter, E_bin, (1 − clamp01(E_litter + E_bin))⁴ ]
+  label_probabilities[]  { label ∈ the wildlife labels, probability }
+  species                { common_name, scientific_name, confidence }
+  severity (low … critical), recommended_action, caveat
 ```
 
-**Fire & smoke detection** (`fire`)
-
-```
-  s_flames = E_fire  + f_flame · clamp01(E_fire / 0.1)
-  s_smoke  = E_smoke + f_smoke · clamp01(E_smoke / 0.05)
-  s_none   = (1 − clamp01(E_fire + E_smoke))⁶
-```
-
-The residual "no" classes are raised to a power (⁴, ⁶) so moderate object or
-fire evidence is not swamped: a grass fire drawing roughly a sixth of the mass
-onto the fire and plume classes registers, while sunsets and autumn leaves still
-resolve to "no fire".
+Severity is operational: low for a routine sighting, raised for an animal that
+needs managing (a snake on a path, strays) or that is injured, sick or dead.
+The label probabilities are clamped to [0, 1] and renormalised over the task's
+labels (unknown labels dropped), so the result has the same probability vector,
+argmax and review vocabulary as the fallback. Because some providers ignore
+the schema, the parsed reply is always validated on the server (zod); output
+that is not JSON or does not match gets one repair round, then the request
+falls back. A refusal, truncated output, timeout or API error falls back to
+§6.4 with a note giving the reason. Seeding and `npm run eval:vision` use the
+fallback unless asked (`--llm`), so a configured key's quota is not spent on
+every start.
 
 ### 6.6 Normalisation and output
 
@@ -646,54 +615,30 @@ resolve to "no fire".
   prediction = argmax P,   confidence = 100 · max P   (one decimal)
 ```
 
-Every result also carries the top-5 ImageNet classes, the named `evidence`
-signals, the pixel `stats`, the model card and timings. `notes` add caveats: the
-network is "unsure" when its top ImageNet class is below 20 % (all tasks except
-tree health); foliage health is a colour measurement; species are named at
-ImageNet granularity; mixed dumped waste may be reported as clear.
+Every result carries `engine`, `species`, the top-5 ImageNet classes, the named
+`evidence` signal (`animalEvidence`), the model card and timings. `notes` add
+caveats: the network is "unsure" when its top ImageNet class is below 20 %;
+fallback names are ImageNet classes; what an API key would add, or why AI
+vision was unavailable.
 
 ### 6.7 Measured accuracy
 
 `npm run eval:vision` (`scripts/evaluate-vision.js`) runs every photo listed in
-`src/seed/data/sample-images/attribution.json` — 22 openly licensed Wikimedia
-Commons photographs — through `runInference` and counts a prediction correct if
-it is one of that photo's accepted labels (a grass fire may be "Flames" or
-"Smoke").
+`src/seed/data/sample-images/attribution.json` — 3 openly licensed Wikimedia
+Commons wildlife photographs — and counts a prediction correct if it is one of
+that photo's accepted labels. Fallback engine:
 
-| Task | Correct | Misses |
+| Task | Correct | Notes |
 |---|---|---|
-| fire (7 fires, 4 sunset/autumn-leaf negatives) | 9 / 11 | smoke plume → "No fire" (90.7 %); Welsh grass fire → "No fire" (46.4 %) |
-| tree-disease | 3 / 3 | — |
-| wildlife | 3 / 3 | — |
-| plant-id | 1 / 2 | flowering tree, Cubbon Park → "No plant detected" (58.3 %) |
-| waste | 0 / 3 | garbage dump, plastic bottle, overflowing bin → "No litter objects recognised" |
-| **overall** | **16 / 22 (73 %)** | |
+| wildlife (Indian pond heron, green bee-eater, plain tiger butterfly) | 3 / 3 | named "Bittern", "Bee eater", "Monarch" — ImageNet granularity |
 
-All four negatives (two sunsets, two autumn-leaf photos) were correctly "No fire
-or smoke detected". **Caveat:** the weights and exponents in §6.5 were calibrated
-against these same 22 photographs, so this is in-sample accuracy on a very small
-set — an optimistic upper bound, not a validated error rate.
+**Caveat:** three photographs is a smoke test, not a validated error rate.
+`--llm` re-runs it on AI vision (one API call per photo).
 
-### 6.8 Escalation rule
+### 6.8 Human review and precision
 
-An incident is opened automatically only when **all three** hold:
-
-1. The winning class names an incident type — only **"Flames visible"**
-   (severity critical) and **"Smoke visible"** (high) do;
-2. Confidence ≥ `Setting.aiAutoIncidentConfidence` (default 85 %);
-3. A park was supplied, so the incident has a location.
-
-The incident gets severity 5 (flames) or 4 (smoke), zero affected people, and a
-priority from §5 — e.g. 60.0 "high" for flames, 53.8 "medium" for smoke, both
-ageing against the 0.5 h fire target — plus an alert. Every other finding, and
-every fire finding that fails a condition, is queued for human review with the
-reason returned in `escalationRule`. A colour-based foliage reading or a litter
-guess is never trusted to dispatch a crew. The seeded detections have no park,
-so none of them escalates.
-
-### 6.9 Human review and precision
-
-An ecologist marks a detection `confirmed` or `rejected`. A rejection may carry a
+No AI finding acts on its own: every detection enters the review queue. A park
+officer (or admin) marks it `confirmed` or `rejected`. A rejection may carry a
 `correctedLabel`, which must be one of the task's own class labels and differ
 from the prediction. The observed precision is
 

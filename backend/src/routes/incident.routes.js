@@ -27,12 +27,13 @@ router.post('/', requireAuth, requireRole('officer'), validate({ body: incidents
 router.patch('/:id', requireAuth, requireRole('officer'), validate({ params: idParam, body: incidents.update }), controller.update);
 router.delete('/:id', requireAuth, requireRole('admin'), validate({ params: idParam }), controller.remove);
 
-router.post('/:id/assign', requireAuth, requireRole('officer'), validate({ params: idParam, body: incidents.assign }), controller.assign);
+// Assignment is the administrator's job; officers work what they are given.
+router.post('/:id/assign', requireAuth, requireRole('admin'), validate({ params: idParam, body: incidents.assign }), controller.assign);
 router.post('/:id/resolve', requireAuth, requireRole('officer'), validate({ params: idParam, body: incidents.resolve }), controller.resolve);
 router.post(
   '/:id/work-order',
   requireAuth,
-  requireRole('officer'),
+  requireRole('admin'),
   validate({ params: idParam, body: incidents.createWorkOrder }),
   controller.createWorkOrder
 );

@@ -11,25 +11,31 @@ const { ok, created } = require('../utils/response');
 const ApiError = require('../utils/ApiError');
 const assistant = require('../services/assistant.service');
 const llm = require('../services/llm-assistant.service');
+const llmProvider = require('../services/llm-provider.service');
+const tools = require('../services/assistant-tools.service');
 const logger = require('../utils/logger');
 const { normaliseId } = require('./crud.factory');
 
 /**
- * Answer with Claude when it is configured, using the conversation so far for
- * context; otherwise — or if the API fails — with the retrieval engine, so the
- * assistant always replies.
+ * Answer with the configured language model (Gemini, Groq, a local model or
+ * Claude — see llm-provider.service), using the conversation so far for
+ * context; otherwise — or if the API fails — with the built-in engine, so the
+ * assistant always replies. Both engines answer through the same role-aware
+ * tool layer, built here once from the signed-in user.
  */
-async function answer(question, sessionId) {
+async function answer(question, sessionId, user) {
+  const context = await tools.buildContext(user || null);
   if (llm.isEnabled()) {
     try {
-      const history = await ChatMessage.find({ sessionId }).sort({ createdAt: -1 }).limit(10).select('role content').lean();
-      const result = await llm.ask(question, history.reverse());
-      return { ...result, engine: 'claude', intent: undefined, intentConfidence: undefined };
+      const history = await ChatMessage.find({ sessionId }).sort({ createdAt: -1 }).limit(12).select('role content').lean();
+      const result = await llm.ask(question, history.reverse(), { context });
+      return { ...result, engine: 'llm', intent: undefined, intentConfidence: undefined };
     } catch (err) {
-      logger.warn(`Eco Assistant: language model unavailable, using retrieval engine (${err.message})`);
+      const reason = err?.status ? `HTTP ${err.status}: ${err.message}` : err.message;
+      logger.warn(`Eco Assistant: language model unavailable, answering with the built-in engine (${reason})`);
     }
   }
-  return { ...(await assistant.ask(question)), engine: 'retrieval' };
+  return { ...(await assistant.ask(question, { context })), engine: 'built-in' };
 }
 
 /**
@@ -54,7 +60,7 @@ const ask = asyncHandler(async (req, res) => {
     }
   }
 
-  const result = await answer(question, sessionId);
+  const result = await answer(question, sessionId, req.user);
 
   await ChatMessage.create({
     sessionId,
@@ -71,6 +77,10 @@ const ask = asyncHandler(async (req, res) => {
     intent: result.intent,
     citations: result.citations,
     latencyMs: result.latencyMs,
+    engine: result.engine,
+    provider: result.provider || '',
+    model: result.model || '',
+    toolsUsed: result.toolsUsed || [],
   });
 
   return created(res, {
@@ -81,6 +91,10 @@ const ask = asyncHandler(async (req, res) => {
     citations: result.citations,
     latencyMs: result.latencyMs,
     engine: result.engine,
+    provider: result.provider || null,
+    providerLabel: result.providerLabel || null,
+    model: result.model || null,
+    toolsUsed: result.toolsUsed || [],
   });
 });
 
@@ -103,13 +117,21 @@ const getHistory = asyncHandler(async (req, res) => {
   return ok(res, messages.map(normaliseId), { sessionId: req.params.sessionId, count: messages.length });
 });
 
-/** GET /api/assistant/suggestions */
-const getSuggestions = asyncHandler(async (_req, res) =>
-  ok(res, {
-    suggestions: assistant.SUGGESTED_QUESTIONS,
-    capabilities: Object.keys(assistant.INTENTS),
-  })
-);
+/** GET /api/assistant/suggestions — tailored to the signed-in user's role. */
+const getSuggestions = asyncHandler(async (req, res) => {
+  const context = await tools.buildContext(req.user || null);
+  const provider = llmProvider.describe();
+  return ok(res, {
+    suggestions: assistant.suggestionsFor(context),
+    capabilities: tools.toolsFor(context).map((t) => t.name),
+    engine: provider ? 'llm' : 'built-in',
+    /** e.g. "gemini" / "Gemini" / "gemini-3.5-flash-lite"; null on the built-in engine. */
+    provider: provider?.name ?? null,
+    providerLabel: provider?.label ?? null,
+    model: provider?.chatModel ?? null,
+    role: context.access,
+  });
+});
 
 /**
  * POST /api/assistant/search
@@ -117,10 +139,16 @@ const getSuggestions = asyncHandler(async (_req, res) =>
  * endpoint that demonstrates the TF-IDF ranking during the viva.
  */
 const search = asyncHandler(async (req, res) => {
+  const context = await tools.buildContext(req.user || null);
   const query = String(req.body.query || req.query.q || '').trim();
   if (!query) throw ApiError.badRequest('A search query is required');
 
-  const entities = req.body.entities || (req.query.entities ? String(req.query.entities).split(',') : undefined);
+  const requested = req.body.entities || (req.query.entities ? String(req.query.entities).split(',') : undefined);
+  // Operational records stay out of a public user's results.
+  const allowed = tools.searchableEntities(context);
+  let entities = allowed ? (requested ? requested.filter((e) => allowed.includes(e)) : allowed) : requested;
+  // Every requested type was off limits: match nothing rather than everything.
+  if (entities && !entities.length) entities = ['none'];
   const k = Math.min(25, Math.max(1, Number.parseInt(req.body.k ?? req.query.k, 10) || 8));
 
   const hits = await assistant.retrieve(query, { k, entities });

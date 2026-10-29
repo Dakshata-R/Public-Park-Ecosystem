@@ -34,7 +34,7 @@ test.before(async () => {
   await seedDatabase({ force: true, quiet: true });
 
   tokens.admin = await login('admin@greenpulse.gov');
-  tokens.ecologist = await login('ecologist@greenpulse.gov');
+  tokens.officer2 = await login('karthik.gowda@greenpulse.gov');
   tokens.officer = await login('officer@greenpulse.gov');
   tokens.citizen = await login('citizen@greenpulse.gov');
 
@@ -227,17 +227,17 @@ test('module 4 · diversity indices are computed from stored observations', asyn
 });
 
 test('module 4 · the index preview validates its abundance vector', async () => {
-  const good = await post('/biodiversity/indices/preview', { abundances: [50, 40, 30] }, tokens.ecologist);
+  const good = await post('/biodiversity/indices/preview', { abundances: [50, 40, 30] }, tokens.officer2);
   assert.equal(good.status, 200);
   assert.equal(good.body.data.richness, 3);
 
   for (const abundances of [[-5, 10], ['a', 'b'], 'not-an-array', [null]]) {
-    const res = await post('/biodiversity/indices/preview', { abundances }, tokens.ecologist);
+    const res = await post('/biodiversity/indices/preview', { abundances }, tokens.officer2);
     assert.ok(res.status === 400 || res.status === 422, `${JSON.stringify(abundances)} returned ${res.status}`);
   }
 });
 
-test('module 4 · an ecologist can add a species; a citizen cannot', async () => {
+test('module 4 · a park officer can add a species; a citizen cannot', async () => {
   const body = {
     commonName: 'Integration Test Fig',
     scientificName: 'Ficus integrationis',
@@ -248,7 +248,7 @@ test('module 4 · an ecologist can add a species; a citizen cannot', async () =>
   const forbidden = await post('/biodiversity/species', body, tokens.citizen);
   assert.equal(forbidden.status, 403);
 
-  const created = await post('/biodiversity/species', body, tokens.ecologist);
+  const created = await post('/biodiversity/species', body, tokens.officer2);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   assert.equal(created.body.data.commonName, 'Integration Test Fig');
 
@@ -261,10 +261,10 @@ test('module 4 · an ecologist can add a species; a citizen cannot', async () =>
 
 test('module 5 · inference returns a normalised probability distribution', async () => {
   const res = await post('/ai/analyze', {
-    task: 'plant-id',
-    imageUrl: sampleDataUrl('plant-lantana-camara.jpg'),
+    task: 'wildlife',
+    imageUrl: sampleDataUrl('wildlife-green-bee-eater.jpg'),
     park: ids.park,
-  }, tokens.ecologist);
+  }, tokens.officer2);
 
   assert.equal(res.status, 201, JSON.stringify(res.body));
   const { detection } = res.body.data;
@@ -305,7 +305,7 @@ test('module 5 · inference rejects an unknown task', async () => {
     task: 'read-minds',
     imageUrl: 'https://example.org/x.jpg',
     park: ids.park,
-  }, tokens.ecologist);
+  }, tokens.officer2);
 
   assert.ok(res.status === 400 || res.status === 422, `got ${res.status}`);
 });
@@ -313,14 +313,14 @@ test('module 5 · inference rejects an unknown task', async () => {
 test('module 5 · the prediction comes from the pixels, not the request', async () => {
   // The same photograph under two different names gives the same answer…
   const heron = sampleDataUrl('wildlife-indian-pond-heron.jpg');
-  const first = await post('/ai/analyze', { task: 'wildlife', imageUrl: heron, imageName: 'a.jpg' }, tokens.ecologist);
-  const second = await post('/ai/analyze', { task: 'wildlife', imageUrl: heron, imageName: 'b.jpg' }, tokens.ecologist);
+  const first = await post('/ai/analyze', { task: 'wildlife', imageUrl: heron, imageName: 'a.jpg' }, tokens.officer2);
+  const second = await post('/ai/analyze', { task: 'wildlife', imageUrl: heron, imageName: 'b.jpg' }, tokens.officer2);
   assert.equal(first.status, 201, JSON.stringify(first.body));
   assert.equal(first.body.data.detection.prediction, 'Bird');
   assert.equal(second.body.data.detection.prediction, first.body.data.detection.prediction);
 
   // …and a different photograph gives a different one.
-  const butterfly = await post('/ai/analyze', { task: 'wildlife', imageUrl: sampleDataUrl('wildlife-plain-tiger.jpg') }, tokens.ecologist);
+  const butterfly = await post('/ai/analyze', { task: 'wildlife', imageUrl: sampleDataUrl('wildlife-plain-tiger.jpg') }, tokens.officer2);
   assert.equal(butterfly.body.data.detection.prediction, 'Butterfly or moth');
 
   // The evidence behind the call is returned with it.
@@ -330,27 +330,29 @@ test('module 5 · the prediction comes from the pixels, not the request', async 
   assert.equal(inference.model.name, 'MobileNetV2 1.0 (ImageNet-1k)');
 });
 
-test('module 5 · a confident fire photo opens an incident whose alert clears on resolution', async () => {
+test('module 5 · without a key the MobileNetV2 fallback answers, and the engine is recorded', async () => {
+  // No API key in tests, so the MobileNetV2 fallback answers.
   const res = await post('/ai/analyze', {
-    task: 'fire',
-    imageUrl: sampleDataUrl('eval-fire-bonfire.jpg'),
+    task: 'wildlife',
+    imageUrl: sampleDataUrl('wildlife-indian-pond-heron.jpg'),
     park: ids.park,
   }, tokens.officer);
   assert.equal(res.status, 201, JSON.stringify(res.body));
-  assert.equal(res.body.data.detection.prediction, 'Flames visible');
-  const { escalated } = res.body.data;
-  assert.ok(escalated, `no incident was opened: ${res.body.data.escalationRule.reason}`);
-
-  const alertsFor = async () =>
-    itemsOf(await get('/alerts?limit=200', tokens.officer)).filter((a) => a.relatedId === escalated.id);
-  assert.equal((await alertsFor()).filter((a) => a.status === 'active').length, 1, 'no active alert for the incident');
-
-  await post(`/incidents/${escalated.id}/resolve`, { resolutionNotes: 'Extinguished' }, tokens.officer);
-  assert.equal((await alertsFor()).filter((a) => a.status === 'active').length, 0, 'the alert survived the incident');
+  const { detection, inference } = res.body.data;
+  assert.equal(detection.prediction, 'Bird');
+  assert.equal(detection.engine, 'mobilenet-fallback');
+  assert.ok(detection.species?.common, 'the fallback names the closest ImageNet class');
+  // Wildlife findings carry no plant-health diagnosis or pixel statistics.
+  assert.equal(detection.diagnosis, undefined);
+  assert.equal(inference.diagnosis, undefined);
+  assert.equal(inference.stats, undefined);
+  assert.ok(inference.notes.some((n) => n.includes('GEMINI_API_KEY')), 'the fallback does not say what is missing');
+  // Findings never act on their own.
+  assert.equal(res.body.data.escalated, undefined);
 });
 
 test('module 5 · the analysed image is stored once and served back as a JPEG', async () => {
-  const res = await post('/ai/analyze', { task: 'fire', imageUrl: sampleDataUrl('fire-grassland-burn.jpg') }, tokens.officer);
+  const res = await post('/ai/analyze', { task: 'wildlife', imageUrl: sampleDataUrl('wildlife-green-bee-eater.jpg') }, tokens.officer);
   assert.equal(res.status, 201, JSON.stringify(res.body));
 
   const { imageUrl } = res.body.data.detection;
@@ -364,12 +366,13 @@ test('module 5 · the analysed image is stored once and served back as a JPEG', 
   assert.equal(bytes[1], 0xd8, 'not a JPEG');
 
   // Uploading the same photograph again reuses the stored copy.
-  const again = await post('/ai/analyze', { task: 'waste', imageUrl: sampleDataUrl('fire-grassland-burn.jpg') }, tokens.officer);
+  const again = await post('/ai/analyze', { task: 'wildlife', imageUrl: sampleDataUrl('wildlife-green-bee-eater.jpg') }, tokens.officer);
   assert.equal(again.body.data.detection.imageUrl, imageUrl);
 });
 
-test('module 5 · inference refuses bad input and internal addresses', async () => {
-  const anonymous = await post('/ai/analyze', { task: 'fire', imageUrl: sampleDataUrl('fire-smoke-plume.jpg') });
+test('module 5 · inference refuses bad input, internal addresses and retired tasks', async () => {
+  const heron = sampleDataUrl('wildlife-indian-pond-heron.jpg');
+  const anonymous = await post('/ai/analyze', { task: 'wildlife', imageUrl: heron });
   assert.equal(anonymous.status, 401, 'anonymous inference was accepted');
 
   const cases = [
@@ -381,24 +384,31 @@ test('module 5 · inference refuses bad input and internal addresses', async () 
     'data:image/jpeg;base64,bm90IGFuIGltYWdl', // "not an image"
   ];
   for (const imageUrl of cases) {
-    const res = await post('/ai/analyze', { task: 'fire', imageUrl }, tokens.officer);
+    const res = await post('/ai/analyze', { task: 'wildlife', imageUrl }, tokens.officer);
     assert.equal(res.status, 400, `${imageUrl.slice(0, 40)} returned ${res.status}`);
+  }
+
+  // AI Monitoring is wildlife recognition only: litter, fire, tree & foliage
+  // health and plant & fungus recognition were removed.
+  for (const task of ['fire', 'waste', 'tree-disease', 'plant-id']) {
+    const res = await post('/ai/analyze', { task, imageUrl: heron }, tokens.officer);
+    assert.ok(res.status === 400 || res.status === 422, `the retired '${task}' task returned ${res.status}`);
   }
 });
 
 test('module 5 · a reviewer must correct a rejection to a label the task defines', async () => {
-  const gallery = itemsOf(await get('/ai/gallery?task=wildlife', tokens.ecologist));
+  const gallery = itemsOf(await get('/ai/gallery?task=wildlife', tokens.officer2));
   const detection = gallery[0];
   assert.ok(detection, 'no seeded wildlife detection');
 
-  const bad = await post(`/ai/${detection.id}/review`, { verdict: 'rejected', correctedLabel: 'Unicorn' }, tokens.ecologist);
+  const bad = await post(`/ai/${detection.id}/review`, { verdict: 'rejected', correctedLabel: 'Unicorn' }, tokens.officer2);
   assert.equal(bad.status, 400);
 
-  const good = await post(`/ai/${detection.id}/review`, { verdict: 'rejected', correctedLabel: 'No animal detected' }, tokens.ecologist);
+  const good = await post(`/ai/${detection.id}/review`, { verdict: 'rejected', correctedLabel: 'No animal detected' }, tokens.officer2);
   assert.equal(good.status, 200);
   assert.equal(good.body.data.correctedLabel, 'No animal detected');
 
-  const stats = await get('/ai/stats', tokens.ecologist);
+  const stats = await get('/ai/stats', tokens.officer2);
   assert.equal(stats.body.data.confidenceDistribution.length, 5, 'confidence bands missing');
   assert.ok(stats.body.data.review.precision !== null, 'precision was not computed after a review');
 });
@@ -456,7 +466,7 @@ test('modules 7·8·9 · a citizen report escalates to an incident and a work or
   assert.equal(report.body.data.status, 'submitted');
 
   // 2. The community upvotes it.
-  const upvoted = await post(`/citizen/reports/${reportId}/upvote`, {}, tokens.ecologist);
+  const upvoted = await post(`/citizen/reports/${reportId}/upvote`, {}, tokens.officer2);
   assert.equal(upvoted.status, 200);
   assert.ok(upvoted.body.data.upvotes >= 1);
 
@@ -486,35 +496,42 @@ test('modules 7·8·9 · a citizen report escalates to an incident and a work or
     assert.ok(previous >= current, 'the triage queue is not ordered by descending priority');
   }
 
-  // 5. It is assigned to an officer.
-  const officers = itemsOf(await get('/admin/users?role=officer', tokens.admin));
-  assert.ok(officers.length > 0, 'no officers in the seed');
-  const assigned = await post(`/incidents/${incidentId}/assign`, { assignedTo: officers[0].id }, tokens.admin);
-  assert.equal(assigned.status, 200);
+  // 5. Only the administrator assigns, and assigning puts a work order on
+  //    the officer's own task list.
+  const me = (await get('/auth/me', tokens.officer)).body.data;
+  const officerId = me.user?.id ?? me.id;
+  assert.equal((await post(`/incidents/${incidentId}/assign`, { assignedTo: officerId }, tokens.officer)).status, 403);
+
+  const assigned = await post(`/incidents/${incidentId}/assign`, { assignedTo: officerId, estimatedCost: 1800, estimatedHours: 3 }, tokens.admin);
+  assert.equal(assigned.status, 200, JSON.stringify(assigned.body));
   assert.equal(assigned.body.data.status, 'assigned');
+  const workOrderId = assigned.body.data.workOrder?.id;
+  assert.ok(workOrderId, 'assigning did not raise a work order');
 
-  // 6. A work order is scheduled against it.
-  const workOrder = await post('/maintenance', {
-    title: 'Clear the fallen branch',
-    type: 'tree-trimming',
-    park: ids.park,
-    priority: 'high',
-    scheduledDate: new Date(Date.now() + 86_400_000).toISOString(),
+  // 6. The order is on the assignee's list, assigned to them — and on no
+  //    other officer's.
+  const mine = itemsOf(await get(`/maintenance?sourceIncident=${incidentId}`, tokens.officer));
+  const order = mine.find((w) => w.id === workOrderId);
+  assert.ok(order, 'the assigned officer cannot see their task');
+  assert.equal(order.assignedTo?.id, officerId, 'the work order is not assigned to the officer');
+  assert.equal(order.estimatedCost, 1800, 'the estimate entered at assignment was not saved');
+  assert.equal(order.estimatedHours, 3);
+  const theirs = itemsOf(await get(`/maintenance?sourceIncident=${incidentId}`, tokens.officer2));
+  assert.ok(!theirs.some((w) => w.id === workOrderId), 'another officer can see this task');
+  assert.equal((await patch(`/maintenance/${workOrderId}/progress`, { progress: 50 }, tokens.officer2)).status, 403);
+
+  // 7. The officer records progress; the incident follows the work order,
+  //    and completing it resolves the incident.
+  const started = await patch(`/maintenance/${workOrderId}/progress`, { progress: 40 }, tokens.officer);
+  assert.equal(started.status, 200);
+  assert.equal((await get(`/incidents/${incidentId}`, tokens.admin)).body.data.status, 'in-progress');
+
+  const progressed = await patch(`/maintenance/${workOrderId}/progress`, {
+    progress: 100, completionNotes: 'Branch removed and the path reopened.',
   }, tokens.officer);
-
-  assert.equal(workOrder.status, 201, JSON.stringify(workOrder.body));
-  const workOrderId = workOrder.body.data.id;
-
-  // 7. Progress is recorded, then the incident is resolved.
-  const progressed = await patch(`/maintenance/${workOrderId}/progress`, { progress: 100 }, tokens.officer);
   assert.equal(progressed.status, 200);
   assert.equal(progressed.body.data.progress, 100);
-
-  const resolved = await post(`/incidents/${incidentId}/resolve`, {
-    resolutionNotes: 'Branch removed and the path reopened.',
-  }, tokens.officer);
-  assert.equal(resolved.status, 200);
-  assert.equal(resolved.body.data.status, 'resolved');
+  assert.equal((await get(`/incidents/${incidentId}`, tokens.admin)).body.data.status, 'resolved');
 
   // 8. The resolution is recorded in the incident's timeline.
   const detail = await get(`/incidents/${incidentId}`, tokens.officer);
@@ -535,7 +552,7 @@ test('module 7 · my-reports returns only the caller‚Äôs own submissions', a
   const mine = await get('/citizen/my-reports', tokens.citizen);
   assert.equal(mine.status, 200);
 
-  const others = await get('/citizen/my-reports', tokens.ecologist);
+  const others = await get('/citizen/my-reports', tokens.officer2);
   assert.equal(others.status, 200);
 
   const mineIds = new Set(itemsOf(mine).map((r) => r.id));
@@ -613,6 +630,39 @@ test('module 11 · the assistant routes distinct questions to distinct intents',
   assert.notEqual(airIntent, bioIntent, 'both questions routed to the same intent');
 });
 
+test('module 11 · "my tasks" answers for the signed-in officer, and not for a citizen', async () => {
+  const question = 'Tell me the high priority tasks assigned to me';
+  const officer = await post('/assistant/ask', { question }, tokens.officer);
+  assert.equal(officer.status, 201, JSON.stringify(officer.body));
+  assert.equal(officer.body.data.engine, 'built-in');
+  assert.equal(officer.body.data.intent, 'myTasks');
+  assert.match(officer.body.data.message.content, /assigned to you/);
+  assert.deepEqual(officer.body.data.message.toolsUsed, ['get_my_tasks']);
+
+  const citizen = await post('/assistant/ask', { question }, tokens.citizen);
+  assert.match(citizen.body.data.message.content, /park staff only/);
+});
+
+test('module 11 · the pending-review count is staff-only', async () => {
+  const admin = await post('/assistant/ask', { question: 'Tell me the count of pending reviews' }, tokens.admin);
+  assert.equal(admin.body.data.intent, 'pendingReviews');
+  assert.match(admin.body.data.message.content, /awaiting review|queues are clear/);
+
+  const guest = await post('/assistant/ask', { question: 'Tell me the count of pending reviews' });
+  assert.match(guest.body.data.message.content, /Sign in/);
+});
+
+test('module 11 · suggestions follow the asker\'s role', async () => {
+  const officer = await get('/assistant/suggestions', tokens.officer);
+  assert.equal(officer.body.data.role, 'officer');
+  assert.ok(officer.body.data.suggestions.some((q) => /assigned to me/.test(q)));
+  assert.ok(officer.body.data.capabilities.includes('get_my_tasks'));
+
+  const guest = await get('/assistant/suggestions');
+  assert.ok(!guest.body.data.capabilities.includes('get_my_tasks'));
+  assert.ok(!guest.body.data.suggestions.some((q) => /assigned to me|pending reviews/.test(q)));
+});
+
 test('module 11 · an empty question is rejected rather than answered', async () => {
   for (const question of ['', '   ', null]) {
     const res = await post('/assistant/ask', { question }, tokens.citizen);
@@ -670,11 +720,13 @@ test('the role hierarchy is enforced server-side on every privileged route', asy
   const matrix = [
     { method: 'GET', path: '/admin/users', allowed: ['admin'] },
     { method: 'GET', path: '/admin/audit-log', allowed: ['admin'] },
-    { method: 'GET', path: '/incidents/triage', allowed: ['officer', 'admin'] },
-    { method: 'GET', path: '/incidents', allowed: ['officer', 'admin'] },
+    { method: 'GET', path: '/incidents/triage', allowed: ['officer2', 'officer', 'admin'] },
+    { method: 'GET', path: '/incidents', allowed: ['officer2', 'officer', 'admin'] },
+    { method: 'GET', path: '/maintenance', allowed: ['officer2', 'officer', 'admin'] },
+    { method: 'GET', path: '/users/staff', allowed: ['officer2', 'officer', 'admin'] },
   ];
 
-  const callers = ['citizen', 'ecologist', 'officer', 'admin'];
+  const callers = ['citizen', 'officer2', 'officer', 'admin'];
 
   for (const { method, path, allowed } of matrix) {
     for (const role of callers) {
@@ -871,18 +923,18 @@ test('an account can upvote a report once, and withdraw it', async () => {
   const report = itemsOf(await get('/citizen/reports?limit=1', tokens.officer))[0];
 
   // Clear any seeded vote by this account first, so the test is self-contained.
-  await del(`/citizen/reports/${report.id}/upvote`, tokens.ecologist);
-  const start = (await get(`/citizen/reports/${report.id}`, tokens.ecologist)).body.data.upvotes;
+  await del(`/citizen/reports/${report.id}/upvote`, tokens.officer2);
+  const start = (await get(`/citizen/reports/${report.id}`, tokens.officer2)).body.data.upvotes;
 
-  const first = await post(`/citizen/reports/${report.id}/upvote`, {}, tokens.ecologist);
-  const repeat = await post(`/citizen/reports/${report.id}/upvote`, {}, tokens.ecologist);
+  const first = await post(`/citizen/reports/${report.id}/upvote`, {}, tokens.officer2);
+  const repeat = await post(`/citizen/reports/${report.id}/upvote`, {}, tokens.officer2);
   assert.equal(first.body.data.upvotes, start + 1);
   assert.equal(repeat.body.data.upvotes, start + 1, 'a second upvote from the same account counted');
 
-  const mine = await get('/citizen/my-upvotes', tokens.ecologist);
+  const mine = await get('/citizen/my-upvotes', tokens.officer2);
   assert.ok(mine.body.data.includes(report.id));
 
-  const withdrawn = await del(`/citizen/reports/${report.id}/upvote`, tokens.ecologist);
+  const withdrawn = await del(`/citizen/reports/${report.id}/upvote`, tokens.officer2);
   assert.equal(withdrawn.body.data.upvotes, start);
 
   // Who voted is never exposed.
@@ -914,7 +966,7 @@ test('officers can list assignable staff without admin rights', async () => {
   const staff = await get('/users/staff', tokens.officer);
   assert.equal(staff.status, 200);
   assert.ok(itemsOf(staff).length > 0);
-  assert.ok(itemsOf(staff).every((u) => ['officer', 'ecologist', 'admin'].includes(u.role)));
+  assert.ok(itemsOf(staff).every((u) => u.role === 'officer'));
   assert.ok(!JSON.stringify(staff.body).includes('email'), 'the staff directory exposes email addresses');
 
   assert.equal((await get('/users/staff', tokens.citizen)).status, 403);
@@ -947,14 +999,14 @@ test('a scheduled work order past its date is reported overdue', async () => {
   const created = await post('/maintenance', {
     title: 'Overdue sweep test', type: 'inspection', park: ids.park,
     scheduledDate: new Date(Date.now() + 3_600_000).toISOString(),
-  }, tokens.officer);
+  }, tokens.admin);
   assert.equal(created.status, 201);
 
   // Move the date into the past without saving through the document hooks.
   const { WorkOrder } = require('../../src/models');
   await WorkOrder.updateOne({ _id: created.body.data.id }, { $set: { scheduledDate: new Date(Date.now() - 86_400_000) } });
 
-  const listed = itemsOf(await get('/maintenance?q=Overdue sweep test', tokens.officer));
+  const listed = itemsOf(await get('/maintenance?q=Overdue sweep test', tokens.admin));
   assert.equal(listed.find((w) => w.id === created.body.data.id)?.status, 'overdue');
 });
 
@@ -979,10 +1031,63 @@ test('one incident cannot have two open work orders', async () => {
     type: 'tree-fall', title: 'Duplicate work order test', park: ids.park, severity: 3,
     location: { type: 'Point', coordinates: [77.5946, 12.9716] },
   }, tokens.officer);
-  const first = await post(`/incidents/${incident.body.data.id}/work-order`, {}, tokens.officer);
-  const second = await post(`/incidents/${incident.body.data.id}/work-order`, {}, tokens.officer);
+  assert.equal((await post(`/incidents/${incident.body.data.id}/work-order`, {}, tokens.officer)).status, 403);
+  const first = await post(`/incidents/${incident.body.data.id}/work-order`, {}, tokens.admin);
+  const second = await post(`/incidents/${incident.body.data.id}/work-order`, {}, tokens.admin);
   assert.equal(first.status, 201);
   assert.equal(second.status, 409);
+});
+
+test('assigning an incident hands its existing work order to the new officer', async () => {
+  const incident = await post('/incidents', {
+    type: 'vandalism', title: 'Reassignment sync test', park: ids.park, severity: 3,
+    location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+  }, tokens.officer);
+  const id = incident.body.data.id;
+
+  // Raised before anyone was assigned — the case that used to stay "Unassigned".
+  const order = await post(`/incidents/${id}/work-order`, {}, tokens.admin);
+  assert.equal(order.status, 201);
+  assert.equal(order.body.data.assignedTo, null);
+
+  const staff = itemsOf(await get('/users/staff', tokens.admin));
+  assert.ok(staff.length >= 2 && staff.every((u) => u.role === 'officer'), 'staff picker must list park officers only');
+
+  const assigned = await post(`/incidents/${id}/assign`, { assignedTo: staff[0].id, estimatedCost: 2500 }, tokens.admin);
+  assert.equal(assigned.status, 200);
+  assert.equal(assigned.body.data.workOrder.id, order.body.data.id, 'a second work order was raised');
+
+  const synced = (await get(`/maintenance/${order.body.data.id}`, tokens.admin)).body.data;
+  assert.equal(synced.assignedTo?.id, staff[0].id);
+  assert.equal(synced.estimatedCost, 2500, 'the estimate did not reach the existing work order');
+  assert.equal((await post(`/incidents/${id}/assign`, { assignedTo: staff[0].id, estimatedCost: -5 }, tokens.admin)).status, 422);
+
+  // An administrator is not an assignee.
+  const admins = itemsOf(await get('/admin/users?role=admin', tokens.admin));
+  assert.equal((await post(`/incidents/${id}/assign`, { assignedTo: admins[0].id }, tokens.admin)).status, 400);
+});
+
+test('a citizen can attach a photo to a wildlife sighting', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const dir = path.resolve(__dirname, '../../src/seed/data/sample-images');
+  const file = fs.readdirSync(dir).find((f) => /\.jpe?g$/i.test(f));
+  const dataUrl = `data:image/jpeg;base64,${fs.readFileSync(path.join(dir, file)).toString('base64')}`;
+
+  const photo = await post('/citizen/photos', { image: dataUrl }, tokens.citizen);
+  assert.equal(photo.status, 201, JSON.stringify(photo.body));
+  assert.match(photo.body.data.url, /^\/api\/ai\/images\/[0-9a-f]{24}$/);
+
+  const report = await post('/citizen/reports', {
+    category: 'wildlife-sighting', title: 'Heron by the lake', description: 'A pond heron fishing at the edge of the lake.',
+    park: ids.park, location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+    speciesName: 'Indian pond heron', images: [photo.body.data.url],
+  }, tokens.citizen);
+  assert.equal(report.status, 201, JSON.stringify(report.body));
+  assert.equal(report.body.data.speciesName, 'Indian pond heron');
+  assert.deepEqual(report.body.data.images, [photo.body.data.url]);
+
+  assert.equal((await post('/citizen/photos', { image: dataUrl })).status, 401);
 });
 
 test('virtual and simulated sensors refuse posted readings', async () => {
@@ -1006,7 +1111,7 @@ test('a sensor with no readings reports no value, not zero', async () => {
 });
 
 test('a generated report is computed from the data and published on request', async () => {
-  const generated = await post('/analytics/reports/generate', { type: 'biodiversity', days: 365 }, tokens.ecologist);
+  const generated = await post('/analytics/reports/generate', { type: 'biodiversity', days: 365 }, tokens.officer2);
   assert.equal(generated.status, 201, JSON.stringify(generated.body));
   const report = generated.body.data;
   assert.equal(report.status, 'draft');
@@ -1016,7 +1121,7 @@ test('a generated report is computed from the data and published on request', as
   // Drafts are invisible to the public…
   assert.equal((await get(`/analytics/reports/${report.id}`)).status, 404);
   // …until published.
-  const published = await patch(`/analytics/reports/${report.id}`, { status: 'published' }, tokens.ecologist);
+  const published = await patch(`/analytics/reports/${report.id}`, { status: 'published' }, tokens.officer2);
   assert.equal(published.status, 200);
   assert.equal((await get(`/analytics/reports/${report.id}`)).status, 200);
 

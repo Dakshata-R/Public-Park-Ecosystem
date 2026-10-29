@@ -122,7 +122,7 @@ export const qk = {
   },
   assistant: {
     all: ['assistant'] as const,
-    suggestions: ['assistant', 'suggestions'] as const,
+    suggestions: (role: string) => ['assistant', 'suggestions', role] as const,
     history: (sessionId: string) => ['assistant', 'history', sessionId] as const,
   },
   integrations: {
@@ -360,8 +360,9 @@ export const useEcoReports = (filters?: Filters) =>
 // Module 11 — Assistant
 // ---------------------------------------------------------------------------
 
-export const useAssistantSuggestions = () =>
-  useQuery({ queryKey: qk.assistant.suggestions, queryFn: () => assistantApi.suggestions(), staleTime: Infinity });
+/** Suggestions depend on who is asking, so they are cached per role. */
+export const useAssistantSuggestions = (role = 'guest') =>
+  useQuery({ queryKey: qk.assistant.suggestions(role), queryFn: () => assistantApi.suggestions(), staleTime: Infinity });
 
 /** A stored conversation, so a reload does not lose it. */
 export const useAssistantHistory = (sessionId?: string | null) =>
@@ -559,10 +560,8 @@ export const useAnalyzeImage = () =>
     (body: { task: AiTask; imageUrl: string; imageName?: string; park?: string }) => aiApi.analyze(body),
     {
       successMessage: (r) =>
-        r.escalated
-          ? `${r.inference.prediction} — incident ${r.escalated.referenceCode} opened automatically`
-          : `${r.inference.prediction} (${r.inference.confidence}% confidence)`,
-      invalidate: [qk.ai.all, qk.incidents.all, qk.dashboard.all],
+        `${r.inference.species ? `${r.inference.species.common} — ` : ''}${r.inference.prediction} (${r.inference.confidence}% confidence)`,
+      invalidate: [qk.ai.all, qk.dashboard.all],
     }
   );
 
@@ -654,10 +653,16 @@ export const useUpdateIncident = () =>
   );
 
 export const useAssignIncident = () =>
-  useApiMutation(({ id, assignedTo }: { id: string; assignedTo: string }) => incidentApi.assign(id, assignedTo), {
-    successMessage: 'Officer assigned',
-    invalidate: [qk.incidents.all, qk.dashboard.all],
-  });
+  useApiMutation(
+    ({ id, ...body }: { id: string; assignedTo: string; estimatedCost?: number; estimatedHours?: number }) =>
+      incidentApi.assign(id, body),
+    {
+      successMessage: 'Officer assigned — the task is now on their maintenance list',
+      // Assignment hands the incident's work order to the officer, so the
+      // maintenance board must refetch too.
+      invalidate: [qk.incidents.all, qk.maintenance.all, qk.dashboard.all],
+    }
+  );
 
 export const useResolveIncident = () =>
   useApiMutation(
@@ -712,7 +717,7 @@ export const useCreateWorkOrder = () =>
 export const useUpdateWorkOrder = () =>
   useApiMutation(({ id, body }: { id: string; body: Partial<WorkOrder> }) => maintenanceApi.update(id, body), {
     successMessage: 'Work order updated',
-    invalidate: [qk.maintenance.all, qk.assets.all, qk.dashboard.all],
+    invalidate: [qk.maintenance.all, qk.incidents.all, qk.assets.all, qk.dashboard.all],
   });
 
 export const useUpdateProgress = () =>
@@ -721,7 +726,8 @@ export const useUpdateProgress = () =>
       maintenanceApi.updateProgress(id, body),
     {
       successMessage: (w) => (w.status === 'completed' ? 'Work order completed' : `Progress set to ${w.progress}%`),
-      invalidate: [qk.maintenance.all, qk.assets.all, qk.dashboard.all],
+      // Progress moves the source incident along (in progress → resolved).
+      invalidate: [qk.maintenance.all, qk.incidents.all, qk.alerts.all, qk.assets.all, qk.dashboard.all],
     }
   );
 

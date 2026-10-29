@@ -84,7 +84,7 @@ app.get('/', (_req, res) => {
   res.json({
     success: true,
     data: {
-      name: 'GreenPulse API',
+      name: 'Park Ecosystem Portal API',
       docs: '/api',
       health: '/api/health',
     },

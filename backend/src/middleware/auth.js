@@ -3,13 +3,13 @@
 /**
  * Authentication and role-based access control.
  *
- * Roles form a strict hierarchy, agreed with the project supervisor in
- * Week 6:
+ * Roles form a strict hierarchy:
  *
- *   citizen (1)  — report issues, upload sightings, read public data
- *   ecologist(2) — everything a citizen can do + curate biodiversity records
- *   officer  (3) — operational duties: incidents, work orders, assets, sensors
- *   admin    (4) — full control including user management and settings
+ *   citizen (1) — report issues, upload sightings, read public and sensor data
+ *   officer (3) — park officer: works the tasks assigned to them, reviews
+ *                 citizen reports, sightings and AI detections
+ *   admin   (4) — full control: assigns incidents and work orders, monitors
+ *                 all progress, manages users and settings
  *
  * `requireRole('officer')` therefore also admits admins, which avoids
  * listing every superior role at each route.
@@ -21,7 +21,7 @@ const ApiError = require('../utils/ApiError');
 const User = require('../models/User');
 const asyncHandler = require('./asyncHandler');
 
-const ROLE_RANK = { citizen: 1, ecologist: 2, officer: 3, admin: 4 };
+const ROLE_RANK = { citizen: 1, officer: 3, admin: 4 };
 
 /** Sign an access token for a user document. */
 function signToken(user) {
@@ -75,7 +75,7 @@ const optionalAuth = asyncHandler(async (req, _res, next) => {
 
 /**
  * Require at least the given role. Must run after `requireAuth`.
- * @param {'citizen'|'ecologist'|'officer'|'admin'} minimumRole
+ * @param {'citizen'|'officer'|'admin'} minimumRole
  */
 function requireRole(minimumRole) {
   const required = ROLE_RANK[minimumRole];

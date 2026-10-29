@@ -48,6 +48,8 @@ async function start() {
     }
   }
 
+  await require('./seed/migrate').runMigrations();
+
   startSensorRefresh();
   vision.warmUp();
 
@@ -58,7 +60,7 @@ async function start() {
   overdueTimer.unref();
 
   server = app.listen(env.port, () => {
-    logger.success(`GreenPulse API listening on port ${env.port}`);
+    logger.success(`Park Ecosystem Portal API listening on port ${env.port}`);
     logger.info(`Environment: ${env.nodeEnv} · CORS: ${env.corsOrigins.join(', ')}`);
     if (!env.isProduction) logger.info(`API index: http://localhost:${env.port}/api`);
   });

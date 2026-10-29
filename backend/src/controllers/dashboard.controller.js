@@ -92,7 +92,17 @@ const getOverview = asyncHandler(async (req, res) => {
     { key: 'waterQuality', label: 'Water Quality', value: health.subIndices.waterQuality, unit: '/100', score: health.subIndices.waterQuality, icon: 'Droplets' },
     { key: 'soilHealth', label: 'Soil Health', value: health.subIndices.soilHealth, unit: '/100', score: health.subIndices.soilHealth, icon: 'Sprout' },
     { key: 'treeHealth', label: 'Tree Health', value: health.subIndices.treeHealth, unit: '/100', score: health.subIndices.treeHealth, icon: 'TreePine' },
-    { key: 'species', label: 'Species Recorded', value: biodiversity.richness, unit: `of ${speciesCount}`, score: null, icon: 'Sparkles' },
+    {
+      key: 'species',
+      label: 'Species Recorded',
+      value: biodiversity.richness,
+      unit: 'species',
+      // The catalogue total is citywide; say so, or "335 of 596" reads as a
+      // share of this park's own species.
+      hint: parkId ? `In this park since 2023 · ${speciesCount} citywide` : `All parks since 2023 · ${speciesCount} catalogued`,
+      score: null,
+      icon: 'Sparkles',
+    },
     { key: 'alerts', label: 'Active Alerts', value: activeAlerts, unit: 'alerts', score: activeAlerts === 0 ? 100 : Math.max(0, 100 - activeAlerts * 10), icon: 'BellRing' },
   ];
 

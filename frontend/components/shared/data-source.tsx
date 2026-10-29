@@ -3,7 +3,7 @@
 /**
  * Provenance labels.
  *
- * GreenPulse mixes real data (OpenStreetMap, GBIF, Open-Meteo, the vision
+ * Park Ecosystem Portal mixes real data (OpenStreetMap, GBIF, Open-Meteo, the vision
  * model) with modelled sensor readings and seeded workflow records. Every
  * place a value is shown, its origin should be one glance away — these are
  * the components that say so, worded the same way everywhere.

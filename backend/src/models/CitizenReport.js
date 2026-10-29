@@ -39,8 +39,10 @@ const citizenReportSchema = new mongoose.Schema(
 
     images: { type: [String], default: [] },
 
-    /** For wildlife sightings: the species the citizen (or the AI) identified. */
+    /** For wildlife sightings: the catalogue species identified (by the citizen or the reviewer). */
     species: { type: mongoose.Schema.Types.ObjectId, ref: 'Species', default: null },
+    /** What the citizen called it, in their own words — "Indian pond heron", "rain tree". */
+    speciesName: { type: String, trim: true, default: '', maxlength: 160 },
 
     linkedIncident: { type: mongoose.Schema.Types.ObjectId, ref: 'Incident', default: null },
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

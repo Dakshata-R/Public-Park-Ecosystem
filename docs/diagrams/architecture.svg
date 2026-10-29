@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1310" viewBox="0 0 1800 1310">
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+  </marker>
+  <marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+  </marker>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.08"/>
+  </filter>
+</defs>
+<rect width="1800" height="1310" fill="#ffffff"/>
+<text x="60" y="52" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="30" font-weight="700" fill="#14532d" text-anchor="start" dominant-baseline="central">Park Ecosystem Portal — Software Architecture</text>
+<text x="60" y="88" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="500" fill="#475569" text-anchor="start" dominant-baseline="central">Layered web system: Next.js client · Express REST API · domain services · MongoDB · open-data APIs</text>
+<rect x="60" y="120" width="1680" height="150" rx="18" fill="#f0f9ff" stroke="#bae6fd" stroke-width="2"/>
+<rect x="82" y="140" width="72" height="26" rx="13" fill="#0284c7"/>
+<text x="118" y="153" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="central">CLIENT</text>
+<text x="168" y="153" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a" text-anchor="start" dominant-baseline="central">Next.js 13 web app</text>
+<text x="407.616" y="154" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#64748b" text-anchor="start" dominant-baseline="central">React · TypeScript</text>
+<rect x="92" y="190" width="142.85714285714286" height="50" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.6"/>
+<text x="163.42857142857144" y="215" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">React</text>
+<rect x="244.85714285714286" y="190" width="142.85714285714286" height="50" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.6"/>
+<text x="316.2857142857143" y="215" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">TypeScript</text>
+<rect x="397.7142857142857" y="190" width="142.85714285714286" height="50" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.6"/>
+<text x="469.14285714285717" y="215" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Tailwind CSS</text>
+<rect x="550.5714285714286" y="190" width="142.85714285714286" height="50" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.6"/>
+<text x="622" y="215" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">shadcn/ui</text>
+<rect x="703.4285714285714" y="190" width="142.85714285714286" height="50" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.6"/>
+<text x="774.8571428571429" y="215" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">TanStack Query</text>
+<rect x="856.2857142857143" y="190" width="142.85714285714286" height="50" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.6"/>
+<text x="927.7142857142858" y="215" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Leaflet maps</text>
+<rect x="1009.1428571428571" y="190" width="142.85714285714286" height="50" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.6"/>
+<text x="1080.5714285714284" y="215" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Recharts</text>
+<text x="1200" y="215" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#0c4a6e" text-anchor="start" dominant-baseline="central">Role-based UI</text>
+<rect x="1200" y="232" width="120" height="34" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.6"/>
+<text x="1260" y="249" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0c4a6e" text-anchor="middle" dominant-baseline="central">Citizen</text>
+<rect x="1330" y="232" width="150" height="34" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.6"/>
+<text x="1405" y="249" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#78350f" text-anchor="middle" dominant-baseline="central">Park Officer</text>
+<rect x="1490" y="232" width="100" height="34" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.6"/>
+<text x="1540" y="249" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#4c1d95" text-anchor="middle" dominant-baseline="central">Admin</text>
+<path d="M900,270 L900,320" fill="none" stroke="#475569" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="910.3" y="282" width="296" height="26" rx="13" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="1058.3" y="295" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#334155" text-anchor="middle" dominant-baseline="central">REST / JSON over HTTPS · Bearer JWT</text>
+<rect x="60" y="320" width="1680" height="250" rx="18" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="2"/>
+<rect x="82" y="340" width="51" height="26" rx="13" fill="#16a34a"/>
+<text x="107.5" y="353" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="central">API</text>
+<text x="147" y="353" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a" text-anchor="start" dominant-baseline="central">Node.js + Express REST API</text>
+<text x="485.11199999999997" y="354" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#64748b" text-anchor="start" dominant-baseline="central">/api/*</text>
+<text x="92" y="408" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="700" fill="#166534" text-anchor="start" dominant-baseline="central">Request pipeline</text>
+<rect x="242" y="390" width="180" height="36" rx="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.6"/>
+<text x="332" y="408" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Rate limiting</text>
+<path d="M426,408 L456,408" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="460" y="390" width="150" height="36" rx="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.6"/>
+<text x="535" y="408" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">JWT auth</text>
+<path d="M614,408 L644,408" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="648" y="390" width="200" height="36" rx="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.6"/>
+<text x="748" y="408" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Role-based access</text>
+<path d="M852,408 L882,408" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="886" y="390" width="180" height="36" rx="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.6"/>
+<text x="976" y="408" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Zod validation</text>
+<path d="M1070,408 L1100,408" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1104" y="390" width="200" height="36" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="1204" y="408" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Module controller</text>
+<path d="M1308,408 L1338,408" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1342" y="390" width="140" height="36" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="1412" y="408" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Audit log</text>
+<text x="92" y="457" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="700" fill="#166534" text-anchor="start" dominant-baseline="central">Modules</text>
+<rect x="92" y="472" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="249.6" y="491" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Parks / GIS</text>
+<rect x="417.2" y="472" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="574.8" y="491" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Biodiversity</text>
+<rect x="742.4" y="472" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="900" y="491" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Sensors</text>
+<rect x="1067.6" y="472" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="1225.1999999999998" y="491" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Citizen reports</text>
+<rect x="1392.8" y="472" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="1550.3999999999999" y="491" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Incidents &amp; triage</text>
+<rect x="92" y="520" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="249.6" y="539" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Maintenance / work orders</text>
+<rect x="417.2" y="520" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="574.8" y="539" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">AI monitoring</text>
+<rect x="742.4" y="520" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="900" y="539" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Eco Assistant</text>
+<rect x="1067.6" y="520" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="1225.1999999999998" y="539" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Analytics / reports</text>
+<rect x="1392.8" y="520" width="315.2" height="38" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.6"/>
+<text x="1550.3999999999999" y="539" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Admin</text>
+<path d="M900,570 L900,620" fill="none" stroke="#475569" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="914.4" y="582" width="61" height="26" rx="13" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="944.9" y="595" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#334155" text-anchor="middle" dominant-baseline="central">calls</text>
+<rect x="60" y="620" width="1680" height="230" rx="18" fill="#f0fdfa" stroke="#99f6e4" stroke-width="2"/>
+<rect x="82" y="640" width="86" height="26" rx="13" fill="#0d9488"/>
+<text x="125" y="653" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="central">SERVICES</text>
+<text x="182" y="653" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a" text-anchor="start" dominant-baseline="central">Domain services</text>
+<text x="384.67999999999995" y="654" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#64748b" text-anchor="start" dominant-baseline="central">one implementation, many callers</text>
+<rect x="92" y="686" width="395" height="68" rx="10" fill="#ffffff" stroke="#5eead4" stroke-width="1.6"/>
+<text x="289.5" y="710" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Priority / triage</text>
+<text x="289.5" y="730" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#475569" text-anchor="middle" dominant-baseline="central">hazard × exposure × age → 0–100</text>
+<rect x="499" y="686" width="395" height="68" rx="10" fill="#ffffff" stroke="#5eead4" stroke-width="1.6"/>
+<text x="696.5" y="710" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Ecosystem health score</text>
+<text x="696.5" y="730" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#475569" text-anchor="middle" dominant-baseline="central">weighted park index, graded</text>
+<rect x="906" y="686" width="395" height="68" rx="10" fill="#ffffff" stroke="#5eead4" stroke-width="1.6"/>
+<text x="1103.5" y="710" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Biodiversity indices</text>
+<text x="1103.5" y="730" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#475569" text-anchor="middle" dominant-baseline="central">Shannon · Simpson · Pielou · richness</text>
+<rect x="1313" y="686" width="395" height="68" rx="10" fill="#ffffff" stroke="#5eead4" stroke-width="1.6"/>
+<text x="1510.5" y="710" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Workflow</text>
+<text x="1510.5" y="730" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#475569" text-anchor="middle" dominant-baseline="central">incident → work order → resolved</text>
+<rect x="92" y="766" width="395" height="68" rx="10" fill="#ffffff" stroke="#5eead4" stroke-width="1.6"/>
+<text x="289.5" y="790" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">AQI</text>
+<text x="289.5" y="810" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#475569" text-anchor="middle" dominant-baseline="central">CPCB sub-indices from pollutants</text>
+<rect x="499" y="766" width="395" height="68" rx="10" fill="#ffffff" stroke="#5eead4" stroke-width="1.6"/>
+<text x="696.5" y="790" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Anomaly detection</text>
+<text x="696.5" y="810" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#475569" text-anchor="middle" dominant-baseline="central">z-score · robust z · IQR vote</text>
+<rect x="906" y="766" width="395" height="68" rx="10" fill="#ffffff" stroke="#5eead4" stroke-width="1.6"/>
+<text x="1103.5" y="790" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Wildlife vision</text>
+<text x="1103.5" y="810" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#475569" text-anchor="middle" dominant-baseline="central">MobileNetV2 (TF.js) · LLM*</text>
+<rect x="1313" y="766" width="395" height="68" rx="10" fill="#ffffff" stroke="#5eead4" stroke-width="1.6"/>
+<text x="1510.5" y="790" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">Eco Assistant</text>
+<text x="1510.5" y="810" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#475569" text-anchor="middle" dominant-baseline="central">LLM tool use · keyword fallback</text>
+<rect x="60" y="900" width="1000" height="270" rx="18" fill="#eef2ff" stroke="#c7d2fe" stroke-width="2"/>
+<rect x="82" y="920" width="58" height="26" rx="13" fill="#4f46e5"/>
+<text x="111" y="933" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="central">DATA</text>
+<text x="154" y="933" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a" text-anchor="start" dominant-baseline="central">MongoDB (Mongoose)</text>
+<text x="393.616" y="934" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#64748b" text-anchor="start" dominant-baseline="central">GeoJSON · 2dsphere</text>
+<rect x="92" y="972" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="181.6" y="994" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">users</text>
+<rect x="281.2" y="972" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="370.79999999999995" y="994" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">parks</text>
+<rect x="470.4" y="972" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="560" y="994" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">species</text>
+<rect x="659.5999999999999" y="972" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="749.1999999999999" y="994" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">observations</text>
+<rect x="848.8" y="972" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="938.4" y="994" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">sensors / readings</text>
+<rect x="92" y="1026" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="181.6" y="1048" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">incidents</text>
+<rect x="281.2" y="1026" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="370.79999999999995" y="1048" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">work orders</text>
+<rect x="470.4" y="1026" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="560" y="1048" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">citizen reports</text>
+<rect x="659.5999999999999" y="1026" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="749.1999999999999" y="1048" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">AI detections / images</text>
+<rect x="848.8" y="1026" width="179.2" height="44" rx="10" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.6"/>
+<text x="938.4" y="1048" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="middle" dominant-baseline="central">audit log</text>
+<text x="92" y="1100" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#475569" text-anchor="start" dominant-baseline="central">Seeded from a committed open-data snapshot (OSM parks, GBIF records).</text>
+<text x="92" y="1128" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" fill="#475569" text-anchor="start" dominant-baseline="central">Abundance is derived from observations on read — never stored as a count.</text>
+<rect x="1100" y="900" width="640" height="270" rx="18" fill="#fffbeb" stroke="#fde68a" stroke-width="2"/>
+<rect x="1122" y="920" width="86" height="26" rx="13" fill="#d97706"/>
+<text x="1165" y="933" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="central">EXTERNAL</text>
+<text x="1222" y="933" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a" text-anchor="start" dominant-baseline="central">Open data &amp; APIs</text>
+<rect x="1130" y="962" width="580" height="34" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.6"/>
+<text x="1146" y="979" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="start" dominant-baseline="central">Open-Meteo</text>
+<text x="1694" y="979" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#78350f" text-anchor="end" dominant-baseline="central">weather + air quality</text>
+<rect x="1130" y="1002" width="580" height="34" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.6"/>
+<text x="1146" y="1019" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="start" dominant-baseline="central">GBIF</text>
+<text x="1694" y="1019" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#78350f" text-anchor="end" dominant-baseline="central">species &amp; occurrences</text>
+<rect x="1130" y="1042" width="580" height="34" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.6"/>
+<text x="1146" y="1059" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="start" dominant-baseline="central">OpenStreetMap / Nominatim</text>
+<text x="1694" y="1059" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#78350f" text-anchor="end" dominant-baseline="central">parks, assets, geocoding</text>
+<rect x="1130" y="1082" width="580" height="34" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.6"/>
+<text x="1146" y="1099" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="start" dominant-baseline="central">TensorFlow Hub</text>
+<text x="1694" y="1099" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#78350f" text-anchor="end" dominant-baseline="central">MobileNetV2 weights</text>
+<rect x="1130" y="1122" width="580" height="34" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="1146" y="1139" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="650" fill="#0f172a" text-anchor="start" dominant-baseline="central">Gemini / Groq / Ollama / Claude</text>
+<text x="1694" y="1139" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#78350f" text-anchor="end" dominant-baseline="central">optional</text>
+<path d="M560,850 L560,900" fill="none" stroke="#475569" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="584" y="862" width="116" height="26" rx="13" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="642" y="875" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#334155" text-anchor="middle" dominant-baseline="central">Mongoose ODM</text>
+<path d="M1420,850 L1420,900" fill="none" stroke="#475569" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="1454" y="862" width="132" height="26" rx="13" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="1520" y="875" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#334155" text-anchor="middle" dominant-baseline="central">HTTPS · cached</text>
+<rect x="60" y="1200" width="1680" height="70" rx="18" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="8 6"/>
+<rect x="82" y="1220" width="100" height="26" rx="13" fill="#475569"/>
+<text x="132" y="1233" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="central">DEPLOYMENT</text>
+<text x="196" y="1233" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a" text-anchor="start" dominant-baseline="central"></text>
+<text x="230" y="1234" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#334155" text-anchor="start" dominant-baseline="central">Frontend:</text>
+<text x="321.76" y="1234" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="500" fill="#334155" text-anchor="start" dominant-baseline="central">Vercel / Netlify</text>
+<text x="530" y="1234" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#334155" text-anchor="start" dominant-baseline="central">API:</text>
+<text x="578.56" y="1234" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="500" fill="#334155" text-anchor="start" dominant-baseline="central">Render</text>
+<text x="700.4" y="1234" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#334155" text-anchor="start" dominant-baseline="central">Database:</text>
+<text x="792.16" y="1234" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="500" fill="#334155" text-anchor="start" dominant-baseline="central">MongoDB Atlas  (local MongoDB in development)</text>
+<text x="1740" y="1290" font-family="'Segoe UI', Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#64748b" text-anchor="end" dominant-baseline="central">* optional AI vision (Gemini free tier, Groq, Ollama or Claude) for wildlife species identification  ·  dashed border = optional</text>
+</svg>

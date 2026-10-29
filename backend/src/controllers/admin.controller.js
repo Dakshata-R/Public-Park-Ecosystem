@@ -65,7 +65,7 @@ const updateSettings = asyncHandler(async (req, res) => {
 
   const editable = [
     'organisationName', 'city', 'contactEmail', 'anomalyZThreshold',
-    'aiAutoIncidentConfidence', 'enableSensorSimulation', 'enablePublicReporting', 'mapDefaultZoom',
+    'enableSensorSimulation', 'enablePublicReporting', 'mapDefaultZoom',
   ];
   for (const key of editable) {
     if (req.body[key] !== undefined) settings[key] = req.body[key];

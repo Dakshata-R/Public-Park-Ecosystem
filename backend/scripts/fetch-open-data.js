@@ -26,7 +26,7 @@ const fs = require('fs/promises');
 const path = require('path');
 
 const OUT_DIR = path.resolve(__dirname, '../src/seed/data/open-data');
-const USER_AGENT = 'GreenPulse/1.0 (academic park-ecology project; https://github.com/Dakshata-R/Public-Park-Ecosystem)';
+const USER_AGENT = 'ParkEcosystemPortal/1.0 (academic park-ecology project; https://github.com/Dakshata-R/Public-Park-Ecosystem)';
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
 const GBIF = 'https://api.gbif.org/v1';
 const GRIIS_INDIA = 'b09c3987-af9a-4658-9bfd-19cf712ac3d1';

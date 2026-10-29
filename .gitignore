@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# GreenPulse — repository ignore rules
+# Park Ecosystem Portal — repository ignore rules
 #
 # NOTE: patterns here are deliberately NOT anchored with a leading slash.
 # The project is a two-folder monorepo (frontend/ + backend/), so `/node_modules`
@@ -14,6 +14,7 @@ node_modules/
 
 # Next.js build output
 .next/
+.next-*/
 out/
 build/
 dist/

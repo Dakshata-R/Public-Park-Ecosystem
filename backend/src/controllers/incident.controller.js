@@ -19,7 +19,7 @@ const alertService = require('../services/alert.service');
 const audit = require('../services/audit.service');
 const { nextCode, year } = require('../utils/sequence');
 const { queryObjectId } = require('../utils/objectId');
-const { generateOrderCode } = require('./maintenance.controller');
+const workflow = require('../services/workflow.service');
 
 /** `INC-2026-0042` — year-scoped so codes stay short and readable. */
 const generateReferenceCode = () =>
@@ -92,6 +92,15 @@ const crud = createCrudController({
   },
 
   beforeUpdate: async (body, doc, req) => {
+    if (body.assignedTo !== undefined && String(body.assignedTo) !== String(doc.assignedTo)) {
+      if (req.user?.role !== 'admin') throw ApiError.forbidden('Only an administrator can reassign an incident');
+      if (body.assignedTo) {
+        const officer = await User.findById(body.assignedTo).select('role active').lean();
+        if (!officer || !officer.active || officer.role !== 'officer') {
+          throw ApiError.badRequest('Incidents can only be assigned to park officers');
+        }
+      }
+    }
     // Record a timeline entry whenever the status changes.
     if (body.status && body.status !== doc.status) {
       doc.timeline.push({
@@ -108,6 +117,8 @@ const crud = createCrudController({
   afterUpdate: async (doc) => {
     applyPriority(doc);
     await doc.save();
+    // A reassignment through the edit form moves the open work order too.
+    await workflow.syncAssignee(doc);
     if (['resolved', 'closed'].includes(doc.status)) {
       await alertService.autoResolve(`incident:${doc._id}`);
     }
@@ -137,16 +148,25 @@ const getTriageQueue = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /api/incidents/:id/assign */
+/**
+ * POST /api/incidents/:id/assign — admin only.
+ * Assigning a park officer is what puts the work on their list: the
+ * incident's open work order is handed to them, or one is raised for them.
+ */
 const assign = asyncHandler(async (req, res) => {
   const incident = await Incident.findById(req.params.id);
   if (!incident) throw ApiError.notFound('Incident');
+  if (['resolved', 'closed'].includes(incident.status)) {
+    throw ApiError.badRequest(`${incident.referenceCode} is already ${incident.status}`);
+  }
 
   const officer = await User.findById(req.body.assignedTo);
-  if (!officer) throw ApiError.badRequest('The selected officer does not exist');
-  if (!['officer', 'admin', 'ecologist'].includes(officer.role)) {
-    throw ApiError.badRequest('Incidents can only be assigned to officers, ecologists or administrators');
+  if (!officer || !officer.active) throw ApiError.badRequest('The selected officer does not exist');
+  if (officer.role !== 'officer') {
+    throw ApiError.badRequest('Incidents can only be assigned to park officers');
   }
+
+  const previous = incident.assignedTo ? await User.findById(incident.assignedTo).select('name').lean() : null;
 
   incident.assignedTo = officer._id;
   incident.assignedAt = new Date();
@@ -159,16 +179,39 @@ const assign = asyncHandler(async (req, res) => {
   });
   await incident.save();
 
+  // The estimate is the administrator's budget for the job, set at hand-over.
+  const estimate = {
+    ...(req.body.estimatedCost !== undefined ? { estimatedCost: req.body.estimatedCost } : {}),
+    ...(req.body.estimatedHours !== undefined ? { estimatedHours: req.body.estimatedHours } : {}),
+  };
+
+  let workOrder = await workflow.findOpenOrder(incident._id);
+  if (workOrder) {
+    await workflow.syncAssignee(incident);
+    if (Object.keys(estimate).length) {
+      await WorkOrder.updateOne({ _id: workOrder._id }, { $set: estimate });
+    }
+  } else {
+    workOrder = await workflow.raiseWorkOrder(incident, {
+      assignedTo: officer._id,
+      scheduledDate: req.body.scheduledDate,
+      type: req.body.type,
+      assignedTeam: req.body.assignedTeam,
+      ...estimate,
+    });
+  }
+
   await audit.record({
     action: 'assign',
     entity: 'Incident',
     entityId: incident._id,
     entityLabel: incident.referenceCode,
-    changes: { assignedTo: { from: null, to: officer.name } },
+    changes: { assignedTo: { from: previous?.name || null, to: officer.name }, workOrder: { from: null, to: workOrder.orderCode } },
     req,
   });
 
-  return ok(res, await incident.populate([{ path: 'assignedTo', select: 'name email role' }, { path: 'park', select: 'name' }]));
+  await incident.populate([{ path: 'assignedTo', select: 'name email role' }, { path: 'park', select: 'name' }]);
+  return ok(res, { ...incident.toJSON(), workOrder: { id: workOrder.id, orderCode: workOrder.orderCode } });
 });
 
 /** POST /api/incidents/:id/resolve */
@@ -199,48 +242,29 @@ const resolve = asyncHandler(async (req, res) => {
 });
 
 /**
- * POST /api/incidents/:id/work-order
- * Raise the maintenance task that will actually fix the incident, carrying
- * the priority across so the queue order is preserved.
+ * POST /api/incidents/:id/work-order — admin only.
+ * Raise the maintenance task that will fix the incident, carrying its
+ * priority and assignee across so the queue order is preserved. The incident
+ * moves to "in progress" once the officer records progress on it.
  */
 const createWorkOrder = asyncHandler(async (req, res) => {
   const incident = await Incident.findById(req.params.id);
   if (!incident) throw ApiError.notFound('Incident');
 
   // One live work order per incident: a double-click must not dispatch two crews.
-  const existing = await WorkOrder.findOne({
-    sourceIncident: incident._id,
-    status: { $in: ['scheduled', 'in-progress', 'overdue'] },
-  }).select('orderCode');
+  const existing = await workflow.findOpenOrder(incident._id);
   if (existing) {
     throw ApiError.conflict(`Work order ${existing.orderCode} is already open for this incident`);
   }
 
-  const workOrder = await WorkOrder.create({
-    orderCode: await generateOrderCode(),
-    type: req.body.type || 'repair',
-    title: req.body.title || `Resolve: ${incident.title}`,
-    description: req.body.description || incident.description,
-    park: incident.park,
-    scheduledDate: req.body.scheduledDate || new Date(Date.now() + 86_400_000),
-    priority: incident.priority,
-    assignedTo: req.body.assignedTo || incident.assignedTo,
-    assignedTeam: req.body.assignedTeam || '',
-    estimatedCost: req.body.estimatedCost || 0,
-    sourceIncident: incident._id,
-  });
-
-  if (incident.status === 'reported' || incident.status === 'assigned') {
-    incident.status = 'in-progress';
-    incident.timeline.push({
-      status: 'in-progress',
-      note: `Work order ${workOrder.orderCode} raised`,
-      by: req.user._id,
-      byName: req.user.name,
-    });
-    await incident.save();
+  if (req.body.assignedTo) {
+    const officer = await User.findById(req.body.assignedTo).select('role active').lean();
+    if (!officer || !officer.active || officer.role !== 'officer') {
+      throw ApiError.badRequest('Work orders can only be assigned to park officers');
+    }
   }
 
+  const workOrder = await workflow.raiseWorkOrder(incident, req.body);
   return created(res, workOrder);
 });
 

@@ -28,7 +28,7 @@
     "test": "npm --prefix backend test",
 
     "//note": "There is no combined 'start' script on purpose — each server needs its own terminal so you can read its logs and stop it independently.",
-    "start": "node -e \"console.log('\\nGreenPulse needs TWO terminals.\\n\\n  Terminal 1:  npm run backend:dev   -> http://localhost:5000/api\\n  Terminal 2:  npm run frontend:dev  -> http://localhost:3000\\n\\nFirst time only:  npm run setup  (then copy the .env.example files)\\n')\""
+    "start": "node -e \"console.log('\\nPark Ecosystem Portal needs TWO terminals.\\n\\n  Terminal 1:  npm run backend:dev   -> http://localhost:5000/api\\n  Terminal 2:  npm run frontend:dev  -> http://localhost:3000\\n\\nFirst time only:  npm run setup  (then copy the .env.example files)\\n')\""
   },
   "engines": {
     "node": ">=18.17.0"

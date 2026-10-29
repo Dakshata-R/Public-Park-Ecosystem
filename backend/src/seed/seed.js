@@ -16,8 +16,8 @@
  *     invasive flags and CC-licensed photographs.
  *   • Sensor history for air quality, temperature and humidity: the past
  *     48 hours of Open-Meteo observations for each park (when online).
- *   • AI detections: real MobileNetV2 inference over openly licensed
- *     photographs (src/seed/data/sample-images).
+ *   • AI detections: real MobileNetV2 wildlife recognition over openly
+ *     licensed wildlife photographs (src/seed/data/sample-images).
  *   • Reports: generated from all of the above by report.service.
  *
  * DEMONSTRATION — generated, and flagged `demo: true` in the database
@@ -76,11 +76,11 @@ const DEMO_PASSWORD = 'greenpulse123';
 
 const USER_SEEDS = [
   { name: 'Ananya Rao',        email: 'admin@greenpulse.gov',          role: 'admin',     parkSlug: 'cubbon-park' },
-  { name: 'Karthik Gowda',     email: 'ecologist@greenpulse.gov',      role: 'ecologist', parkSlug: 'lalbagh-botanical-garden' },
+  { name: 'Karthik Gowda',     email: 'karthik.gowda@greenpulse.gov',  role: 'officer',   parkSlug: 'lalbagh-botanical-garden' },
   { name: 'Priya Nair',        email: 'officer@greenpulse.gov',        role: 'officer',   parkSlug: 'sankey-tank-park' },
   { name: 'Rohan Shetty',      email: 'citizen@greenpulse.gov',        role: 'citizen',   parkSlug: 'jp-park' },
 
-  { name: 'Deepa Hegde',       email: 'deepa.hegde@greenpulse.gov',    role: 'ecologist', parkSlug: 'jp-park' },
+  { name: 'Deepa Hegde',       email: 'deepa.hegde@greenpulse.gov',    role: 'officer',   parkSlug: 'jp-park' },
   { name: 'Manjunath Swamy',   email: 'manjunath.swamy@greenpulse.gov', role: 'officer',  parkSlug: 'freedom-park' },
   { name: 'Rahul Patil',       email: 'rahul.patil@greenpulse.gov',    role: 'officer',   parkSlug: 'coles-park' },
   { name: 'Shruthi Kulkarni',  email: 'shruthi.kulkarni@greenpulse.gov', role: 'officer', parkSlug: 'cubbon-park' },
@@ -403,7 +403,7 @@ function buildCitizenReports(parks, users, speciesDocs) {
 
 function buildIncidents(parks, users, parksWithWater) {
   const docs = [];
-  const officers = users.filter((u) => ['officer', 'ecologist'].includes(u.role));
+  const officers = users.filter((u) => u.role === 'officer');
   const year = new Date().getFullYear();
 
   for (let i = 0; i < 30; i += 1) {
@@ -470,7 +470,7 @@ function buildIncidents(parks, users, parksWithWater) {
 
 function buildWorkOrders(parks, users, assets, incidents) {
   const docs = [];
-  const staff = users.filter((u) => ['officer', 'ecologist'].includes(u.role));
+  const staff = users.filter((u) => u.role === 'officer');
   const year = new Date().getFullYear();
   const needsWork = assets.filter((a) => a.condition < 60);
 
@@ -483,8 +483,13 @@ function buildWorkOrders(parks, users, assets, incidents) {
     const isPast = scheduledDate < new Date();
     const status = isPast ? rng.pick(['completed', 'completed', 'completed', 'overdue']) : rng.pick(['scheduled', 'scheduled', 'in-progress']);
     const progress = status === 'completed' ? 100 : status === 'in-progress' ? rng.int(15, 85) : 0;
-    const assignee = rng.chance(0.7) ? rng.pick(staff) : null;
-    const sourceIncident = rng.chance(0.2) ? rng.pick(incidents) : null;
+    // A work order raised from an incident goes to the officer that incident
+    // was assigned to — the same rule `POST /incidents/:id/assign` enforces.
+    const assignedIncidents = incidents.filter((inc) => inc.assignedTo);
+    const sourceIncident = rng.chance(0.2) && assignedIncidents.length ? rng.pick(assignedIncidents) : null;
+    const assignee = sourceIncident
+      ? staff.find((u) => String(u._id) === String(sourceIncident.assignedTo)) || null
+      : rng.chance(0.7) ? rng.pick(staff) : null;
 
     docs.push({
       orderCode: `WO-${year}-${String(i + 1).padStart(4, '0')}`,
@@ -516,13 +521,12 @@ function buildWorkOrders(parks, users, assets, incidents) {
 }
 
 /**
- * Real inference over the committed sample photographs.
+ * Real wildlife recognition over the committed sample photographs.
  *
- * Each sample analysis is filed against a park in rotation, so every park's
- * AI view has records. The park is attached after the detection is recorded,
- * so seeding does not also open incidents from the sample photographs.
- * They arrive unreviewed: a precision figure appears only once a person
- * reviews them.
+ * Each sample analysis is filed against a park in rotation. Seeding uses the
+ * local MobileNetV2 engine only, so a configured language-model key
+ * (GEMINI_API_KEY etc.) is not spent on every start. Detections arrive unreviewed: a precision figure appears only once a
+ * person reviews them.
  */
 async function seedAiDetections(say, parks) {
   const { runInference } = require('../services/ai-inference.service');
@@ -533,7 +537,7 @@ async function seedAiDetections(say, parks) {
 
   for (const sample of samples) {
     try {
-      const result = await runInference(sample.task, fs.readFileSync(path.join(SAMPLE_IMAGES, sample.file)));
+      const result = await runInference(sample.task, fs.readFileSync(path.join(SAMPLE_IMAGES, sample.file)), { engine: 'fallback' });
       const credit = `“${sample.title}” by ${sample.author}, ${sample.license} (Wikimedia Commons)`;
       const image = await storeImage(result.stored, { source: 'sample', originalUrl: sample.source, credit });
       const { detection } = await recordDetection({ task: sample.task, result, image, imageName: sample.file, imageCredit: credit, park: null });
@@ -725,10 +729,10 @@ async function seedDatabase({ force = false, quiet = false, fetchLive = !env.isT
     updateOne: { filter: { _id: u._id }, update: { $set: { contributions: reportDocs.filter((r) => String(r.submittedBy) === String(u._id)).length } } },
   })));
 
-  // --- AI detections (real inference) --------------------------------------
+  // --- AI wildlife detections (real inference) -----------------------------
   let detectionCount = 0;
   if (aiDetections) {
-    say('Running the vision model over the sample photographs…');
+    say('Running the vision model over the sample wildlife photographs…');
     detectionCount = await seedAiDetections(say, parks);
   }
 
@@ -789,10 +793,10 @@ async function seedDatabase({ force = false, quiet = false, fetchLive = !env.isT
     { type: 'maintenance', parkId: null, days: 120 },
     { type: 'engagement', parkId: null, days: 180 },
   ];
-  const ecologist = users.find((u) => u.role === 'ecologist');
+  const author = users.find((u) => u.role === 'admin');
   let ecoReportCount = 0;
   for (const plan of reportPlan) {
-    const report = await generateReport({ ...plan, user: ecologist });
+    const report = await generateReport({ ...plan, user: author });
     report.status = 'published';
     await report.save();
     ecoReportCount += 1;

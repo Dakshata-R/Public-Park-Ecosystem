@@ -952,7 +952,9 @@ function IncidentDetailSheet({
   const query = useIncident(initial.id);
   // The live factor breakdown only exists in the triage queue (open incidents).
   const triageQuery = useTriageQueue(park);
-  const staff = useStaff();
+  // Only the administrator assigns work, and only to park officers.
+  const isAdmin = can('admin');
+  const staff = useStaff(isAdmin);
   // `sourceIncident` is filtered here as well as sent, so the lookup is correct
   // whether or not the API honours the parameter.
   const linkedOrders = useWorkOrders({ sourceIncident: initial.id, status: OPEN_ORDER_STATUSES, limit: 200 });
@@ -963,6 +965,9 @@ function IncidentDetailSheet({
   const createWorkOrder = useCreateWorkOrderFromIncident();
 
   const [assignee, setAssignee] = useState('');
+  // The administrator's estimate for the job, carried onto the work order.
+  const [estCost, setEstCost] = useState('');
+  const [estHours, setEstHours] = useState('');
   const [notes, setNotes] = useState('');
   const [raisedOrder, setRaisedOrder] = useState<WorkOrder | null>(null);
 
@@ -994,6 +999,9 @@ function IncidentDetailSheet({
   const assignedId = refId(incident.assignedTo);
   const closed = isClosed(incident.status);
 
+  // The open order's current estimate, shown as the placeholder when reassigning.
+  const linkedEstimate = linkedOrders.data?.items.find((order) => refId(order.sourceIncident) === incident.id) ?? null;
+
   const linkedOrder: Pick<WorkOrder, 'id' | 'orderCode' | 'status'> | null =
     linkedOrders.data?.items.find((order) => refId(order.sourceIncident) === incident.id) ?? raisedOrder;
 
@@ -1022,11 +1030,21 @@ function IncidentDetailSheet({
     }
   };
 
+  const estCostInvalid = estCost.trim() !== '' && (!Number.isFinite(Number(estCost)) || Number(estCost) < 0);
+  const estHoursInvalid = estHours.trim() !== '' && (!Number.isFinite(Number(estHours)) || Number(estHours) < 0);
+
   const assignTo = async () => {
-    if (!assignee) return;
+    if (!assignee || estCostInvalid || estHoursInvalid) return;
     try {
-      await assign.mutateAsync({ id: incident.id, assignedTo: assignee });
+      await assign.mutateAsync({
+        id: incident.id,
+        assignedTo: assignee,
+        ...(estCost.trim() ? { estimatedCost: Number(estCost) } : {}),
+        ...(estHours.trim() ? { estimatedHours: Number(estHours) } : {}),
+      });
       setAssignee('');
+      setEstCost('');
+      setEstHours('');
     } catch {
       /* toast already shown */
     }
@@ -1036,7 +1054,7 @@ function IncidentDetailSheet({
     try {
       const order = await createWorkOrder.mutateAsync({
         id: incident.id,
-        body: { title: `Resolve: ${incident.title}`, type: 'repair' },
+        body: { title: `Resolve: ${incident.title}` },
       });
       setRaisedOrder(order);
     } catch {
@@ -1204,43 +1222,75 @@ function IncidentDetailSheet({
             <div className="space-y-5 border-t pt-4">
               <p className="text-sm font-medium">Actions</p>
 
-              {!closed && (
+              {!closed && isAdmin && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Assign to</Label>
+                  <Label className="text-xs">Assign to a park officer</Label>
                   <div className="flex gap-2">
                     <Select value={assignee} onValueChange={setAssignee} disabled={!staff.data?.length}>
                       <SelectTrigger className="flex-1">
                         <SelectValue
                           placeholder={
-                            staff.isPending ? 'Loading staff…'
-                            : staff.isError ? 'Staff list unavailable'
-                            : 'Select a member of staff'
+                            staff.isPending ? 'Loading park officers…'
+                            : staff.isError ? 'Officer list unavailable'
+                            : 'Select a park officer'
                           }
                         />
                       </SelectTrigger>
                       <SelectContent>
                         {staff.data?.map((member) => (
                           <SelectItem key={member.id} value={member.id}>
-                            {member.name}{' '}
-                            <span className="capitalize text-muted-foreground">
-                              ({member.role}{member.park ? ` · ${member.park.name}` : ''})
-                            </span>
+                            {member.name}
+                            {member.park && <span className="text-muted-foreground"> · {member.park.name}</span>}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button
-                      disabled={!assignee || assignee === assignedId || assign.isPending}
-                      onClick={() => void assignTo()}
-                    >
-                      {assign.isPending ? 'Assigning…' : 'Assign'}
-                    </Button>
                   </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="assign-cost" className="text-[11px] text-muted-foreground">Estimated cost (₹)</Label>
+                      <Input
+                        id="assign-cost"
+                        type="number"
+                        min={0}
+                        step="100"
+                        placeholder={linkedEstimate ? String(linkedEstimate.estimatedCost) : 'e.g. 2500'}
+                        value={estCost}
+                        onChange={(e) => setEstCost(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="assign-hours" className="text-[11px] text-muted-foreground">Estimated hours</Label>
+                      <Input
+                        id="assign-hours"
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        placeholder={linkedEstimate ? String(linkedEstimate.estimatedHours) : 'e.g. 4'}
+                        value={estHours}
+                        onChange={(e) => setEstHours(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  {(estCostInvalid || estHoursInvalid) && (
+                    <p className="text-[11px] text-destructive">Estimates must be 0 or more.</p>
+                  )}
+                  <Button
+                    className="w-full"
+                    disabled={!assignee || assignee === assignedId || assign.isPending || estCostInvalid || estHoursInvalid}
+                    onClick={() => void assignTo()}
+                  >
+                    {assign.isPending ? 'Assigning…' : 'Assign'}
+                  </Button>
                   {staff.isError && (
                     <button type="button" className="text-[11px] text-destructive underline" onClick={() => void staff.refetch()}>
-                      Could not load staff — retry
+                      Could not load park officers — retry
                     </button>
                   )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Assigning puts the work on the officer&apos;s list in the Maintenance tab, where they record progress.
+                    The estimate is saved on that work order{linkedEstimate ? ' (leave blank to keep the current one)' : ''}.
+                  </p>
                 </div>
               )}
 
@@ -1258,7 +1308,7 @@ function IncidentDetailSheet({
                       </Link>
                     </Button>
                   </div>
-                ) : (
+                ) : isAdmin && (
                   <Button
                     variant="outline"
                     className="w-full"

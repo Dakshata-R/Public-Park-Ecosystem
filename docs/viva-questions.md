@@ -30,8 +30,9 @@ Mostly — and the interface labels which is which.
 AQI by our own code), temperature and humidity from **Open-Meteo** for each
 park's coordinates, plus 48 hours of real hourly history loaded at seed time.
 
-**Real inference:** the AI module runs a pre-trained MobileNetV2 on the actual
-pixels of the submitted image.
+**Real inference:** the AI module recognises wildlife. It runs a pre-trained
+MobileNetV2 on the actual pixels of the submitted image, and — with an API key
+(a free Gemini key is enough) — AI vision for species identification.
 
 **Not real, and flagged `demo: true`:** user accounts, citizen reports,
 incidents, work orders, the alerts derived from them, and asset condition scores
@@ -53,32 +54,27 @@ image under a different name gives the same answer, and an integration test
 checks both.
 
 **What it is not.** It was not trained or fine-tuned on park imagery — I had no
-labelled dataset. ImageNet has no class for "chlorosis" or "overflowing bin", so
-each task *pools* ImageNet classes into groups — the 59 bird classes become one
-"bird" signal — and, where ImageNet has nothing useful, uses pixel colour
-statistics: HSV bands for green, yellow and brown foliage, and flame and smoke
-chromaticity gated by the network's own fire evidence. The scores are normalised
-into a probability vector. Every weight is in `ai-inference.service.js` and
-every result returns the evidence it used.
+labelled dataset. ImageNet has no park-management categories, so the wildlife
+task *pools* ImageNet classes into groups — the 59 bird classes become one
+"bird" signal, and so on for butterflies, other invertebrates, reptiles and
+amphibians, wild mammals and domestic animals. Every group is in
+`ai-inference.service.js` and every result returns the evidence it used.
 
-**How well it works.** `npm run eval:vision` over 22 openly licensed Wikimedia
-Commons photos:
+**Species.** ImageNet says "tiger", not "Bengal tiger", and most Indian species
+are not in it. With `GEMINI_API_KEY` set (free; Groq, a local model or Claude
+also work), the stored image goes to a multimodal language model, whose answer
+is forced into a JSON schema in the task's own labels: species (common and
+scientific), severity and action. If the API fails, the MobileNetV2 result is
+used and says why. Each detection records which engine produced it.
 
-| Task | Correct |
-|---|---|
-| fire / smoke | 9 / 11 |
-| foliage health | 3 / 3 |
-| wildlife | 3 / 3 |
-| plant | 1 / 2 |
-| litter | **0 / 3** |
-| overall | 16 / 22 (73 %) |
+**How well it works.** `npm run eval:vision` (fallback engine) over 3 openly
+licensed Wikimedia Commons wildlife photos: 3 / 3 (Indian pond heron and green
+bee-eater → Bird, plain tiger → Butterfly or moth).
 
-**If they push:** those constants were calibrated on the same 22 photos, so 73 %
-is in-sample and optimistic, and 22 images is far too few for a real error rate.
-Litter detection does not work on the evaluation photos — a heap of mixed waste
-is not an ImageNet object. That is why every detection enters a human review
-queue, and why **only a fire or smoke finding** — at or above the 85 % confidence
-floor, with a park selected — can open an incident on its own.
+**If they push:** 3 images is a smoke test, far too few for a real error rate.
+That is why every
+detection — from either engine — enters a review queue for a park officer, and
+none acts on its own.
 
 ---
 
@@ -267,9 +263,9 @@ comparing sites rigorously.
 ### "Why do only verified observations count?"
 
 Because otherwise one enthusiastic — or mistaken — citizen could move a park's
-biodiversity score. A sighting a citizen logs is unverified until an ecologist
+biodiversity score. A sighting a citizen logs is unverified until a park officer
 verifies it, or until an officer accepts the citizen report, which writes a
-verified observation. Records created by ecologists, officers and admins are
+verified observation. Records created by park officers and admins are
 verified on entry.
 
 The GBIF rows are imported as verified: they are already published records, and
@@ -278,19 +274,21 @@ meaningful. Their quality is GBIF's and the publishing datasets'.
 
 ---
 
-### "How accurate is the litter detector, honestly?"
+### "Why did you drop litter and fire detection?"
 
-On the three evaluation photos — a garbage dump, a plastic bottle and an
-overflowing bin — it answered "No litter objects recognised" every time: 0 / 3.
-ImageNet recognises discrete objects such as a bottle or a plastic bag in a
-clear shot; it has no concept of a litter heap, and in cluttered scenes that
-evidence is too weak. The result says so in its `notes`, it is never allowed to
-open an incident, and fixing it properly means training on labelled litter
-images.
+ImageNet has no concept of a litter heap — the litter task scored 0 / 3 — and
+fire detection from park photos is better served by people reporting fires
+through the incident module, where a crew is dispatched with a location. The AI
+module now concentrates on one thing a vision model can be made to do well:
+wildlife recognition. Photo-based tree health and plant identification were
+retired for the same reason — a general-purpose network cannot diagnose a sick
+tree, and the Tree Health score the portal does report comes from asset
+condition scores, not from photos.
 
-The wildlife task has a related limit: species are named at **ImageNet
-granularity**. An Indian pond heron is reported as a "Bird" whose closest
-ImageNet class is a bittern; most Indian species are not in ImageNet at all.
+The wildlife task has a related limit without an API key: species are named at
+**ImageNet granularity**. An Indian pond heron is reported as a "Bird" whose
+closest ImageNet class is a bittern; most Indian species are not in ImageNet at
+all. AI vision (Gemini by default) names it properly.
 
 ---
 
@@ -521,10 +519,10 @@ disabled in production, and error responses stop including internal messages.
 
 In order of value:
 
-1. **Train the vision models.** The review queue already collects confirmed and
-   corrected labels; with enough of them, fine-tune MobileNetV2 per task —
-   litter first, since it currently fails — and evaluate on a held-out set rather
-   than the calibration photos.
+1. **Measure the vision engines properly.** The review queue already collects
+   confirmed and corrected labels; with enough of them, evaluate AI vision and
+   the fallback on a held-out set rather than the 3 sample photos, and
+   fine-tune a local model on it.
 2. **Real sensors.** Register a sensor with `source: 'device'`; a gateway POSTs to
    `/api/sensors/:id/readings` and nothing downstream changes. Start with noise
    and water, which are currently simulated.
@@ -546,12 +544,12 @@ Recorded in the logs:
 - the health and biodiversity computations simplified for explainability — which
   is why the dashboard shows the contribution breakdown;
 - the AI module labelled as using simulated responses at that stage. It has since
-  been replaced by real MobileNetV2 inference, and the labelling now states its
-  method, its measured accuracy and its limits instead;
-- user roles fixed at Citizen / Officer / Administrator on the supervisor's
-  instruction. (The implementation adds Ecologist between citizen and officer,
-  because verifying species records is a distinct responsibility from operational
-  incident handling.)
+  been replaced by real wildlife recognition (AI vision, with MobileNetV2 as
+  evidence and fallback), and the labelling now states its method, its measured accuracy and
+  its limits instead;
+- user roles fixed at Citizen / Park Officer / Administrator on the supervisor's
+  instruction. (An earlier build had a separate Ecologist role; it was folded into
+  Park Officer, who now verifies sightings as well as working assigned tasks.)
 
 After that, the prototype's generated parks, species and observations were
 replaced with OpenStreetMap, GBIF and Open-Meteo data, with every remaining
@@ -570,8 +568,7 @@ are the ones where a choice was made and defended:
   Evaluated** distinct from Least Concern;
 - **bounding** the ageing function so it cannot outrank an emergency;
 - requiring **two of three** anomaly detectors rather than trusting one;
-- letting **only fire findings** escalate automatically, and only above a
-  confidence floor;
+- never letting an AI wildlife finding act without officer review;
 - deriving the **map layers** from other modules rather than storing them;
 - reporting **per-taxocene** indices alongside the pooled one;
 - returning **null, not zero**, for anything not measured, and ingesting nothing

@@ -3,361 +3,55 @@
 /**
  * Module 11 — AI Environmental Assistant, language-model engine.
  *
- * Claude answers the question in context (including the earlier turns of the
- * conversation) and looks facts up through the tools below, which read the
- * same database the dashboards do. It never sees the database directly and is
- * told to state only figures a tool returned.
+ * A language model answers the question in context (including the earlier
+ * turns of the conversation) and looks facts up through the read-only tools
+ * in `assistant-tools.service.js`, which read the same database the
+ * dashboards do. Which tools are offered — and what each returns — depends on
+ * the signed-in user's role; that is enforced in the tool layer, not by
+ * asking the model nicely.
  *
- * Enabled when ANTHROPIC_API_KEY is set. Without a key — or if the API cannot
- * be reached — the controller falls back to the retrieval engine in
- * `assistant.service.js`, so the assistant always answers.
+ * The model is whichever provider `llm-provider.service.js` selects — Gemini
+ * (GEMINI_API_KEY, free), Groq, an OpenAI-compatible server such as Ollama,
+ * or Claude. Without one — or if the API cannot be reached — the controller
+ * falls back to the built-in engine in `assistant.service.js`, so the
+ * assistant always answers.
  */
 
-const Anthropic = require('@anthropic-ai/sdk').default;
-const env = require('../config/env');
-const logger = require('../utils/logger');
-const { Park, Incident, WorkOrder, Alert, Sensor } = require('../models');
-const { computeEcosystemHealth } = require('./ecosystem-score.service');
-const { analyseBiodiversity } = require('./biodiversity.service');
-const { buildTriageQueue } = require('./priority.service');
-const external = require('./external.service');
-const { retrieve } = require('./assistant.service');
+const llmProvider = require('./llm-provider.service');
+const tools = require('./assistant-tools.service');
 
 /** Upper bound on tool round trips for one question. */
-const MAX_TOOL_ROUNDS = 6;
+const MAX_TOOL_ROUNDS = 8;
 
 /** How many earlier messages of the conversation are sent for context. */
-const HISTORY_MESSAGES = 10;
+const HISTORY_MESSAGES = 12;
 
-let client = null;
-const getClient = () => {
-  if (!client) client = new Anthropic({ apiKey: env.anthropicApiKey, maxRetries: 1, timeout: 60_000 });
-  return client;
-};
+/** The browser gives up after 60 s; leave time to fall back to the built-in engine. */
+const DEADLINE_MS = 50_000;
 
 /** True when the language-model engine should answer. */
-const isEnabled = () => Boolean(env.anthropicApiKey) && !env.isTest;
+const isEnabled = () => llmProvider.isEnabled();
 
-const SYSTEM_PROMPT = `You are the GreenPulse Eco Assistant, part of a management portal that monitors the ecological health of public parks in Bengaluru, India. Your users are park officers, ecologists, administrators and members of the public.
+const SYSTEM_PROMPT = `You are the Park Ecosystem Portal Eco Assistant, built into a portal that monitors the ecological health of public parks in Bengaluru, India. People use you instead of clicking through the portal's tabs, so answer the question directly from the data.
 
-Answer questions about the parks: ecosystem health, air quality and weather, biodiversity and species, sensors, incidents, alerts and maintenance work. Use the tools to look up current figures — every number you state must come from a tool result in this conversation. If the tools do not have the information, say so plainly rather than guessing. You may add brief general ecological knowledge (for example what a species is, or why a lake attracts birds) when it helps, but keep it clearly separate from the park data.
+You can look up parks, current weather and air quality, park sensor readings, ecosystem health scores, biodiversity and species, alerts, incidents, maintenance work orders, the review queues, and the user's own tasks and reports — whichever of these the user's role allows; the tools you have are exactly the ones they may use. Every figure you state must come from a tool result in this conversation. If a tool says the information is restricted or unavailable, tell the user plainly and, where useful, say who can see it. Never guess a number.
 
-Use the earlier turns of the conversation to resolve follow-up questions ("what about Lalbagh?", "which one is worst?").
+Resolve references before calling tools: park names can be partial or misspelt ("cubbon" means Cubbon Park), "my park" is the user's home park, and "me", "my" or "I" is the signed-in user described below. Use the earlier turns to resolve follow-ups ("what about Lalbagh?", "only the critical ones"). For "high priority", ask the tools for priority high and above.
 
-Write for a non-specialist: short paragraphs or bullet points, plain language, no formulas or statistical notation. Name the park and, where relevant, the time of the reading. Keep answers under about 200 words unless the user asks for detail. Air quality uses India's CPCB AQI scale. Politely decline requests unrelated to parks, the environment or this portal.`;
+Answer like a helpful colleague: lead with the answer (the count, the reading, the list), then the few details that matter. Use short bullet lists for several items and **bold** for the key figure. No headings, tables or code blocks. Name the park and, for live readings, the time of the reading. Keep it under about 150 words unless the user asks for more. Air quality uses India's CPCB AQI scale. You may add a line of general ecological context when it helps, kept clearly separate from the park data. Politely decline requests unrelated to the parks, the environment or this portal.`;
 
-// ---------------------------------------------------------------------------
-// Tools
-// ---------------------------------------------------------------------------
-
-const PARK_PARAM = {
-  type: 'string',
-  description: 'Park name or slug, e.g. "Cubbon Park" or "lalbagh-botanical-garden". Omit for all parks combined.',
-};
-
-/** @type {import('@anthropic-ai/sdk').default.Tool[]} */
-const TOOLS = [
-  {
-    name: 'list_parks',
-    description: 'List every monitored park with its area, managing authority and current Ecosystem Health score (0–100). Use this to compare parks or to find which park is best or worst.',
-    input_schema: { type: 'object', properties: {}, additionalProperties: false },
-  },
-  {
-    name: 'get_ecosystem_health',
-    description: 'Ecosystem Health score (0–100) and grade for one park or all parks, with the score of each indicator: air quality, water quality, soil health, tree health and biodiversity.',
-    input_schema: { type: 'object', properties: { park: PARK_PARAM }, additionalProperties: false },
-  },
-  {
-    name: 'get_live_conditions',
-    description: 'Current weather (temperature, humidity, wind, UV) and air quality (CPCB AQI, category, main pollutant) at a park, fetched live from Open-Meteo.',
-    input_schema: { type: 'object', properties: { park: PARK_PARAM }, additionalProperties: false },
-  },
-  {
-    name: 'get_biodiversity',
-    description: 'Species recorded at a park or across all parks: number of species, number of records, threatened species, invasive records, breakdown by group (birds, plants, insects…) and the most frequently recorded species.',
-    input_schema: { type: 'object', properties: { park: PARK_PARAM }, additionalProperties: false },
-  },
-  {
-    name: 'get_incidents',
-    description: 'Open incidents (pollution, dumping, damage, hazards…) ranked by priority score, with type, status, severity and park.',
-    input_schema: {
-      type: 'object',
-      properties: { park: PARK_PARAM, limit: { type: 'integer', description: 'Maximum incidents to return (default 10).' } },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'get_alerts',
-    description: 'Active alerts raised by sensors, the AI image analysis and incident escalation, most recent first.',
-    input_schema: { type: 'object', properties: { park: PARK_PARAM }, additionalProperties: false },
-  },
-  {
-    name: 'get_sensors',
-    description: 'Park sensors with their latest reading, unit and status (online, warning, offline). Types: aqi, temperature, humidity, noise, soil, water.',
-    input_schema: {
-      type: 'object',
-      properties: { park: PARK_PARAM, type: { type: 'string', description: 'Optional sensor type filter.' } },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'get_maintenance',
-    description: 'Maintenance work orders that are scheduled, in progress or overdue, with type, priority, scheduled date and assigned team.',
-    input_schema: { type: 'object', properties: { park: PARK_PARAM }, additionalProperties: false },
-  },
-  {
-    name: 'search_records',
-    description: 'Full-text search across parks, species, incidents, citizen reports and work orders. Use it for a specific species, place or issue the other tools do not cover.',
-    input_schema: {
-      type: 'object',
-      properties: { query: { type: 'string', description: 'What to search for.' } },
-      required: ['query'],
-      additionalProperties: false,
-    },
-  },
-];
-
-const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** Resolve a park name or slug; undefined input means "all parks". */
-async function findPark(ref) {
-  if (!ref || !String(ref).trim()) return null;
-  const text = String(ref).trim();
-  const park =
-    (await Park.findOne({ slug: text.toLowerCase().replace(/\s+/g, '-') }).lean()) ||
-    (await Park.findOne({ name: new RegExp(`^${escapeRegex(text)}$`, 'i') }).lean()) ||
-    (await Park.findOne({ name: new RegExp(escapeRegex(text.replace(/\bpark\b/i, '').trim()), 'i') }).lean());
-  if (!park) {
-    const names = (await Park.find({ active: true }).select('name').lean()).map((p) => p.name);
-    const err = new Error(`No park matches "${text}". Monitored parks: ${names.join(', ')}.`);
-    err.toolError = true;
-    throw err;
+/** The per-user part of the system prompt. */
+function describeUser(ctx) {
+  if (!ctx.user) {
+    return 'The user is not signed in. They can see public park data only; if they ask about tasks, reports or review queues, explain that they need to sign in.';
   }
-  return park;
-}
-
-/** Readable fields of a search hit — never geometry or internal ids. */
-const RECORD_FIELDS = [
-  'title', 'commonName', 'scientificName', 'class', 'family', 'conservationStatus', 'isInvasive', 'habitat',
-  'description', 'type', 'status', 'severity', 'priority', 'category', 'areaAcres', 'manager', 'condition',
-  'scheduledDate', 'reportedAt', 'createdAt',
-];
-const summariseRecord = (raw) => {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const out = {};
-  for (const key of RECORD_FIELDS) {
-    const v = raw[key];
-    if (v === undefined || v === null || v === '') continue;
-    out[key] = typeof v === 'string' ? v.slice(0, 400) : v;
-  }
-  return out;
-};
-
-const parkName = (p) => (p && typeof p === 'object' && p.name ? p.name : undefined);
-const round1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
-
-/** Each handler returns plain JSON and the citations it should add. */
-const HANDLERS = {
-  async list_parks() {
-    const parks = await Park.find({ active: true }).select('name slug areaAcres manager establishedYear').lean();
-    const rows = await Promise.all(
-      parks.map(async (p) => {
-        const health = await computeEcosystemHealth(p._id);
-        return {
-          name: p.name,
-          slug: p.slug,
-          areaAcres: p.areaAcres,
-          manager: p.manager || null,
-          ecosystemHealth: round1(health.ecosystemHealth),
-          grade: health.grade,
-        };
-      })
-    );
-    rows.sort((a, b) => (b.ecosystemHealth ?? -1) - (a.ecosystemHealth ?? -1));
-    return { data: { parks: rows }, citations: [] };
-  },
-
-  async get_ecosystem_health({ park }) {
-    const p = await findPark(park);
-    const health = await computeEcosystemHealth(p?._id || null);
-    const sub = Object.fromEntries(Object.entries(health.subIndices || {}).map(([k, v]) => [k, round1(v)]));
-    return {
-      data: { scope: p ? p.name : 'All parks', ecosystemHealth: round1(health.ecosystemHealth), grade: health.grade, indicators: sub },
-      citations: p ? [{ label: p.name, entity: 'Park', entityId: String(p._id), score: 1 }] : [],
-    };
-  },
-
-  async get_live_conditions({ park }) {
-    const p = await findPark(park);
-    const [lng, lat] = p ? p.location.coordinates : [77.5946, 12.9716];
-    const [weather, air] = await Promise.all([external.getWeather(lat, lng), external.getAirQuality(lat, lng)]);
-    const w = weather.ok ? weather.current : null;
-    return {
-      data: {
-        location: p ? p.name : 'Bengaluru city centre',
-        weather: w
-          ? {
-              condition: w.condition,
-              temperatureC: w.temperature,
-              feelsLikeC: w.feelsLike,
-              humidityPercent: w.humidity,
-              windKmh: w.windSpeed,
-              uvIndexMax: w.uvIndexMax,
-              observedAt: w.observedAt,
-            }
-          : { unavailable: weather.reason || true },
-        airQuality: air.ok
-          ? { aqi: air.aqi, category: air.label, mainPollutant: air.dominantPollutant, observedAt: air.observedAt, advice: air.advice }
-          : { unavailable: air.reason || true },
-      },
-      citations: [],
-    };
-  },
-
-  async get_biodiversity({ park }) {
-    const p = await findPark(park);
-    const bio = await analyseBiodiversity({ parkId: p?._id });
-    const records = bio.species.reduce((s, x) => s + (x.count || 0), 0);
-    const top = [...bio.species]
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10)
-      .map((s) => ({ name: s.commonName || s.scientificName, scientificName: s.scientificName, group: s.class, records: s.count }));
-    return {
-      data: {
-        scope: p ? p.name : 'All parks',
-        speciesRecorded: bio.species.length,
-        records,
-        recordsSince: '2023-01-01',
-        source: 'GBIF occurrence records plus sightings verified in GreenPulse',
-        threatenedSpecies: bio.threatenedSpecies,
-        invasiveRecords: bio.invasiveCount,
-        byGroup: bio.byClass,
-        biodiversityScore: round1(bio.score),
-        mostRecorded: top,
-      },
-      citations: p ? [{ label: `${p.name} · species`, entity: 'Park', entityId: String(p._id), score: 1 }] : [],
-    };
-  },
-
-  async get_incidents({ park, limit }) {
-    const p = await findPark(park);
-    const match = { status: { $nin: ['resolved', 'closed'] } };
-    if (p) match.park = p._id;
-    const open = await Incident.find(match).populate('park', 'name').lean();
-    const queue = buildTriageQueue(open).slice(0, Math.min(25, Math.max(1, Number(limit) || 10)));
-    return {
-      data: {
-        scope: p ? p.name : 'All parks',
-        openIncidents: open.length,
-        incidents: queue.map((i) => ({
-          reference: i.referenceCode,
-          title: i.title,
-          type: i.type,
-          status: i.status,
-          severity: i.severity,
-          priorityScore: i.triage?.score,
-          priority: i.triage?.priority,
-          park: parkName(i.park),
-          reportedAt: i.reportedAt,
-        })),
-      },
-      citations: queue.slice(0, 5).map((i) => ({ label: i.title, entity: 'Incident', entityId: String(i._id), score: 1 })),
-    };
-  },
-
-  async get_alerts({ park }) {
-    const p = await findPark(park);
-    const match = { status: { $in: ['active', 'acknowledged'] } };
-    if (p) match.park = p._id;
-    const alerts = await Alert.find(match).sort({ createdAt: -1 }).limit(15).populate('park', 'name').lean();
-    return {
-      data: {
-        scope: p ? p.name : 'All parks',
-        activeAlerts: alerts.length,
-        alerts: alerts.map((a) => ({
-          title: a.title,
-          message: a.message,
-          severity: a.severity,
-          status: a.status,
-          module: a.module,
-          park: parkName(a.park),
-          raisedAt: a.createdAt,
-        })),
-      },
-      citations: [],
-    };
-  },
-
-  async get_sensors({ park, type }) {
-    const p = await findPark(park);
-    const match = { active: true };
-    if (p) match.park = p._id;
-    if (type) match.type = String(type).toLowerCase();
-    const sensors = await Sensor.find(match).populate('park', 'name').lean();
-    return {
-      data: {
-        scope: p ? p.name : 'All parks',
-        sensors: sensors.map((s) => ({
-          name: s.name,
-          type: s.type,
-          latest: s.currentValue,
-          unit: s.unit,
-          status: s.status,
-          readAt: s.lastReadingAt,
-          source: s.source === 'open-meteo' ? 'Open-Meteo' : 'park sensor',
-          park: parkName(s.park),
-        })),
-      },
-      citations: [],
-    };
-  },
-
-  async get_maintenance({ park }) {
-    const p = await findPark(park);
-    const match = { status: { $nin: ['completed', 'cancelled'] } };
-    if (p) match.park = p._id;
-    const orders = await WorkOrder.find(match).sort({ scheduledDate: 1 }).limit(20).populate('park', 'name').lean();
-    const now = Date.now();
-    return {
-      data: {
-        scope: p ? p.name : 'All parks',
-        openWorkOrders: orders.length,
-        workOrders: orders.map((o) => ({
-          code: o.orderCode,
-          title: o.title,
-          type: o.type,
-          priority: o.priority,
-          status: o.status,
-          scheduledDate: o.scheduledDate,
-          overdue: Boolean(o.scheduledDate && new Date(o.scheduledDate).getTime() < now && o.status === 'scheduled'),
-          team: o.assignedTeam || null,
-          asset: o.assetName || null,
-          park: parkName(o.park),
-        })),
-      },
-      citations: orders.slice(0, 5).map((o) => ({ label: o.title, entity: 'WorkOrder', entityId: String(o._id), score: 1 })),
-    };
-  },
-
-  async search_records({ query }) {
-    const hits = await retrieve(String(query || ''), { k: 6 });
-    return {
-      data: { results: hits.map((h) => ({ type: h.entity, label: h.label, details: summariseRecord(h.raw) })) },
-      citations: hits.map((h) => ({ label: h.label, entity: h.entity, entityId: h.id, score: h.score })),
-    };
-  },
-};
-
-async function runTool(name, input) {
-  const handler = HANDLERS[name];
-  if (!handler) return { content: `Unknown tool: ${name}`, isError: true, citations: [] };
-  try {
-    const { data, citations } = await handler(input && typeof input === 'object' ? input : {});
-    return { content: JSON.stringify(data), isError: false, citations };
-  } catch (err) {
-    if (!err.toolError) logger.warn(`Assistant tool ${name} failed: ${err.message}`);
-    return { content: err.toolError ? err.message : `The ${name} lookup failed.`, isError: true, citations: [] };
-  }
+  const role = {
+    admin: 'an administrator (can see all records, including other staff members\' tasks)',
+    officer: 'a park officer (sees operational records, their own assigned tasks and the review queues)',
+    citizen: 'a member of the public (sees public park data and the status of their own reports; incidents and work orders are shown only as counts)',
+  }[ctx.access];
+  const park = ctx.homePark ? ` Their home park is ${ctx.homePark.name}.` : ' No home park is set on their account.';
+  return `The signed-in user is ${ctx.user.name}, ${role}.${park}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,88 +59,89 @@ async function runTool(name, input) {
 // ---------------------------------------------------------------------------
 
 /**
- * Answer a question with Claude.
+ * Answer a question with the configured language model.
  *
  * @param {string} question
- * @param {{role:'user'|'assistant', content:string}[]} history earlier turns, oldest first
- * @returns {Promise<{answer:string, citations:object[], toolsUsed:string[], latencyMs:number}>}
+ * @param {{role:'user'|'assistant', content:string}[]} [history] earlier turns, oldest first
+ * @param {object} [options]
+ * @param {object|null} [options.user] the signed-in User document, or null for a guest
+ * @param {object} [options.context] a pre-built tool context (see assistant-tools `buildContext`)
+ * @param {object} [options.provider] a provider from `llm-provider` (tests pass one); default: the active one
+ * @returns {Promise<{answer:string, citations:object[], toolsUsed:string[], latencyMs:number, provider:string, providerLabel:string, model:string}>}
  */
-async function ask(question, history = []) {
+async function ask(question, history = [], { user = null, context, provider: injected } = {}) {
   const startedAt = Date.now();
+  const provider = injected || llmProvider.getProvider();
+  if (!provider) throw new Error(llmProvider.disabledReason());
+  const ctx = context || (await tools.buildContext(user));
+  const toolList = tools.toolsFor(ctx);
 
-  // Earlier turns as plain text. The API requires the first message to be from
-  // the user and roles to alternate, so drop a leading assistant message.
-  const prior = history.slice(-HISTORY_MESSAGES).map((m) => ({ role: m.role, content: String(m.content) }));
-  while (prior.length && prior[0].role !== 'user') prior.shift();
+  // Earlier turns as plain text. Some APIs require the first message to be
+  // from the user and roles to alternate, so drop a leading assistant message
+  // and merge any repeated roles.
+  const prior = [];
+  for (const m of history.slice(-HISTORY_MESSAGES)) {
+    const turn = { role: m.role, content: String(m.content) };
+    if (!prior.length && turn.role !== 'user') continue;
+    if (prior.length && prior.at(-1).role === turn.role) prior.at(-1).content += `\n\n${turn.content}`;
+    else prior.push(turn);
+  }
+  if (prior.length && prior.at(-1).role === 'user') prior.pop(); // an unanswered question
 
-  const today = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'full' });
+  const today = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'full', timeStyle: 'short' });
+  const system = [
+    // Stable text first so it can be cached; the per-user text follows it.
+    { text: SYSTEM_PROMPT, cache: true },
+    { text: `${describeUser(ctx)}\nNow: ${today} (India Standard Time).` },
+  ];
   const messages = [...prior, { role: 'user', content: question }];
   const citations = new Map();
   const toolsUsed = [];
 
-  for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
-    const response = await getClient().beta.messages.create({
-      model: env.assistantModel,
-      max_tokens: 16000,
-      output_config: { effort: 'low' },
-      // On a safety decline the API re-runs the request on a suitable model.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      system: [
-        { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
-        { type: 'text', text: `Today is ${today} (India Standard Time).` },
-      ],
-      tools: TOOLS,
-      messages,
-    });
+  const finish = (answer, model) => ({
+    answer,
+    citations: [...citations.values()].slice(0, 8),
+    toolsUsed,
+    latencyMs: Date.now() - startedAt,
+    provider: provider.name,
+    providerLabel: provider.label,
+    model: model || provider.chatModel,
+  });
 
-    if (response.stop_reason === 'refusal') {
-      return {
-        answer: 'I can only help with questions about the parks, their environment and this portal.',
-        citations: [],
-        toolsUsed,
-        latencyMs: Date.now() - startedAt,
-      };
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), DEADLINE_MS);
+  try {
+    for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
+      const reply = await provider.chat({ system, messages, tools: toolList, signal: deadline.signal });
+
+      if (reply.stopReason === 'refusal') {
+        return finish('I can only help with questions about the parks, their environment and this portal.', reply.model);
+      }
+
+      // A tool call cut off at max_tokens may carry truncated input; do not run it.
+      if (reply.stopReason !== 'tool_use' || !reply.toolCalls.length || round === MAX_TOOL_ROUNDS) {
+        return finish(reply.text || 'I could not put together an answer to that. Please try rephrasing the question.', reply.model);
+      }
+
+      // The assistant turn goes back exactly as the provider sent it.
+      messages.push(reply.message);
+      const results = await Promise.all(reply.toolCalls.map((t) => tools.runTool(t.name, t.input, ctx)));
+      reply.toolCalls.forEach((t) => toolsUsed.push(t.name));
+      for (const r of results) for (const c of r.citations) citations.set(`${c.entity}:${c.entityId}`, c);
+
+      messages.push(...provider.toolResultMessages(reply.toolCalls.map((t, i) => ({
+        id: t.id,
+        name: t.name,
+        content: results[i].ok ? JSON.stringify(results[i].data) : results[i].error,
+        isError: !results[i].ok,
+      }))));
     }
-
-    const toolUses = response.content.filter((b) => b.type === 'tool_use');
-    if (response.stop_reason !== 'tool_use' || !toolUses.length || round === MAX_TOOL_ROUNDS) {
-      const answer = response.content
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text)
-        .join('\n')
-        .trim();
-      return {
-        answer: answer || 'I could not put together an answer to that. Please try rephrasing the question.',
-        citations: [...citations.values()].slice(0, 8),
-        toolsUsed,
-        latencyMs: Date.now() - startedAt,
-      };
-    }
-
-    // Keep the full assistant content (thinking blocks included) for the next round.
-    messages.push({ role: 'assistant', content: response.content });
-    const results = await Promise.all(toolUses.map((t) => runTool(t.name, t.input)));
-    toolUses.forEach((t) => toolsUsed.push(t.name));
-    for (const r of results) for (const c of r.citations) citations.set(`${c.entity}:${c.entityId}`, c);
-    messages.push({
-      role: 'user',
-      content: toolUses.map((t, i) => ({
-        type: 'tool_result',
-        tool_use_id: t.id,
-        content: results[i].content,
-        ...(results[i].isError ? { is_error: true } : {}),
-      })),
-    });
+  } finally {
+    clearTimeout(timer);
   }
 
   // Unreachable: the loop returns on its last round.
   throw new Error('Assistant tool loop ended without an answer');
 }
 
-/** Test seam: substitute the API client. */
-const _setClient = (fake) => {
-  client = fake;
-};
-
-module.exports = { ask, isEnabled, TOOLS, HANDLERS, runTool, _setClient };
+module.exports = { ask, isEnabled, describeUser, SYSTEM_PROMPT };

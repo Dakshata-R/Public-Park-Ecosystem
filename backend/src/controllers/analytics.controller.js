@@ -39,8 +39,8 @@ const reportCrudBase = createCrudController({
   }),
 });
 
-/** Drafts are working documents: visitors below ecologist see published reports only. */
-const isReportEditor = (req) => (ROLE_RANK[req.user?.role] || 0) >= ROLE_RANK.ecologist;
+/** Drafts are working documents: visitors below officer see published reports only. */
+const isReportEditor = (req) => (ROLE_RANK[req.user?.role] || 0) >= ROLE_RANK.officer;
 
 const reportCrud = {
   ...reportCrudBase,
@@ -477,7 +477,7 @@ const exportDataset = asyncHandler(async (req, res) => {
       ...rows.map((row) => headers.map((h) => csvCell(row[h])).join(',')),
     ];
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="greenpulse-${name}-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="park-ecosystem-${name}-${new Date().toISOString().slice(0, 10)}.csv"`);
     return res.send(lines.join('\n'));
   }
 

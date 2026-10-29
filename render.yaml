@@ -1,4 +1,4 @@
-# Render Blueprint for the GreenPulse API (https://render.com/docs/blueprint-spec).
+# Render Blueprint for the Park Ecosystem Portal API (https://render.com/docs/blueprint-spec).
 #
 # New → Blueprint → select this repository. Render creates the web service and
 # asks for the values marked `sync: false`. The frontend is deployed separately
@@ -35,6 +35,14 @@ services:
         value: "60000"
       - key: LOG_LEVEL
         value: info
+      # Optional language model for the Eco Assistant and AI wildlife species
+      # identification. Free key: https://aistudio.google.com/apikey
+      - key: GEMINI_API_KEY
+        sync: false
+      # Optional: gemini | groq | openai-compatible | anthropic | none
+      # (blank → picked from whichever key is set).
+      - key: LLM_PROVIDER
+        sync: false
       - key: OPENWEATHER_API_KEY
         sync: false
       - key: EBIRD_API_KEY

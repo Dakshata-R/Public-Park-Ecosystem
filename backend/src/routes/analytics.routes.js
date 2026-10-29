@@ -25,9 +25,9 @@ router.get('/export', requireAuth, requireRole('officer'), controller.exportData
 // --- Saved reports ---------------------------------------------------------
 router.get('/reports', optionalAuth, validate({ query: listQuery }), controller.reports.list);
 router.get('/reports/:id', optionalAuth, validate({ params: idParam }), controller.reports.getOne);
-router.post('/reports/generate', requireAuth, requireRole('ecologist'), validate({ body: reports.generate }), controller.reports.generate);
-router.post('/reports', requireAuth, requireRole('ecologist'), validate({ body: reports.create }), controller.reports.create);
-router.patch('/reports/:id', requireAuth, requireRole('ecologist'), validate({ params: idParam, body: reports.update }), controller.reports.update);
+router.post('/reports/generate', requireAuth, requireRole('officer'), validate({ body: reports.generate }), controller.reports.generate);
+router.post('/reports', requireAuth, requireRole('officer'), validate({ body: reports.create }), controller.reports.create);
+router.patch('/reports/:id', requireAuth, requireRole('officer'), validate({ params: idParam, body: reports.update }), controller.reports.update);
 router.delete('/reports/:id', requireAuth, requireRole('admin'), validate({ params: idParam }), controller.reports.remove);
 
 module.exports = router;
